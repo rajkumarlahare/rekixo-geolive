@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#061018" />
+  <title>Rekixo GeoLive</title>
+  <link rel="stylesheet" href="/dashboard/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-icon">◎</span><strong>Rekixo <em>GeoLive</em></strong></div>
+    <label class="project-label">Project
+      <select id="project"><option>Demo Project</option></select>
+    </label>
+    <div class="top-search"><span>⌕</span><input id="search" placeholder="Search User" /></div>
+    <div class="avatar">RK</div>
+  </header>
+
+  <main class="shell">
+    <aside class="rail">
+      <button class="rail-active" title="Live globe">◎</button>
+      <button title="Projects">⌘</button>
+      <button title="Devices">▣</button>
+      <button title="Settings">⚙</button>
+      <button title="Developer">&lt;/&gt;</button>
+      <button title="Security">◇</button>
+    </aside>
+
+    <aside class="filters">
+      <div class="nav-active">◎ <span>Live User Globe</span></div>
+      <h3>USER FILTERS</h3>
+      <button data-status="" class="status-filter active">All Users <b id="allCount">0</b></button>
+      <button data-status="online" class="status-filter"><i class="dot online"></i>Online <b id="onlineSide">0</b></button>
+      <button data-status="recent" class="status-filter"><i class="dot recent"></i>Recent <b id="recentSide">0</b></button>
+      <button data-status="offline" class="status-filter"><i class="dot offline"></i>Offline <b id="offlineSide">0</b></button>
+
+      <label>Country<select id="country"><option value="">All Countries</option></select></label>
+      <label>State<select id="state"><option value="">All States</option></select></label>
+      <label>City<select id="city"><option value="">All Cities</option></select></label>
+      <button id="reset">↻ Reset Filters</button>
+    </aside>
+
+    <section class="workspace">
+      <section class="stats">
+        <article><span class="metric-icon blue">◉</span><div><small>Total Users</small><strong id="total">0</strong><p>Project-scoped users</p></div></article>
+        <article><span class="metric-icon green">●</span><div><small>Online</small><strong id="online">0</strong><p>Live now</p></div></article>
+        <article><span class="metric-icon red">●</span><div><small>Offline</small><strong id="offline">0</strong><p>Seen earlier</p></div></article>
+        <article><span class="metric-icon amber">⌁</span><div><small>Recent</small><strong id="recent">0</strong><p>Recently active</p></div></article>
+        <article><span class="metric-icon cyan">▤</span><div><small>Updates</small><strong id="updates">0</strong><p>This demo session</p></div></article>
+      </section>
+
+      <section class="globe-card">
+        <canvas id="globe"></canvas>
+        <div class="globe-tools"><button id="center">⌾</button><button id="pause">◉</button><button id="zoomIn">＋</button><button id="zoomOut">−</button></div>
+        <div class="legend">
+          <small>USER ACTIVITY</small>
+          <span><i class="dot online"></i>Online</span>
+          <span><i class="dot recent"></i>Recent</span>
+          <span><i class="dot offline"></i>Offline</span>
+          <span><i class="dot inactive"></i>Inactive</span>
+        </div>
+        <div class="live-badge"><span><i class="dot online"></i> LIVE</span><small>Users online</small><strong id="liveBadge">0</strong></div>
+        <div class="globe-footer"><span>Showing <b id="showingCount">0</b> users</span><span><i class="dot online"></i> Data updates in real time</span><span id="lastUpdated">Last updated: just now</span></div>
+      </section>
+    </section>
+
+    <aside class="detail" id="detail">
+      <button class="close" id="detailClose">×</button>
+      <div class="profile">
+        <div class="profile-icon">◉</div>
+        <div><h2 id="detailName">Select a user</h2><span class="pill" id="detailStatus">—</span><p id="detailEmail">Click a marker on the globe.</p></div>
+      </div>
+      <div class="detail-lines">
+        <p><span>Location</span><b id="detailLocation">—</b></p>
+        <p><span>Coordinates</span><b id="detailCoords">—</b></p>
+        <p><span>Device</span><b id="detailDevice">—</b></p>
+        <p><span>Last seen</span><b id="detailSeen">—</b></p>
+      </div>
+      <section class="api-card">
+        <div><h3>Integration</h3><span>SDK / API</span></div>
+        <code>rgl_••••••••••••••••••••</code>
+        <small>Never expose admin/read credentials in a client app.</small>
+      </section>
+      <section>
+        <h3>Recent Activity</h3>
+        <div id="activity" class="activity"></div>
+      </section>
+    </aside>
+  </main>
+
+  <script type="module" src="/dashboard/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+openapi: 3.1.0
+info:
+  title: Rekixo GeoLive API
+  version: 0.1.0
+  description: Project-scoped live location ingestion and dashboard read contract.
+servers:
+  - url: https://geolive.example.com
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Service health
+  /v1/locations:
+    post:
+      operationId: ingestLocation
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LocationObservation"
+      responses:
+        "202": { description: Accepted }
+        "400": { description: Invalid input }
+        "401": { description: Invalid credential }
+        "403": { description: Insufficient scope or origin denied }
+  /v1/users:
+    get:
+      operationId: listUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string, enum: [online, recent, offline, inactive] }
+        - in: query
+          name: country
+          schema: { type: string }
+        - in: query
+          name: state
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        "200": { description: Project-scoped latest users }
+  /v1/summary:
+    get:
+      operationId: summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Status totals }
+  /v1/events:
+    get:
+      operationId: realtimeEvents
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Server-Sent Events stream }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    LocationObservation:
+      type: object
+      required: [userId, latitude, longitude]
+      additionalProperties: false
+      properties:
+        userId: { type: string, maxLength: 160 }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        accuracyM: { type: number, minimum: 0 }
+        altitudeM: { type: number }
+        headingDeg: { type: number, minimum: 0, maximum: 360 }
+        speedMps: { type: number, minimum: 0 }
+        capturedAt: { type: string, format: date-time }
+        name: { type: string }
+        email: { type: string }
+        country: { type: string }
+        state: { type: string }
+        city: { type: string }
+        device: { type: object }
+        metadata: { type: object }
