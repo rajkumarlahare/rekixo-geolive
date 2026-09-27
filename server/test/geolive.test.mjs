@@ -55,3 +55,18 @@ test("credential resolves project from the key", () => {
 test("production refuses to start without configured keys", () => {
   assert.throws(() => loadConfig({ NODE_ENV: "production" }), /GEOLIVE_KEYS_JSON/);
 });
+
+
+test("configured key origins are included in preflight allowlist", () => {
+  const cfg = loadConfig({
+    NODE_ENV: "production",
+    GEOLIVE_KEYS_JSON: JSON.stringify([{
+      id: "k1",
+      projectId: "p1",
+      hash: "a".repeat(64),
+      scopes: ["location:write"],
+      allowedOrigins: ["https://app.example.com"]
+    }])
+  });
+  assert.deepEqual(cfg.allowedOrigins, ["https://app.example.com"]);
+});
