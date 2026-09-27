@@ -62,10 +62,15 @@ export function loadConfig(env = process.env) {
     throw new Error("Production requires GEOLIVE_KEYS_JSON.");
   }
 
+  const allowedOrigins = [...new Set([
+    ...csv(env.GEOLIVE_ALLOWED_ORIGINS),
+    ...keys.flatMap((key) => key.allowedOrigins)
+  ])];
+
   return {
     port: Number(env.PORT || 8787),
     isProduction,
-    allowedOrigins: csv(env.GEOLIVE_ALLOWED_ORIGINS),
+    allowedOrigins,
     keys,
     thresholds: {
       onlineSeconds: Number(env.GEOLIVE_ONLINE_SECONDS || 120),
