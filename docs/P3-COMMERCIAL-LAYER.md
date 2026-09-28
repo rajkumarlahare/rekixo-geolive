@@ -38,7 +38,7 @@ Plan configuration supports:
 - tracked-user overage price
 - feature flags
 
-Account entitlement overrides take precedence over plan defaults for supported limit/feature keys.
+Account entitlement overrides take precedence over plan defaults for supported limit/feature keys. Sending `null` for an override removes that row and restores inheritance from the plan.
 
 Current enforced entitlements include project count, public integration realtime, P2 client tokens and Android attestation.
 
@@ -164,7 +164,9 @@ The existing dashboard now includes:
 - **Billing & Support** for tenant accounts
 - **Commercial Console** for users with a platform role
 
-The platform console exposes plan creation, account subscription management, previous-month invoice generation and support queue actions.
+The platform console exposes plan creation, account subscription management, account commercial detail, inheritable entitlement overrides, previous-month invoice generation, invoice lifecycle controls, support conversations and internal notes.
+
+Billing-role users intentionally do not receive support-case metadata through the account commercial-detail endpoint.
 
 ## Operations
 
