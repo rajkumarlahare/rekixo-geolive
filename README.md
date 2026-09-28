@@ -135,7 +135,9 @@ Invoice status workflow supports `draft`, `open`, `paid`, `void` and `uncollecti
 
 Tenant account users can view billing status/invoices and create support cases from the dashboard.
 
-Platform-role users get a separate commercial console for plans, subscriptions, invoice generation and support queue operations. Internal support notes are never returned through tenant message APIs.
+Platform-role users get a separate commercial console for plans, subscriptions, account entitlement overrides, invoice generation/status transitions and support conversations. Internal support notes are never returned through tenant message APIs.
+
+An entitlement override can be reset to **Inherit**, which deletes the account override and resumes the shared plan value. Billing-role users can manage subscriptions/invoices but do not receive support-case metadata through commercial account detail.
 
 ## Production realtime
 
