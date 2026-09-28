@@ -307,7 +307,7 @@ export class PostgresOperationsStore {
         request_count, error_count, latency_ms_sum, latency_ms_max
       ) VALUES (
         $1,$2,date_trunc('hour', now()),$3,$4,
-        1,$5,$6,$6
+        1,$5,$6::bigint,$7::integer
       )
       ON CONFLICT (
         project_id, key_ref, bucket_hour, route, status_class
@@ -326,6 +326,7 @@ export class PostgresOperationsStore {
         route,
         statusClass,
         statusCode >= 400 ? 1 : 0,
+        latency,
         latency
       ]
     );
