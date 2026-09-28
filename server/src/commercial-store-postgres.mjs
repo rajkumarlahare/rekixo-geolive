@@ -516,6 +516,16 @@ export class PostgresCommercialStore {
     try {
       await client.query("BEGIN");
       for (const [key, value] of Object.entries(overrides)) {
+        if (value === null) {
+          await client.query(
+            `DELETE FROM account_entitlement_overrides
+             WHERE account_id = $1
+               AND entitlement_key = $2`,
+            [accountId, key]
+          );
+          continue;
+        }
+
         await client.query(
           `INSERT INTO account_entitlement_overrides (
             account_id,
