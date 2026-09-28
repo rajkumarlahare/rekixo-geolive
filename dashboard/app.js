@@ -1432,7 +1432,24 @@ function renderBilling(payload) {
         new Date(
           supportCase.updatedAt
         ).toLocaleString();
-      row.append(left, when);
+
+      const actions =
+        document.createElement("div");
+      actions.className =
+        "commercial-inline-actions";
+      const open =
+        document.createElement("button");
+      open.type = "button";
+      open.className = "text-button";
+      open.textContent = "Open";
+      open.addEventListener(
+        "click",
+        () => openTenantSupportCase(
+          supportCase
+        )
+      );
+      actions.append(when, open);
+      row.append(left, actions);
       cases.appendChild(row);
     }
   }
@@ -1442,6 +1459,128 @@ function renderBilling(payload) {
   document.querySelector("#supportCaseForm").hidden =
     !account ||
     !["owner","admin"].includes(account.role);
+}
+
+async function openTenantSupportCase(
+  supportCase
+) {
+  state.tenantSupportCaseId =
+    supportCase.id;
+  setText(
+    "tenantSupportThreadTitle",
+    supportCase.subject
+  );
+  document.querySelector(
+    "#tenantSupportThread"
+  ).hidden = false;
+
+  const account =
+    accountById(state.billingAccountId);
+  document.querySelector(
+    "#tenantSupportReplyForm"
+  ).hidden =
+    !account ||
+    !["owner", "admin"].includes(
+      account.role
+    );
+
+  await loadTenantSupportMessages();
+}
+
+async function loadTenantSupportMessages() {
+  if (!state.tenantSupportCaseId) return;
+  const list =
+    document.querySelector(
+      "#tenantSupportMessages"
+    );
+  list.replaceChildren();
+
+  try {
+    const payload = await api(
+      `/v1/admin/support-cases/${state.tenantSupportCaseId}/messages`
+    );
+    renderSupportMessages(
+      list,
+      payload.messages || [],
+      { showInternal: false }
+    );
+  } catch (error) {
+    const item =
+      document.createElement("div");
+    item.className = "key-empty";
+    item.textContent =
+      `Could not load conversation: ${error.code}`;
+    list.appendChild(item);
+  }
+}
+
+function renderSupportMessages(
+  target,
+  messages,
+  { showInternal = false } = {}
+) {
+  target.replaceChildren();
+  if (!messages.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No messages yet.";
+    target.appendChild(empty);
+    return;
+  }
+
+  for (const message of messages) {
+    if (
+      !showInternal &&
+      message.internal
+    ) {
+      continue;
+    }
+
+    const row =
+      document.createElement("article");
+    row.className = "support-message";
+
+    const head =
+      document.createElement("div");
+    head.className =
+      "support-message-head";
+    const author =
+      document.createElement("strong");
+    author.textContent =
+      message.authorEmail ||
+      message.authorType ||
+      "GeoLive";
+    const time =
+      document.createElement("small");
+    time.textContent =
+      new Date(
+        message.createdAt
+      ).toLocaleString();
+    head.append(author, time);
+
+    const body =
+      document.createElement("p");
+    body.textContent = message.body;
+
+    row.append(head, body);
+
+    if (
+      showInternal &&
+      message.internal
+    ) {
+      const badge =
+        document.createElement("small");
+      badge.className =
+        "internal-note-badge";
+      badge.textContent =
+        "Internal note";
+      row.appendChild(badge);
+    }
+
+    target.appendChild(row);
+  }
 }
 
 async function openPlatformModal() {
