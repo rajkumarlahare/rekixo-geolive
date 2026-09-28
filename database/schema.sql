@@ -670,6 +670,9 @@ ON location_history (
   id DESC
 );
 
+DROP INDEX IF EXISTS
+  location_history_project_user_time_idx;
+
 UPDATE commercial_plans
 SET features =
   COALESCE(features, '{}'::jsonb) ||
