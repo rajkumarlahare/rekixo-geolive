@@ -1767,6 +1767,17 @@ function renderPlatformAccounts() {
     identity.append(title, meta);
     row.appendChild(identity);
 
+    const details =
+      document.createElement("button");
+    details.type = "button";
+    details.className = "text-button";
+    details.textContent = "Commercial details";
+    details.addEventListener(
+      "click",
+      () => loadPlatformAccount(account.id)
+    );
+    row.appendChild(details);
+
     if (
       platformCan("superadmin","billing")
     ) {
@@ -1877,6 +1888,286 @@ function renderPlatformAccounts() {
     }
 
     list.appendChild(row);
+  }
+}
+
+async function loadPlatformAccount(
+  accountId
+) {
+  state.platform.selectedAccountId =
+    accountId;
+  setText("platformError", "");
+
+  try {
+    const payload = await api(
+      `/v1/platform/accounts/${accountId}/commercial`
+    );
+    state.platform.accountCommercial =
+      payload;
+    renderPlatformAccountDetail(
+      payload
+    );
+  } catch (error) {
+    setText(
+      "platformError",
+      `Could not load account commercial detail: ${error.code}`
+    );
+  }
+}
+
+function setOverrideControl(
+  id,
+  overrides,
+  key
+) {
+  const element =
+    document.querySelector("#" + id);
+  const has = Object.prototype
+    .hasOwnProperty.call(
+      overrides || {},
+      key
+    );
+  element.value =
+    has
+      ? String(overrides[key])
+      : "";
+}
+
+function invoiceTransitions(status) {
+  const map = {
+    draft: ["draft", "open", "void"],
+    open: [
+      "open",
+      "paid",
+      "void",
+      "uncollectible"
+    ],
+    uncollectible: [
+      "uncollectible",
+      "paid",
+      "void"
+    ],
+    paid: ["paid"],
+    void: ["void"]
+  };
+  return map[status] || [status];
+}
+
+function renderPlatformAccountDetail(payload) {
+  const panel =
+    document.querySelector(
+      "#platformAccountDetail"
+    );
+  panel.hidden = false;
+
+  const account =
+    state.platform.accounts.find(
+      (item) =>
+        item.id ===
+        state.platform.selectedAccountId
+    );
+  const plan = payload.plan || {};
+  const subscription =
+    payload.subscription || {};
+  const usage =
+    payload.usage?.metrics || {};
+  const overrides =
+    payload.overrides || {};
+
+  setText(
+    "platformAccountDetailTitle",
+    account
+      ? `${account.name} · Commercial detail`
+      : "Account commercial detail"
+  );
+  setText(
+    "platformAccountPlan",
+    plan.name || "—"
+  );
+  setText(
+    "platformAccountPlanPrice",
+    formatMoney(
+      plan.monthlyPriceMinor || 0,
+      plan.currency || "USD"
+    ) + " / month"
+  );
+  setText(
+    "platformAccountSubscription",
+    subscription.status || "—"
+  );
+  setText(
+    "platformAccountPeriod",
+    subscription.periodStart &&
+      subscription.periodEnd
+      ? `${subscription.periodStart} → ${subscription.periodEnd}`
+      : "—"
+  );
+  setText(
+    "platformAccountUsage",
+    `${compactNumber(usage.ingestRequests)} · ${compactNumber(usage.readRequests)} · ${compactNumber(usage.trackedUsers)}`
+  );
+
+  const entitlementForm =
+    document.querySelector(
+      "#platformEntitlementForm"
+    );
+  entitlementForm.hidden =
+    !platformCan("superadmin");
+
+  setOverrideControl(
+    "entitlementMaxProjects",
+    overrides,
+    "maxProjects"
+  );
+  setOverrideControl(
+    "entitlementIngest",
+    overrides,
+    "includedIngest"
+  );
+  setOverrideControl(
+    "entitlementRead",
+    overrides,
+    "includedRead"
+  );
+  setOverrideControl(
+    "entitlementUsers",
+    overrides,
+    "includedTrackedUsers"
+  );
+  setOverrideControl(
+    "entitlementRealtime",
+    overrides,
+    "realtime"
+  );
+  setOverrideControl(
+    "entitlementClientTokens",
+    overrides,
+    "clientTokens"
+  );
+  setOverrideControl(
+    "entitlementAttestation",
+    overrides,
+    "androidAttestation"
+  );
+  setOverrideControl(
+    "entitlementPrioritySupport",
+    overrides,
+    "prioritySupport"
+  );
+
+  const invoices =
+    document.querySelector(
+      "#platformAccountInvoices"
+    );
+  invoices.replaceChildren();
+
+  const rows = payload.invoices || [];
+  if (!rows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No invoices for this account.";
+    invoices.appendChild(empty);
+    return;
+  }
+
+  for (const invoice of rows) {
+    const row =
+      document.createElement("div");
+    row.className =
+      "commercial-row commercial-row-stack";
+
+    const identity =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent =
+      `${invoice.invoiceNumber} · ${formatMoney(invoice.totalMinor, invoice.currency)}`;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${invoice.periodStart} → ${invoice.periodEnd} · ${invoice.status}`;
+    identity.append(title, meta);
+    row.appendChild(identity);
+
+    if (
+      platformCan(
+        "superadmin",
+        "billing"
+      )
+    ) {
+      const controls =
+        document.createElement("div");
+      controls.className =
+        "commercial-inline-actions";
+
+      const select =
+        document.createElement("select");
+      for (
+        const status of
+        invoiceTransitions(
+          invoice.status
+        )
+      ) {
+        const option =
+          document.createElement(
+            "option"
+          );
+        option.value = status;
+        option.textContent = status;
+        option.selected =
+          status === invoice.status;
+        select.appendChild(option);
+      }
+
+      const save =
+        document.createElement("button");
+      save.type = "button";
+      save.className =
+        "text-button";
+      save.textContent =
+        "Update status";
+      save.disabled =
+        ["paid", "void"].includes(
+          invoice.status
+        );
+      save.addEventListener(
+        "click",
+        async () => {
+          try {
+            await api(
+              `/v1/platform/invoices/${invoice.id}`,
+              {
+                method: "PATCH",
+                mutate: true,
+                body: JSON.stringify({
+                  status: select.value
+                })
+              }
+            );
+            await loadPlatformAccount(
+              state.platform
+                .selectedAccountId
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Invoice update failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      controls.append(
+        select,
+        save
+      );
+      row.appendChild(controls);
+    }
+
+    invoices.appendChild(row);
   }
 }
 
