@@ -3,10 +3,15 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.mjs";
-import { authenticate, originAllowed } from "./auth.mjs";
+import {
+  authenticateRequest,
+  originAllowed,
+  packageAllowed
+} from "./auth.mjs";
 import { MemoryGeoLiveStore } from "./store-memory.mjs";
 import { createConfiguredStore } from "./store-factory.mjs";
 import { PostgresAdminStore } from "./admin-store-postgres.mjs";
+import { PostgresApiKeyStore } from "./api-key-store-postgres.mjs";
 import { handleAdminApi } from "./admin-api.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
 
@@ -47,15 +52,49 @@ async function readJson(req, maxBytes = 32 * 1024) {
   }
 }
 
+function isHttpOrigin(value) {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return ["http:", "https:"].includes(parsed.protocol) && parsed.origin === value;
+  } catch {
+    return false;
+  }
+}
+
+function preflightHeaders(origin) {
+  if (!isHttpOrigin(origin)) return {};
+  return {
+    "access-control-allow-origin": origin,
+    vary: "Origin",
+    "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
+    "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key,X-GeoLive-Package,X-CSRF-Token",
+    "access-control-max-age": "600"
+  };
+}
+
 function corsHeaders(origin, config, key) {
   if (!origin || !originAllowed(origin, key, config.allowedOrigins)) return {};
   return {
     "access-control-allow-origin": origin,
     vary: "Origin",
     "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key",
+    "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key,X-GeoLive-Package",
     "access-control-max-age": "600"
   };
+}
+
+function validateClientRestrictions(req, origin, config, key) {
+  if (origin && !originAllowed(origin, key, config.allowedOrigins)) {
+    return { ok: false, status: 403, error: "origin_not_allowed" };
+  }
+  const packageId = typeof req.headers["x-geolive-package"] === "string"
+    ? req.headers["x-geolive-package"].trim()
+    : "";
+  if (!packageAllowed(packageId, key)) {
+    return { ok: false, status: 403, error: "package_not_allowed" };
+  }
+  return { ok: true };
 }
 
 const MIME = {
@@ -88,7 +127,8 @@ async function serveDashboard(res, pathname) {
 export function createGeoLiveServer({
   config = loadConfig(),
   store = new MemoryGeoLiveStore(),
-  adminStore = null
+  adminStore = null,
+  keyStore = null
 } = {}) {
   const eventClients = new Map();
 
@@ -99,18 +139,26 @@ export function createGeoLiveServer({
     for (const response of clients) response.write(frame);
   }
 
+  async function authorizePublic(req, requiredScope) {
+    return authenticateRequest(req, {
+      keyStore,
+      environmentKeys: config.keys
+    }, requiredScope);
+  }
+
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", "http://localhost");
       const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
 
       if (req.method === "OPTIONS") {
-        if (origin && !config.allowedOrigins.includes(origin)) {
+        const headers = preflightHeaders(origin);
+        if (origin && !headers["access-control-allow-origin"]) {
           return json(res, 403, { error: "origin_not_allowed" });
         }
         res.writeHead(204, {
           ...SECURITY_HEADERS,
-          ...corsHeaders(origin, config)
+          ...headers
         });
         return res.end();
       }
@@ -121,6 +169,7 @@ export function createGeoLiveServer({
         url,
         config,
         adminStore,
+        keyStore,
         geoStore: store
       })) {
         return;
@@ -134,7 +183,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.3.0"
+          version: "0.4.0"
         });
       }
 
@@ -145,28 +194,34 @@ export function createGeoLiveServer({
         const adminReady = adminStore
           ? await adminStore.ready()
           : !config.isProduction;
-        const ready = config.keys.length > 0
-          && persistenceReady
+        const apiKeyReady = keyStore
+          ? await keyStore.ready()
+          : !config.isProduction;
+        const ready = persistenceReady
           && adminReady
+          && apiKeyReady
           && (!config.isProduction || config.persistence === "postgres");
 
         return json(res, ready ? 200 : 503, {
           ready,
-          credentialCount: config.keys.length,
           persistence: config.persistence,
           persistenceReady,
-          adminReady
+          adminReady,
+          apiKeyReady,
+          environmentCredentialCount: config.keys.length
         });
       }
 
       if (req.method === "POST" && url.pathname === "/v1/locations") {
-        const auth = authenticate(req, config.keys, "location:write");
+        const auth = await authorizePublic(req, "location:write");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
-        const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) {
-          return json(res, 403, { error: "origin_not_allowed" });
+
+        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        if (!restrictions.ok) {
+          return json(res, restrictions.status, { error: restrictions.error });
         }
 
+        const headers = corsHeaders(origin, config, auth.key);
         const input = validateLocation(await readJson(req));
         const receivedAt = new Date().toISOString();
         const record = await store.upsertLocation(auth.key.projectId, {
@@ -182,13 +237,15 @@ export function createGeoLiveServer({
       }
 
       if (req.method === "GET" && url.pathname === "/v1/users") {
-        const auth = authenticate(req, config.keys, "users:read");
+        const auth = await authorizePublic(req, "users:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
-        const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) {
-          return json(res, 403, { error: "origin_not_allowed" });
+
+        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        if (!restrictions.ok) {
+          return json(res, restrictions.status, { error: restrictions.error });
         }
 
+        const headers = corsHeaders(origin, config, auth.key);
         const users = await store.listUsers(auth.key.projectId, {
           search: url.searchParams.get("search") || "",
           status: url.searchParams.get("status") || "",
@@ -205,13 +262,15 @@ export function createGeoLiveServer({
       }
 
       if (req.method === "GET" && url.pathname === "/v1/summary") {
-        const auth = authenticate(req, config.keys, "summary:read");
+        const auth = await authorizePublic(req, "summary:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
-        const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) {
-          return json(res, 403, { error: "origin_not_allowed" });
+
+        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        if (!restrictions.ok) {
+          return json(res, restrictions.status, { error: restrictions.error });
         }
 
+        const headers = corsHeaders(origin, config, auth.key);
         const summary = await store.summary(auth.key.projectId, config.thresholds);
         return json(res, 200, {
           projectId: auth.key.projectId,
@@ -220,13 +279,15 @@ export function createGeoLiveServer({
       }
 
       if (req.method === "GET" && url.pathname === "/v1/events") {
-        const auth = authenticate(req, config.keys, "events:read");
+        const auth = await authorizePublic(req, "events:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
-        const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) {
-          return json(res, 403, { error: "origin_not_allowed" });
+
+        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        if (!restrictions.ok) {
+          return json(res, restrictions.status, { error: restrictions.error });
         }
 
+        const headers = corsHeaders(origin, config, auth.key);
         res.writeHead(200, {
           ...SECURITY_HEADERS,
           ...headers,
@@ -272,13 +333,22 @@ async function start() {
   const adminStore = config.persistence === "postgres"
     ? new PostgresAdminStore({ pool: store.pool })
     : null;
+  const keyStore = config.persistence === "postgres"
+    ? new PostgresApiKeyStore({ pool: store.pool })
+    : null;
 
   if (config.persistence === "postgres" && typeof store.assertReady === "function") {
     await store.assertReady();
     await adminStore.assertReady();
+    await keyStore.assertReady();
   }
 
-  const server = createGeoLiveServer({ config, store, adminStore });
+  const server = createGeoLiveServer({
+    config,
+    store,
+    adminStore,
+    keyStore
+  });
   server.listen(config.port, () => {
     console.log(
       `Rekixo GeoLive listening on http://localhost:${config.port} (${config.persistence})`

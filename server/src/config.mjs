@@ -28,7 +28,8 @@ function normalizeKey(item) {
     projectId: String(item.projectId),
     hash: String(item.hash).toLowerCase(),
     scopes,
-    allowedOrigins: Array.isArray(item.allowedOrigins) ? item.allowedOrigins.map(String) : []
+    allowedOrigins: Array.isArray(item.allowedOrigins) ? item.allowedOrigins.map(String) : [],
+    allowedPackages: Array.isArray(item.allowedPackages) ? item.allowedPackages.map(String) : []
   };
 }
 
@@ -36,6 +37,8 @@ export function loadConfig(env = process.env) {
   const isProduction = env.NODE_ENV === "production";
   const keys = [];
 
+  // Transitional compatibility bridge for pre-P1C deployments.
+  // New credentials must be created in Postgres through the P1C lifecycle.
   if (env.GEOLIVE_KEYS_JSON?.trim()) {
     const parsed = JSON.parse(env.GEOLIVE_KEYS_JSON);
     if (!Array.isArray(parsed)) throw new Error("GEOLIVE_KEYS_JSON must be an array.");
@@ -50,22 +53,20 @@ export function loadConfig(env = process.env) {
         projectId,
         hash: sha256(env.GEOLIVE_DEV_INGEST_KEY),
         scopes: ["location:write"],
-        allowedOrigins: csv(env.GEOLIVE_ALLOWED_ORIGINS)
+        allowedOrigins: csv(env.GEOLIVE_ALLOWED_ORIGINS),
+        allowedPackages: []
       }));
     }
     if (env.GEOLIVE_DEV_ADMIN_KEY) {
       keys.push(normalizeKey({
-        id: "dev-admin",
+        id: "dev-read",
         projectId,
         hash: sha256(env.GEOLIVE_DEV_ADMIN_KEY),
         scopes: ["users:read", "summary:read", "events:read"],
-        allowedOrigins: csv(env.GEOLIVE_ALLOWED_ORIGINS)
+        allowedOrigins: csv(env.GEOLIVE_ALLOWED_ORIGINS),
+        allowedPackages: []
       }));
     }
-  }
-
-  if (isProduction && keys.length === 0) {
-    throw new Error("Production requires GEOLIVE_KEYS_JSON until P1C key lifecycle is enabled.");
   }
 
   const allowedOrigins = [...new Set([

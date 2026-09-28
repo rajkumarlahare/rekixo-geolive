@@ -1,5 +1,11 @@
 export class GeoLiveClient {
-  constructor({ baseUrl, ingestToken, userId, defaults = {} }) {
+  constructor({
+    baseUrl,
+    ingestToken,
+    userId,
+    defaults = {},
+    packageId = ""
+  }) {
     if (!baseUrl || !ingestToken || !userId) {
       throw new Error("baseUrl, ingestToken and userId are required.");
     }
@@ -7,17 +13,23 @@ export class GeoLiveClient {
     this.ingestToken = ingestToken;
     this.userId = userId;
     this.defaults = { ...defaults };
+    this.packageId = String(packageId || "").trim();
     this.watchId = null;
     this.lastSentAt = 0;
   }
 
   async sendLocation(location) {
+    const headers = {
+      authorization: `Bearer ${this.ingestToken}`,
+      "content-type": "application/json"
+    };
+    if (this.packageId) {
+      headers["x-geolive-package"] = this.packageId;
+    }
+
     const response = await fetch(`${this.baseUrl}/v1/locations`, {
       method: "POST",
-      headers: {
-        authorization: `Bearer ${this.ingestToken}`,
-        "content-type": "application/json"
-      },
+      headers,
       body: JSON.stringify({
         ...this.defaults,
         ...location,
@@ -28,15 +40,24 @@ export class GeoLiveClient {
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const error = new Error(payload.error || `GeoLive request failed: ${response.status}`);
+      const error = new Error(
+        payload.error || `GeoLive request failed: ${response.status}`
+      );
       error.status = response.status;
       throw error;
     }
     return payload;
   }
 
-  startBrowserTracking({ minimumIntervalMs = 30000, enableHighAccuracy = true, maximumAge = 10000 } = {}) {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
+  startBrowserTracking({
+    minimumIntervalMs = 30000,
+    enableHighAccuracy = true,
+    maximumAge = 10000
+  } = {}) {
+    if (
+      typeof navigator === "undefined" ||
+      !navigator.geolocation
+    ) {
       throw new Error("Browser geolocation is unavailable.");
     }
     if (this.watchId !== null) return this.watchId;
@@ -63,7 +84,8 @@ export class GeoLiveClient {
           console.error("GeoLive location send failed", error);
         }
       },
-      (error) => console.error("GeoLive geolocation error", error),
+      (error) =>
+        console.error("GeoLive geolocation error", error),
       { enableHighAccuracy, maximumAge }
     );
 
@@ -71,7 +93,11 @@ export class GeoLiveClient {
   }
 
   stopBrowserTracking() {
-    if (this.watchId !== null && typeof navigator !== "undefined" && navigator.geolocation) {
+    if (
+      this.watchId !== null &&
+      typeof navigator !== "undefined" &&
+      navigator.geolocation
+    ) {
       navigator.geolocation.clearWatch(this.watchId);
     }
     this.watchId = null;

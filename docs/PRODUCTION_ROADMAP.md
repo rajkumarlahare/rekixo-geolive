@@ -27,22 +27,26 @@
 - admin dashboard authorization
 - audit log foundation
 
-## Next — P1C integration key lifecycle
+## Completed — P1C integration key lifecycle
 - database-backed API key generation
 - one-time secret display
 - key prefix + hash storage
 - separate ingest/read scopes
 - rotate/revoke/expire
-- allowed-origin/package restrictions
+- exact allowed-origin restrictions
+- optional package restrictions
 - dashboard key management
+- last-used metadata and key audit events
+- transitional legacy-key compatibility
 
-## P1D security and operations
+## Next — P1D security and operations
 - distributed rate limits
-- admin/API security event monitoring
-- pagination/cursors
+- admin/API security-event monitoring
+- cursor pagination
 - retention worker
 - quotas
 - operational metrics
+- legacy environment-key retirement plan
 
 ## P1E production realtime
 - authenticated project rooms

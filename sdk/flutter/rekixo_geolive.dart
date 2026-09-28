@@ -6,11 +6,13 @@ class RekixoGeoLiveClient {
     required this.baseUrl,
     required this.ingestToken,
     required this.userId,
+    this.packageId,
   });
 
   final String baseUrl;
   final String ingestToken;
   final String userId;
+  final String? packageId;
 
   Future<void> sendLocation({
     required double latitude,
@@ -35,7 +37,14 @@ class RekixoGeoLiveClient {
       final cleanBase = baseUrl.replaceFirst(RegExp(r'/$'), '');
       final uri = Uri.parse('$cleanBase/v1/locations');
       final request = await client.postUrl(uri);
-      request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $ingestToken');
+      request.headers.set(
+        HttpHeaders.authorizationHeader,
+        'Bearer $ingestToken',
+      );
+      final package = packageId?.trim();
+      if (package != null && package.isNotEmpty) {
+        request.headers.set('X-GeoLive-Package', package);
+      }
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode({
         'userId': userId,
@@ -45,7 +54,8 @@ class RekixoGeoLiveClient {
         if (altitudeM != null) 'altitudeM': altitudeM,
         if (headingDeg != null) 'headingDeg': headingDeg,
         if (speedMps != null) 'speedMps': speedMps,
-        'capturedAt': (capturedAt ?? DateTime.now()).toUtc().toIso8601String(),
+        'capturedAt':
+            (capturedAt ?? DateTime.now()).toUtc().toIso8601String(),
         'device': {
           'platform': platform,
           if (appVersion != null) 'appVersion': appVersion,
@@ -55,7 +65,10 @@ class RekixoGeoLiveClient {
       final response = await request.close();
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final text = await utf8.decoder.bind(response).join();
-        throw HttpException('GeoLive HTTP ${response.statusCode}: $text', uri: uri);
+        throw HttpException(
+          'GeoLive HTTP ${response.statusCode}: $text',
+          uri: uri,
+        );
       }
       await response.drain();
     } finally {

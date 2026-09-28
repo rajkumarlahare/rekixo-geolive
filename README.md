@@ -1,33 +1,36 @@
 # Rekixo GeoLive
 
-**Rekixo GeoLive** is a project-neutral live-location platform designed to work across Android apps, Flutter apps, websites, Cloudflare Workers, Firebase backends, Node services and future Rekixo products without copying GeoLive code into every project.
+**Rekixo GeoLive** is project-neutral live-location infrastructure for Android apps, Flutter apps, websites, Cloudflare/Firebase/Node backends and future Rekixo products.
 
-The core boundary is:
-
-> Projects integrate with GeoLive through a stable API/SDK contract. GeoLive does not directly depend on, edit, or share private databases with sibling products.
+> Projects integrate through GeoLive API/SDK contracts. GeoLive does not read sibling-project private databases or require sibling repositories to share deployments, secrets or source trees.
 
 ## Current implementation
 
-P0 + P1A + P1B now provide:
+P0 + P1A + P1B + P1C now provide:
 
-- project-scoped location ingestion
+- project-scoped live-location ingestion
 - online / recent / offline / inactive presence
-- durable PostgreSQL + PostGIS live/history storage
+- durable PostgreSQL + PostGIS latest-state/history storage
 - immutable checksum-verified migrations
-- dark live-globe dashboard
-- admin login with Scrypt password hashing
-- database-backed revocable admin sessions
-- HttpOnly SameSite session cookie + rotating CSRF token
-- account memberships: owner/admin/viewer
+- secure admin login and DB-backed revocable sessions
+- owner/admin/viewer account memberships
 - project create/select/edit/suspend/soft-delete
-- account/project authorization on dashboard reads
-- audit records for admin/project mutations
-- JavaScript, Android/Kotlin and Flutter integration adapters
-- CI against a real PostGIS service
+- **database-backed `rgl_live_...` integration API keys**
+- one-time full-secret reveal
+- key prefix + SHA-256 hash storage
+- separate ingest and read scopes
+- key rotate / revoke / expiry
+- exact browser-origin restrictions
+- optional app-package restrictions
+- API-key last-used metadata
+- key lifecycle audit events
+- dashboard API-key manager
+- JavaScript / Android / Flutter adapters
+- real PostgreSQL/PostGIS CI integration tests
 
-Only the `rekixo-geolive` repository is changed by this product. Existing sibling repositories remain independently deployable.
+Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
-## Production database setup
+## Production setup
 
 Configure PostgreSQL/PostGIS:
 
@@ -38,49 +41,42 @@ DATABASE_URL=postgresql://...
 DATABASE_SSL=verify-full
 ```
 
-Apply migrations:
+Then:
 
 ```bash
 npm ci
 npm run migrate
 ```
 
-## Create the first owner
-
-There is no public unauthenticated admin-signup endpoint.
-
-Create the first owner through the operator command:
+Create the first owner:
 
 ```bash
 GEOLIVE_BOOTSTRAP_PASSWORD="your-strong-password" \
 npm run admin:bootstrap -- admin@example.com "Admin Name" "Rekixo"
 ```
 
-Then open the dashboard and sign in.
+Open the dashboard, sign in, create/select a project, then open **API Keys**.
 
-If a P1A account already exists, set:
+## P1C key model
+
+A new key looks like:
 
 ```text
-GEOLIVE_BOOTSTRAP_ACCOUNT_ID=<account-uuid>
+rgl_live_<public-prefix>_<secret>
 ```
 
-before running the bootstrap command.
+The complete secret is shown only on create/rotate. PostgreSQL stores the visible prefix and a SHA-256 hash, never the retrievable secret.
 
-## Project lifecycle
+Use separate keys:
 
-Projects are tenant data inside GeoLive.
+- ingest: `location:write`
+- read: `users:read`, `summary:read`, `events:read`
 
-- `active`: ingestion allowed
-- `suspended`: new ingestion is rejected; admins can still inspect historical/current state
-- `deleted`: hidden from normal project lists; data is retained for an explicit later deletion workflow
+Do not combine write and read scopes in one key.
 
-Creating a new customer project does not create a new code repository or deployment.
+Browser integrations can restrict exact allowed origins. Mobile integrations can require `X-GeoLive-Package`; this is defense-in-depth only until app attestation is added.
 
-## Integration credentials
-
-Admin sessions and integration API keys are separate security domains.
-
-P1B still uses the hashed `GEOLIVE_KEYS_JSON` bridge for app/server integration credentials. **P1C is the next phase**: database-backed `rgl_live_...` key generate/revoke/rotate lifecycle and dashboard controls.
+Pre-P1C `GEOLIVE_KEYS_JSON` remains a transitional compatibility bridge so an existing deployment is not broken during migration. New production keys should be created in Postgres through the dashboard.
 
 ## Verification
 
@@ -88,7 +84,7 @@ P1B still uses the hashed `GEOLIVE_KEYS_JSON` bridge for app/server integration 
 npm run check
 ```
 
-CI runs both normal verification and Postgres/PostGIS integration tests, including admin role enforcement and project isolation.
+CI also starts a real PostGIS service, applies all migrations and tests project isolation, admin roles and key create/authenticate/rotate/revoke behavior.
 
 See:
 
@@ -97,5 +93,6 @@ See:
 - [Integration guide](docs/INTEGRATION.md)
 - [P1A durable Postgres](docs/P1A-DURABLE-POSTGRES.md)
 - [P1B admin control plane](docs/P1B-ADMIN-CONTROL-PLANE.md)
+- [P1C API-key lifecycle](docs/P1C-API-KEY-LIFECYCLE.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)
