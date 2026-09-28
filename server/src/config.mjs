@@ -132,11 +132,7 @@ function parsePlayIntegrityApps(env) {
         client_email:
           String(serviceAccount.client_email),
         private_key:
-          String(serviceAccount.private_key),
-        token_uri:
-          serviceAccount.token_uri
-            ? String(serviceAccount.token_uri)
-            : undefined
+          String(serviceAccount.private_key)
       },
       requiredAppVerdict:
         String(
