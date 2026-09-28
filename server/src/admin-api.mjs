@@ -142,6 +142,37 @@ function validateProjectInput(body, { partial = false } = {}) {
   return out;
 }
 
+function validateLimitsInput(body) {
+  const ranges = {
+    ingestRequestsPerMinute: [1, 1000000],
+    readRequestsPerMinute: [1, 1000000],
+    dailyIngestQuota: [1, 1000000000],
+    maxLiveUsers: [1, 10000000],
+    historyRetentionDays: [1, 3650],
+    securityEventRetentionDays: [7, 3650],
+    metricsRetentionDays: [7, 3650]
+  };
+  const out = {};
+  for (const [key, [min, max]] of Object.entries(ranges)) {
+    if (body[key] === undefined) continue;
+    const value = Number(body[key]);
+    if (!Number.isSafeInteger(value) || value < min || value > max) {
+      throw new AdminStoreError("invalid_project_limits", 400);
+    }
+    out[key] = value;
+  }
+  if (!Object.keys(out).length) {
+    throw new AdminStoreError("empty_project_limits_update", 400);
+  }
+  return out;
+}
+
+function sourceHash(req) {
+  return sha256Secret(
+    String(req.socket?.remoteAddress || "unknown")
+  );
+}
+
 function validateKeyInput(body, { partial = false } = {}) {
   const out = {};
 
@@ -195,6 +226,7 @@ export async function handleAdminApi({
   config,
   adminStore,
   keyStore,
+  opsStore,
   geoStore
 }) {
   if (!url.pathname.startsWith("/v1/admin/")) return false;
@@ -207,6 +239,32 @@ export async function handleAdminApi({
   try {
     if (req.method === "POST" && url.pathname === "/v1/admin/login") {
       const body = await readJson(req);
+      const loginSourceHash = sourceHash(req);
+
+      if (opsStore) {
+        const sourceLimit = await opsStore.consumeRateLimit({
+          bucketKey: `admin-login-source:${loginSourceHash}`,
+          limit: 60,
+          windowSeconds: 60
+        });
+        const identityLimit = await opsStore.consumeRateLimit({
+          bucketKey: `admin-login-identity:${sha256Secret(
+            String(body.email || "").trim().toLowerCase()
+          )}`,
+          limit: 10,
+          windowSeconds: 60
+        });
+        if (!sourceLimit.allowed || !identityLimit.allowed) {
+          await opsStore.recordSecurityEvent({
+            eventType: "admin.login_rate_limited",
+            severity: "warning",
+            sourceHash: loginSourceHash,
+            metadata: {}
+          });
+          throw new AdminStoreError("login_rate_limited", 429);
+        }
+      }
+
       let email;
       try {
         email = normalizeAdminEmail(body.email);
@@ -218,6 +276,14 @@ export async function handleAdminApi({
       const user = await adminStore.findUserForLogin(email);
       if (!user) {
         await burnPasswordCheck(body.password);
+        if (opsStore) {
+          await opsStore.recordSecurityEvent({
+            eventType: "admin.login_failed",
+            severity: "warning",
+            sourceHash: loginSourceHash,
+            metadata: { reason: "invalid_credentials" }
+          });
+        }
         throw new AdminStoreError("invalid_credentials", 401);
       }
 
@@ -226,6 +292,14 @@ export async function handleAdminApi({
         new Date(user.locked_until).getTime() > Date.now()
       ) {
         await burnPasswordCheck(body.password);
+        if (opsStore) {
+          await opsStore.recordSecurityEvent({
+            eventType: "admin.login_locked",
+            severity: "warning",
+            sourceHash: loginSourceHash,
+            metadata: {}
+          });
+        }
         throw new AdminStoreError("login_temporarily_locked", 429);
       }
 
@@ -238,6 +312,14 @@ export async function handleAdminApi({
           maxFailures: config.admin.maxFailedLogins,
           lockMinutes: config.admin.lockMinutes
         });
+        if (opsStore) {
+          await opsStore.recordSecurityEvent({
+            eventType: "admin.login_failed",
+            severity: "warning",
+            sourceHash: loginSourceHash,
+            metadata: { reason: "invalid_credentials" }
+          });
+        }
         throw new AdminStoreError("invalid_credentials", 401);
       }
 
@@ -460,6 +542,63 @@ export async function handleAdminApi({
       }
     }
 
+    const operationsMatch = url.pathname.match(
+      /^\/v1\/admin\/projects\/([0-9a-f-]{36})\/operations\/(limits|metrics|security-events)$/
+    );
+
+    if (operationsMatch) {
+      if (!opsStore) {
+        sendJson(res, 503, { error: "operations_require_postgres" });
+        return true;
+      }
+
+      const projectId = operationsMatch[1];
+      const resource = operationsMatch[2];
+
+      if (req.method === "GET" && resource === "limits") {
+        await adminStore.authorizeProject(session.user.id, projectId);
+        const limits = await opsStore.getProjectLimits(projectId);
+        sendJson(res, 200, { projectId, limits });
+        return true;
+      }
+
+      if (req.method === "PATCH" && resource === "limits") {
+        requireCsrf(req, session);
+        const project = await adminStore.authorizeProject(
+          session.user.id,
+          projectId,
+          { write: true }
+        );
+        const patch = validateLimitsInput(await readJson(req));
+        const limits = await opsStore.updateProjectLimits({
+          project,
+          actorUserId: session.user.id,
+          patch
+        });
+        sendJson(res, 200, { projectId, limits });
+        return true;
+      }
+
+      if (req.method === "GET" && resource === "metrics") {
+        await adminStore.authorizeProject(session.user.id, projectId);
+        const metrics = await opsStore.getProjectMetrics(projectId, {
+          hours: url.searchParams.get("hours") || 24
+        });
+        sendJson(res, 200, { projectId, metrics });
+        return true;
+      }
+
+      if (req.method === "GET" && resource === "security-events") {
+        await adminStore.authorizeProject(session.user.id, projectId);
+        const page = await opsStore.listSecurityEvents(projectId, {
+          limit: url.searchParams.get("limit") || 50,
+          cursor: url.searchParams.get("cursor") || ""
+        });
+        sendJson(res, 200, { projectId, ...page });
+        return true;
+      }
+    }
+
     const projectMatch = url.pathname.match(
       /^\/v1\/admin\/projects\/([0-9a-f-]{36})(?:\/(users|summary))?$/
     );
@@ -473,16 +612,31 @@ export async function handleAdminApi({
           session.user.id,
           projectId
         );
-        const users = await geoStore.listUsers(projectId, {
-          search: url.searchParams.get("search") || "",
-          status: url.searchParams.get("status") || "",
-          country: url.searchParams.get("country") || "",
-          state: url.searchParams.get("state") || "",
-          city: url.searchParams.get("city") || "",
-          limit: url.searchParams.get("limit") || 500,
-          thresholds: config.thresholds
-        });
-        sendJson(res, 200, { projectId, users });
+        const page =
+          typeof geoStore.listUsersPage === "function"
+            ? await geoStore.listUsersPage(projectId, {
+                search: url.searchParams.get("search") || "",
+                status: url.searchParams.get("status") || "",
+                country: url.searchParams.get("country") || "",
+                state: url.searchParams.get("state") || "",
+                city: url.searchParams.get("city") || "",
+                limit: url.searchParams.get("limit") || 100,
+                cursor: url.searchParams.get("cursor") || "",
+                thresholds: config.thresholds
+              })
+            : {
+                users: await geoStore.listUsers(projectId, {
+                  search: url.searchParams.get("search") || "",
+                  status: url.searchParams.get("status") || "",
+                  country: url.searchParams.get("country") || "",
+                  state: url.searchParams.get("state") || "",
+                  city: url.searchParams.get("city") || "",
+                  limit: url.searchParams.get("limit") || 100,
+                  thresholds: config.thresholds
+                }),
+                nextCursor: null
+              };
+        sendJson(res, 200, { projectId, ...page });
         return true;
       }
 

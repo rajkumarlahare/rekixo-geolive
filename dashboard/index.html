@@ -17,6 +17,7 @@
       <button id="newProject" class="icon-button" title="Create project" disabled>＋</button>
       <button id="editProject" class="icon-button" title="Project settings" disabled>⚙</button>
       <button id="manageKeys" class="icon-button" title="API keys" disabled>⌘</button>
+      <button id="manageOps" class="icon-button" title="Security & operations" disabled>◇</button>
     </div>
 
     <div class="top-search"><span>⌕</span><input id="search" placeholder="Search User" disabled /></div>
@@ -208,6 +209,43 @@
         <button type="button" class="text-button" id="refreshKeys">Refresh</button>
       </div>
       <div class="key-list" id="keyList"></div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="opsModal" hidden>
+    <section class="modal-card ops-modal-card">
+      <div class="modal-title">
+        <div><small>OPERATIONS</small><h2>Security & Limits</h2></div>
+        <button type="button" class="close" id="opsModalClose">×</button>
+      </div>
+      <p class="modal-help">Project-scoped rate limits, quotas, retention and recent security signals.</p>
+
+      <section class="ops-metrics">
+        <article><small>Requests · 24h</small><strong id="opsRequests">0</strong></article>
+        <article><small>Errors · 24h</small><strong id="opsErrors">0</strong></article>
+        <article><small>Avg latency</small><strong id="opsLatency">0 ms</strong></article>
+        <article><small>Security events</small><strong id="opsSecurity">0</strong></article>
+      </section>
+
+      <form id="limitsForm" class="limits-form">
+        <div class="key-form-grid">
+          <label>Ingest / minute<input id="limitIngestMinute" type="number" min="1" max="1000000" required /></label>
+          <label>Read / minute<input id="limitReadMinute" type="number" min="1" max="1000000" required /></label>
+          <label>Daily ingest quota<input id="limitDailyIngest" type="number" min="1" max="1000000000" required /></label>
+          <label>Max live users<input id="limitLiveUsers" type="number" min="1" max="10000000" required /></label>
+          <label>History retention days<input id="limitHistoryDays" type="number" min="1" max="3650" required /></label>
+          <label>Security retention days<input id="limitSecurityDays" type="number" min="7" max="3650" required /></label>
+          <label>Metrics retention days<input id="limitMetricsDays" type="number" min="7" max="3650" required /></label>
+        </div>
+        <div class="form-error" id="opsError"></div>
+        <button type="submit" class="primary-button" id="saveLimits">Save limits</button>
+      </form>
+
+      <div class="key-list-head">
+        <h3>Recent security events</h3>
+        <button type="button" class="text-button" id="refreshOps">Refresh</button>
+      </div>
+      <div class="security-list" id="securityList"></div>
     </section>
   </div>
 

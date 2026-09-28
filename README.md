@@ -6,7 +6,7 @@
 
 ## Current implementation
 
-P0 + P1A + P1B + P1C now provide:
+P0 + P1A + P1B + P1C + P1D now provide:
 
 - project-scoped live-location ingestion
 - online / recent / offline / inactive presence
@@ -15,16 +15,16 @@ P0 + P1A + P1B + P1C now provide:
 - secure admin login and DB-backed revocable sessions
 - owner/admin/viewer account memberships
 - project create/select/edit/suspend/soft-delete
-- **database-backed `rgl_live_...` integration API keys**
-- one-time full-secret reveal
-- key prefix + SHA-256 hash storage
-- separate ingest and read scopes
-- key rotate / revoke / expiry
-- exact browser-origin restrictions
-- optional app-package restrictions
-- API-key last-used metadata
-- key lifecycle audit events
-- dashboard API-key manager
+- database-backed `rgl_live_...` API keys
+- one-time full-secret reveal, hash-only storage, rotate/revoke/expiry
+- exact browser-origin and optional package restrictions
+- **PostgreSQL-distributed project rate limits**
+- **daily ingest + live-user quotas**
+- **cursor pagination**
+- **hourly operational metrics**
+- **project security-event monitoring**
+- **per-project retention policies + bounded retention worker**
+- dashboard controls for API keys, quotas, limits and security signals
 - JavaScript / Android / Flutter adapters
 - real PostgreSQL/PostGIS CI integration tests
 
@@ -55,28 +55,51 @@ GEOLIVE_BOOTSTRAP_PASSWORD="your-strong-password" \
 npm run admin:bootstrap -- admin@example.com "Admin Name" "Rekixo"
 ```
 
-Open the dashboard, sign in, create/select a project, then open **API Keys**.
+Open the dashboard, sign in, create/select a project, then configure API keys and Security & Operations.
 
-## P1C key model
+## P1D operations model
 
-A new key looks like:
+Default project controls:
 
-```text
-rgl_live_<public-prefix>_<secret>
+- ingest: 600 requests/minute
+- reads: 300 requests/minute
+- daily ingest: 1,000,000
+- live users: 100,000
+- history retention: 30 days
+- security/metrics retention: 90 days
+
+These are editable per project by owner/admin roles.
+
+Run retention from a trusted scheduler:
+
+```bash
+npm run retention
 ```
 
-The complete secret is shown only on create/rotate. PostgreSQL stores the visible prefix and a SHA-256 hash, never the retrievable secret.
+Optional worker bounds:
 
-Use separate keys:
+```text
+GEOLIVE_RETENTION_BATCH_SIZE=5000
+GEOLIVE_RETENTION_MAX_BATCHES=20
+```
 
-- ingest: `location:write`
-- read: `users:read`, `summary:read`, `events:read`
+The server does not run destructive retention automatically at startup.
 
-Do not combine write and read scopes in one key.
+## Pagination
 
-Browser integrations can restrict exact allowed origins. Mobile integrations can require `X-GeoLive-Package`; this is defense-in-depth only until app attestation is added.
+User-list endpoints support:
 
-Pre-P1C `GEOLIVE_KEYS_JSON` remains a transitional compatibility bridge so an existing deployment is not broken during migration. New production keys should be created in Postgres through the dashboard.
+```text
+?limit=100&cursor=<opaque-cursor>
+```
+
+Responses include `nextCursor` when more rows remain.
+
+## Legacy API-key migration
+
+The pre-P1C `GEOLIVE_KEYS_JSON` bridge remains temporarily readable to prevent outages during migration. Do not create new production integrations on it.
+
+See [Legacy key retirement](docs/LEGACY-KEY-RETIREMENT.md).
 
 ## Verification
 
@@ -84,7 +107,7 @@ Pre-P1C `GEOLIVE_KEYS_JSON` remains a transitional compatibility bridge so an ex
 npm run check
 ```
 
-CI also starts a real PostGIS service, applies all migrations and tests project isolation, admin roles and key create/authenticate/rotate/revoke behavior.
+CI starts a real PostGIS service, applies all migrations, runs project/admin/API-key/P1D operations tests and executes the retention worker.
 
 See:
 
@@ -94,5 +117,6 @@ See:
 - [P1A durable Postgres](docs/P1A-DURABLE-POSTGRES.md)
 - [P1B admin control plane](docs/P1B-ADMIN-CONTROL-PLANE.md)
 - [P1C API-key lifecycle](docs/P1C-API-KEY-LIFECYCLE.md)
+- [P1D security & operations](docs/P1D-SECURITY-OPERATIONS.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)

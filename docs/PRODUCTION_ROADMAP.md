@@ -39,16 +39,20 @@
 - last-used metadata and key audit events
 - transitional legacy-key compatibility
 
-## Next — P1D security and operations
-- distributed rate limits
-- admin/API security-event monitoring
+## Completed — P1D security and operations
+- PostgreSQL-distributed rate limits
+- admin-login rate limiting
+- daily ingest quota
+- live-user quota with concurrency-safe enforcement
 - cursor pagination
-- retention worker
-- quotas
-- operational metrics
-- legacy environment-key retirement plan
+- project security-event monitoring
+- hourly API metrics
+- configurable retention policies
+- bounded retention worker
+- Security & Operations dashboard
+- legacy environment-key retirement procedure
 
-## P1E production realtime
+## Next — P1E production realtime
 - authenticated project rooms
 - WebSocket where justified
 - Redis fanout at multi-instance scale

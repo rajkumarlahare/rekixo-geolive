@@ -1,50 +1,67 @@
 # Rekixo GeoLive Security Rules
 
-Location data is sensitive. GeoLive defaults to least privilege, explicit consent and project isolation.
+Location data is sensitive. GeoLive defaults to least privilege, explicit consent, project isolation and bounded operational access.
 
 ## Integration API keys
 
-- New production credentials are generated in PostgreSQL through the P1C lifecycle.
-- Full `rgl_live_...` secrets are returned only on create/rotate and are never retrievable afterward.
-- Store only the public prefix and SHA-256 secret hash.
-- Use separate ingest and read credentials; mixed write/read scopes are rejected.
-- Revocation and expiry are enforced on every database-backed authentication.
-- Exact browser-origin restrictions are enforced on the authenticated request.
-- Optional `X-GeoLive-Package` restrictions are defense-in-depth only; HTTP headers are forgeable without app attestation.
-- Never put read/admin credentials in Android, Flutter or browser bundles.
-- Prefer future short-lived tokens + attestation for untrusted mobile/browser clients.
-- The legacy `GEOLIVE_KEYS_JSON` path exists only for migration compatibility; do not create new keys there.
+- New production credentials are generated through the database-backed P1C lifecycle.
+- Full `rgl_live_...` secrets are returned only on create/rotate and are not retrievable afterward.
+- PostgreSQL stores only the visible prefix and SHA-256 hash.
+- Ingest and read scopes use separate keys.
+- Revocation and expiry are enforced on authentication.
+- Exact browser origins and optional package IDs can restrict credentials.
+- Package headers are defense-in-depth only until attestation exists.
+- The legacy `GEOLIVE_KEYS_JSON` bridge is migration-only.
 
 ## Admin control plane
 
-- Admin passwords use Scrypt with a per-password random salt.
-- Password plaintext is never stored.
-- Admin sessions use high-entropy opaque tokens; Postgres stores only SHA-256 of the session token.
-- Browser sessions are HttpOnly + SameSite=Strict and Secure in production.
-- State-changing admin requests require a rotating CSRF token.
-- Failed admin logins are temporarily locked after a configurable threshold.
-- Owner/admin roles may mutate project/key state; viewer is read-only.
-- Project deletion is a soft delete.
-- Project and API-key mutations are written to `audit_log`.
+- Scrypt password hashing with random salts.
+- High-entropy opaque sessions; only hashes stored.
+- HttpOnly + SameSite=Strict cookies; Secure in production.
+- CSRF token required for state changes.
+- Failed-login account lock plus PostgreSQL-distributed login rate limiting.
+- Owner/admin can mutate project/key/limit state; viewer is read-only.
+- Project/API-key/limit mutations are audited.
+
+## Rate limits and quotas
+
+Public authenticated traffic is limited using atomic PostgreSQL counters shared across application instances.
+
+Per-project controls include:
+
+- ingest requests/minute
+- read requests/minute
+- daily ingest quota
+- maximum live users
+
+New-user quota checks are transactionally serialized per project to prevent concurrent quota races.
+
+## Security events and metrics
+
+GeoLive records bounded operational metadata for rate-limit blocks, quota blocks and client-restriction failures.
+
+Do not store raw API secrets, passwords, session tokens, CSRF tokens or location payloads in security/metrics tables.
+
+Admin-login source data is stored only as a one-way hash, not as a raw network address.
+
+## Pagination and input safety
+
+Large user/security-event lists use bounded cursor pagination.
+
+Cursors are opaque state, not authorization credentials; authorization is re-evaluated on every request.
+
+## Retention
+
+Location history, project security events and operational metrics have per-project retention windows.
+
+The retention worker is one-shot and batch-bounded. It must be invoked by trusted scheduling infrastructure and never runs automatically during server startup.
 
 ## Tenancy
 
-- Never trust a client-supplied project ID as an API authorization boundary.
-- Public API project identity comes from the authenticated integration key.
-- Admin project access comes from account membership.
-- Every live/history database read/write includes `project_id`.
-- A suspended/deleted project cannot ingest new location observations.
+Public API project identity comes from the authenticated key. Admin project access comes from account membership. Every project data query is scoped by `project_id`.
 
-## Browser controls
+Suspended/deleted projects cannot ingest new observations.
 
-CORS preflight can reflect a valid HTTP(S) origin so the real request can reach authentication. The authenticated request must still pass the key's exact origin restriction.
+## Remaining production gates
 
-The dashboard is same-origin and served with CSP, frame denial, no-referrer and restrictive browser permissions.
-
-## Logging
-
-Never log raw API secrets, session tokens, CSRF tokens or passwords. Avoid exact-coordinate logging outside approved protected location storage.
-
-## Production gate
-
-Production requires PostgreSQL/PostGIS plus P1B/P1C migrations. Remaining rollout gates include rate limiting, short-lived client tokens/attestation, retention jobs, security monitoring and load testing.
+P1E/P2 still cover scaled realtime, short-lived untrusted-client tokens, mobile attestation, replay protection and broader operational load testing.

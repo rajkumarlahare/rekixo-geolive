@@ -1,94 +1,92 @@
 # Rekixo GeoLive Architecture Contract
 
-Status: **P1C DATABASE CREDENTIAL LIFECYCLE**
+Status: **P1D SECURITY & OPERATIONS FOUNDATION**
 
 ## Product boundary
 
-GeoLive is reusable infrastructure. FinWorkar, EntroNex, LudoProof, Rekixo AR3D, Rekixo websites and future products are clients/tenants, not the identity of this codebase.
+GeoLive is reusable infrastructure. FinWorkar, EntroNex, LudoProof, Rekixo AR3D, Rekixo websites and future products are clients/tenants.
 
-No sibling repository is required to share a database, deployment, secret or source tree with GeoLive.
+No sibling repository must share a database, deployment, secret or source tree with GeoLive.
 
-## Non-invasive integration
-
-Integration happens through explicit REST/SDK contracts. GeoLive does not directly read a sibling project's Firebase, D1, PostgreSQL, R2, Firestore or other private application database.
-
-## Tenancy
+## Control/data model
 
 ```text
 Account
   -> Membership (owner/admin/viewer)
   -> Project
       -> Integration API Keys
+      -> Project Limits / Quotas
       -> Users
       -> live_user_state
       -> location_history
+      -> usage/security operational data
 ```
 
-Public API project identity is resolved from the authenticated API key. Admin access is resolved from account membership.
+## Authentication boundaries
 
-## Admin authentication
+Admin authentication and integration-key authentication remain separate.
 
-Admin auth and integration-key auth are separate security domains.
+Integration project identity is resolved from the authenticated credential. Admin project access is resolved from account membership.
 
-Admin:
-- Scrypt password hash
-- opaque DB-backed session token
-- HttpOnly SameSite cookie
-- rotating CSRF token
-- revocable session
-
-Integration:
-- `rgl_live_<prefix>_<secret>`
-- public lookup prefix
-- SHA-256 full-secret hash at rest
-- explicit scopes
-- optional origin/package restrictions
-- expiry/revocation
-- last-used metadata
-
-The full integration secret is one-time output only.
-
-## Scope separation
-
-Ingest keys use:
-
-- `location:write`
-
-Read keys use one or more of:
-
-- `users:read`
-- `summary:read`
-- `events:read`
-
-Write + read scopes are deliberately not combined on one key.
-
-## Project lifecycle
-
-- `active`: API-key authentication and ingestion can proceed.
-- `suspended`: integration authentication is denied; admin inspection remains available.
-- `deleted`: hidden from ordinary control-plane lists; data remains for explicit retention/deletion processing.
-
-## Persistence
+## Durable data
 
 PostgreSQL/PostGIS stores:
 
 - accounts/projects/memberships
 - admin users/sessions
-- integration API-key metadata/hashes
+- integration key metadata/hashes
+- project limits
 - live user state
 - append-only location history
+- distributed rate counters
+- daily usage counters
+- hourly API metrics
+- project/global security events
+- retention-run records
 - audit log
 
-Migrations are immutable and checksum verified.
+## P1D rate limiting
+
+Fixed-window counters are incremented atomically in PostgreSQL. Window boundaries use PostgreSQL time, so multiple server instances share one project limit without relying on each instance clock.
+
+This is deliberately database-backed at current scale. A later high-throughput deployment may move hot counters to Redis while retaining the same API semantics.
+
+## Quota enforcement
+
+Daily ingest quota is atomic in PostgreSQL.
+
+Live-user capacity is enforced inside the location transaction. Only first-seen users acquire a project-scoped advisory transaction lock for quota checking; existing user updates avoid that serialization.
+
+## Pagination
+
+Latest users are ordered by:
+
+1. `received_at DESC`
+2. `external_user_id DESC`
+
+The opaque cursor contains only continuation state. Project authorization and filters are still enforced by the server.
+
+## Metrics and security events
+
+Operational metrics aggregate by project/key/route/hour and status class.
+
+Security events are separate from the immutable admin audit trail:
+
+- audit log = authorized administrative changes
+- security events = denied/risky operational signals
+
+Neither table stores raw API secrets or location payloads.
+
+## Retention
+
+The retention worker runs outside normal request handling and deletes bounded batches according to project retention policy.
+
+Startup never automatically executes destructive retention.
 
 ## Compatibility
 
-The environment-key bridge remains temporarily readable so an existing P0/P1A/P1B deployment can migrate without an immediate outage. All new credentials should use the P1C database lifecycle.
+The legacy environment-key bridge remains readable only for migration safety. New credentials are database-backed. Follow the documented staged retirement procedure before deleting compatibility code.
 
-## Realtime
+## Next boundary
 
-The foundation currently exposes project-scoped SSE for integration readers. Production scale work may add authenticated WebSocket project rooms and Redis fanout.
-
-## Remaining production gates
-
-P1D/P1E/P2 include distributed rate limits, pagination, retention, quotas, operational monitoring, scaled realtime, short-lived ingest tokens, app attestation and replay protection.
+P1E adds scaled realtime transport: authenticated project rooms, reconnect/resume, backpressure and Redis fanout where multi-instance scale requires it.
