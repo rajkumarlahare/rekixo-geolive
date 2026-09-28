@@ -57,6 +57,7 @@ Existing accounts migrate onto a generous `legacy` plan. A database trigger also
 P3 currently enforces:
 
 - maximum active/non-deleted projects at project creation;
+- `realtime` for public integration SSE/WebSocket readers;
 - `clientTokens` before P2 short-lived token exchange;
 - `androidAttestation` when Android attestation is supplied.
 
