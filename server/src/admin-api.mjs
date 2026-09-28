@@ -9,6 +9,9 @@ import {
 } from "./passwords.mjs";
 import { AdminStoreError } from "./admin-store-postgres.mjs";
 import {
+  validateClientSecurityPatch
+} from "./client-security.mjs";
+import {
   normalizeAllowedOrigins,
   normalizeAllowedPackages,
   normalizeExpiry,
@@ -228,6 +231,7 @@ export async function handleAdminApi({
   adminStore,
   keyStore,
   opsStore,
+  clientSecurityStore,
   geoStore
 }) {
   if (!url.pathname.startsWith("/v1/admin/")) return false;
@@ -539,6 +543,73 @@ export async function handleAdminApi({
           keyId
         });
         sendJson(res, 200, { key });
+        return true;
+      }
+    }
+
+    const clientSecurityMatch = url.pathname.match(
+      /^\/v1\/admin\/projects\/([0-9a-f-]{36})\/client-security$/
+    );
+
+    if (clientSecurityMatch) {
+      if (!clientSecurityStore) {
+        sendJson(res, 503, {
+          error: "client_security_requires_postgres"
+        });
+        return true;
+      }
+
+      const projectId = clientSecurityMatch[1];
+
+      if (req.method === "GET") {
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId
+        );
+        const policy =
+          await clientSecurityStore.getPolicy(
+            projectId
+          );
+        sendJson(res, 200, {
+          projectId,
+          policy,
+          clientTokensConfigured:
+            Boolean(
+              config.clientTokens
+                ?.signingKeys?.length
+            ),
+          playIntegrityConfiguredPackages:
+            (
+              config.clientTokens
+                ?.playIntegrityApps || []
+            ).map((item) => item.packageName)
+        });
+        return true;
+      }
+
+      if (req.method === "PATCH") {
+        requireCsrf(req, session);
+        const project =
+          await adminStore.authorizeProject(
+            session.user.id,
+            projectId,
+            { write: true }
+          );
+        const patch =
+          validateClientSecurityPatch(
+            await readJson(req)
+          );
+        const policy =
+          await clientSecurityStore.updatePolicy({
+            project,
+            actorUserId:
+              session.user.id,
+            patch
+          });
+        sendJson(res, 200, {
+          projectId,
+          policy
+        });
         return true;
       }
     }

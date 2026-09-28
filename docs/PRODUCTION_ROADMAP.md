@@ -63,20 +63,31 @@
 - dashboard live updates with polling fallback
 - realtime-event retention
 
-## Next — P2 client security
-- short-lived ingest tokens
-- Android app attestation option
-- replay/abuse protection
-- client token exchange
+## Completed — P2 client security
+- dedicated database-backed `tokens:issue` issuer keys
+- short-lived `rgl_client_...` location-write tokens
+- project/user/package/platform token binding
+- issuer-key revocation invalidates child tokens
+- configurable token TTL, maximum one hour
+- request timestamp freshness checks
+- one-time exchange nonce replay protection
+- one-time per-token request nonce replay protection
+- optional/default P-256 proof-of-possession for location writes
+- Android Google Play Integrity standard-token verification option
+- Play Integrity requestHash binding to token-exchange data
+- per-project Android attestation mode: off / optional / required
+- dashboard client-security policy controls
+- JavaScript, Android and Flutter token/proof adapter support
+- bounded retention for replay nonce tables
 
-## P2 commercial layer
-- plans/limits
-- usage metering
+## Next — Commercial layer
+- plans and entitlements
+- billable usage metering
 - billing/invoices
-- support
-- super-admin
+- support/admin workflows
+- super-admin controls
 
-## P3 advanced geospatial
+## Later — Advanced geospatial
 - movement history
 - heatmap
 - geofence

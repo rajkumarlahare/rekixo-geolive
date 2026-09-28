@@ -14,6 +14,13 @@ import { PostgresAdminStore } from "./admin-store-postgres.mjs";
 import { PostgresApiKeyStore } from "./api-key-store-postgres.mjs";
 import { PostgresOperationsStore } from "./operations-store-postgres.mjs";
 import { PostgresRealtimeStore } from "./realtime-store-postgres.mjs";
+import { PostgresClientSecurityStore } from "./client-security-store-postgres.mjs";
+import { ClientTokenService } from "./client-token.mjs";
+import { PlayIntegrityVerifier } from "./play-integrity.mjs";
+import {
+  validateClientExchangeBody,
+  validateClientLocationRequest
+} from "./client-security.mjs";
 import { createRealtimeGateway } from "./realtime-gateway.mjs";
 import { handleAdminApi } from "./admin-api.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
@@ -39,20 +46,45 @@ function json(res, status, payload, headers = {}) {
   res.end(body);
 }
 
-async function readJson(req, maxBytes = 32 * 1024) {
+async function readJsonPayload(
+  req,
+  maxBytes = 32 * 1024
+) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > maxBytes) throw new InputError("body_too_large");
+    if (size > maxBytes) {
+      throw new InputError("body_too_large");
+    }
     chunks.push(chunk);
   }
-  if (size === 0) return {};
+
+  const raw = Buffer.concat(chunks);
+  if (raw.length === 0) {
+    return {
+      body: {},
+      raw
+    };
+  }
+
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return {
+      body: JSON.parse(raw.toString("utf8")),
+      raw
+    };
   } catch {
     throw new InputError("invalid_json");
   }
+}
+
+async function readJson(
+  req,
+  maxBytes = 32 * 1024
+) {
+  return (
+    await readJsonPayload(req, maxBytes)
+  ).body;
 }
 
 function isHttpOrigin(value) {
@@ -71,7 +103,7 @@ function preflightHeaders(origin) {
     "access-control-allow-origin": origin,
     vary: "Origin",
     "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-    "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key,X-GeoLive-Package,X-CSRF-Token",
+    "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key,X-GeoLive-Package,X-CSRF-Token,X-GeoLive-Request-Timestamp,X-GeoLive-Request-Nonce,X-GeoLive-Request-Signature",
     "access-control-max-age": "600"
   };
 }
@@ -82,7 +114,7 @@ function corsHeaders(origin, config, key) {
     "access-control-allow-origin": origin,
     vary: "Origin",
     "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key,X-GeoLive-Package",
+    "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key,X-GeoLive-Package,X-GeoLive-Request-Timestamp,X-GeoLive-Request-Nonce,X-GeoLive-Request-Signature",
     "access-control-expose-headers": "X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset,Retry-After",
     "access-control-max-age": "600"
   };
@@ -134,6 +166,9 @@ export function createGeoLiveServer({
   adminStore = null,
   keyStore = null,
   opsStore = null,
+  clientSecurityStore = null,
+  clientTokenService = null,
+  playIntegrityVerifier = null,
   realtimeGateway = null
 } = {}) {
   const eventClients = new Map();
@@ -148,12 +183,18 @@ export function createGeoLiveServer({
   async function authorizePublic(req, requiredScope) {
     return authenticateRequest(req, {
       keyStore,
-      environmentKeys: config.keys
+      environmentKeys: config.keys,
+      clientTokenService
     }, requiredScope);
   }
 
   function apiKeyRef(key) {
-    if (key?.prefix && key?.id) return `db:${key.id}`;
+    if (key?.clientToken && key?.jti) {
+      return `client:${key.jti}`;
+    }
+    if (key?.prefix && key?.id) {
+      return `db:${key.id}`;
+    }
     return `env:${key?.id || "unknown"}`;
   }
 
@@ -288,6 +329,7 @@ export function createGeoLiveServer({
         adminStore,
         keyStore,
         opsStore,
+        clientSecurityStore,
         geoStore: store
       })) {
         return;
@@ -301,7 +343,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.6.0"
+          version: "0.7.0"
         });
       }
 
@@ -321,11 +363,22 @@ export function createGeoLiveServer({
         const realtimeReady = realtimeGateway
           ? realtimeGateway.ready()
           : !config.isProduction;
+        const clientSecurityReady =
+          clientSecurityStore
+            ? await clientSecurityStore.ready()
+            : !config.isProduction;
+        const clientTokensConfigured =
+          Boolean(clientTokenService?.configured);
+        const clientTokensReady =
+          !config.clientTokens?.required ||
+          clientTokensConfigured;
         const ready = persistenceReady
           && adminReady
           && apiKeyReady
           && operationsReady
           && realtimeReady
+          && clientSecurityReady
+          && clientTokensReady
           && (!config.isProduction || config.persistence === "postgres");
 
         return json(res, ready ? 200 : 503, {
@@ -336,12 +389,403 @@ export function createGeoLiveServer({
           apiKeyReady,
           operationsReady,
           realtimeReady,
+          clientSecurityReady,
+          clientTokensConfigured,
+          clientTokensRequired:
+            Boolean(
+              config.clientTokens?.required
+            ),
+          playIntegrityConfiguredPackages:
+            playIntegrityVerifier
+              ?.configuredPackages || [],
           realtime: realtimeGateway
             ? realtimeGateway.status()
             : null,
           environmentCredentialCount: config.keys.length,
           legacyCredentialBridgeActive: config.keys.length > 0
         });
+      }
+
+      if (
+        req.method === "POST" &&
+        url.pathname ===
+          "/v1/client-tokens/exchange"
+      ) {
+        const startedAt = Date.now();
+        const auth = await authorizePublic(
+          req,
+          "tokens:issue"
+        );
+        if (!auth.ok) {
+          return json(
+            res,
+            auth.status,
+            { error: auth.error }
+          );
+        }
+
+        if (
+          !auth.key?.prefix ||
+          !/^[0-9a-f-]{36}$/i.test(
+            String(auth.key.id || "")
+          )
+        ) {
+          return json(res, 403, {
+            error:
+              "client_token_issuer_requires_database_key"
+          });
+        }
+
+        if (
+          !clientTokenService?.configured
+        ) {
+          return json(res, 503, {
+            error:
+              "client_tokens_not_configured"
+          });
+        }
+        if (!clientSecurityStore) {
+          return json(res, 503, {
+            error:
+              "client_security_store_unavailable"
+          });
+        }
+
+        if (
+          origin &&
+          !originAllowed(
+            origin,
+            auth.key,
+            config.allowedOrigins
+          )
+        ) {
+          await recordRestrictionFailure(
+            auth,
+            "origin_not_allowed",
+            "client_tokens.exchange"
+          );
+          return json(res, 403, {
+            error: "origin_not_allowed"
+          });
+        }
+
+        const input =
+          validateClientExchangeBody(
+            await readJson(
+              req,
+              64 * 1024
+            )
+          );
+        const policy =
+          await clientSecurityStore.getPolicy(
+            auth.key.projectId
+          );
+
+        const now = Date.now();
+        if (
+          Math.abs(
+            now -
+            input.clientTimestampMs
+          ) >
+          policy.requestMaxAgeSeconds *
+            1000
+        ) {
+          await recordRestrictionFailure(
+            auth,
+            "client_exchange_stale",
+            "client_tokens.exchange"
+          );
+          return json(res, 401, {
+            error:
+              "client_exchange_stale"
+          });
+        }
+
+        if (
+          policy.requireRequestProof &&
+          !input.proofPublicKey
+        ) {
+          return json(res, 400, {
+            error:
+              "client_proof_key_required"
+          });
+        }
+
+        const issuerPackages =
+          auth.key.allowedPackages || [];
+        if (
+          issuerPackages.length &&
+          (
+            !input.packageId ||
+            !issuerPackages.includes(
+              input.packageId
+            )
+          )
+        ) {
+          await recordRestrictionFailure(
+            auth,
+            "package_not_allowed",
+            "client_tokens.exchange"
+          );
+          return json(res, 403, {
+            error: "package_not_allowed"
+          });
+        }
+
+        let tokenRate = null;
+        if (opsStore) {
+          tokenRate =
+            await opsStore
+              .consumeProjectRateLimit(
+                auth.key.projectId,
+                "token_exchange",
+                policy
+                  .tokenExchangeRequestsPerMinute
+              );
+          if (!tokenRate.allowed) {
+            await opsStore.recordSecurityEvent({
+              projectId:
+                auth.key.projectId,
+              keyRef:
+                apiKeyRef(auth.key),
+              eventType:
+                "api.client_token_exchange_rate_limited",
+              severity: "warning",
+              metadata: {}
+            });
+            await recordUsage({
+              auth,
+              route:
+                "client_tokens.exchange",
+              statusCode: 429,
+              startedAt
+            });
+            return json(
+              res,
+              429,
+              { error: "rate_limited" },
+              rateHeaders(tokenRate)
+            );
+          }
+        }
+
+        const exchangeNonceUnused =
+          await clientSecurityStore
+            .consumeExchangeNonce(
+              auth.key.projectId,
+              input.clientNonce,
+              new Date(
+                now +
+                policy.requestMaxAgeSeconds *
+                  2000
+              ).toISOString()
+            );
+
+        if (!exchangeNonceUnused) {
+          if (opsStore) {
+            await opsStore.recordSecurityEvent({
+              projectId:
+                auth.key.projectId,
+              keyRef:
+                apiKeyRef(auth.key),
+              eventType:
+                "api.client_token_exchange_replayed",
+              severity: "warning",
+              metadata: {}
+            });
+          }
+          await recordUsage({
+            auth,
+            route:
+              "client_tokens.exchange",
+            statusCode: 409,
+            startedAt
+          });
+          return json(
+            res,
+            409,
+            {
+              error:
+                "client_exchange_replayed"
+            },
+            rateHeaders(tokenRate)
+          );
+        }
+
+        let attested = false;
+        let attestationSummary = null;
+
+        if (input.platform === "android") {
+          const mode =
+            policy.androidAttestationMode;
+
+          if (
+            mode === "required" &&
+            !input.attestation
+          ) {
+            await recordUsage({
+              auth,
+              route:
+                "client_tokens.exchange",
+              statusCode: 403,
+              startedAt
+            });
+            return json(
+              res,
+              403,
+              {
+                error:
+                  "android_attestation_required"
+              },
+              rateHeaders(tokenRate)
+            );
+          }
+
+          if (input.attestation) {
+            if (
+              input.attestation.provider !==
+              "google-play-integrity"
+            ) {
+              return json(res, 400, {
+                error:
+                  "unsupported_attestation_provider"
+              });
+            }
+            if (!playIntegrityVerifier) {
+              return json(res, 503, {
+                error:
+                  "play_integrity_not_configured"
+              });
+            }
+
+            const verdict =
+              await playIntegrityVerifier.verify({
+                projectId:
+                  auth.key.projectId,
+                userId: input.userId,
+                packageId:
+                  input.packageId,
+                clientNonce:
+                  input.clientNonce,
+                clientTimestampMs:
+                  input.clientTimestampMs,
+                proofPublicKey:
+                  input.proofPublicKey,
+                integrityToken:
+                  input.attestation.token
+              });
+
+            if (!verdict.ok) {
+              if (opsStore) {
+                await opsStore
+                  .recordSecurityEvent({
+                    projectId:
+                      auth.key.projectId,
+                    keyRef:
+                      apiKeyRef(auth.key),
+                    eventType:
+                      "api.android_attestation_failed",
+                    severity: "warning",
+                    metadata: {
+                      reason:
+                        verdict.error,
+                      packageId:
+                        input.packageId ||
+                        null
+                    }
+                  });
+              }
+              await recordUsage({
+                auth,
+                route:
+                  "client_tokens.exchange",
+                statusCode: 403,
+                startedAt
+              });
+              return json(
+                res,
+                403,
+                {
+                  error:
+                    verdict.error
+                },
+                rateHeaders(tokenRate)
+              );
+            }
+
+            attested = true;
+            attestationSummary = {
+              provider:
+                verdict.provider,
+              packageId:
+                verdict.packageId,
+              appVerdict:
+                verdict.appVerdict,
+              deviceVerdicts:
+                verdict.deviceVerdicts,
+              licensingVerdict:
+                verdict.licensingVerdict
+            };
+          }
+        } else if (input.attestation) {
+          return json(res, 400, {
+            error:
+              "attestation_not_supported_for_platform"
+          });
+        }
+
+        const issued =
+          clientTokenService.issue({
+            projectId:
+              auth.key.projectId,
+            userId: input.userId,
+            issuerKeyId: auth.key.id,
+            ttlSeconds:
+              policy.clientTokenTtlSeconds,
+            packageId:
+              input.packageId,
+            platform:
+              input.platform,
+            attested,
+            proofPublicKey:
+              input.proofPublicKey
+          });
+
+        await recordUsage({
+          auth,
+          route:
+            "client_tokens.exchange",
+          statusCode: 201,
+          startedAt
+        });
+
+        return json(
+          res,
+          201,
+          {
+            token: issued.token,
+            tokenType: "Bearer",
+            expiresAt:
+              issued.expiresAt,
+            projectId:
+              auth.key.projectId,
+            userId:
+              input.userId,
+            attested,
+            attestation:
+              attestationSummary,
+            proofRequired:
+              policy.requireRequestProof
+          },
+          {
+            ...corsHeaders(
+              origin,
+              config,
+              auth.key
+            ),
+            ...rateHeaders(tokenRate)
+          }
+        );
       }
 
       if (req.method === "POST" && url.pathname === "/v1/locations") {
@@ -374,11 +818,75 @@ export function createGeoLiveServer({
           );
         }
 
-        const operations = await enforceOperations(
-          auth,
-          "ingest",
-          "locations.write"
-        );
+        const payload =
+          await readJsonPayload(req);
+        const input =
+          validateLocation(payload.body);
+
+        if (auth.key.clientToken) {
+          if (!clientSecurityStore) {
+            return json(res, 503, {
+              error:
+                "client_security_store_unavailable"
+            });
+          }
+
+          const policy =
+            await clientSecurityStore.getPolicy(
+              auth.key.projectId
+            );
+          const requestSecurity =
+            await validateClientLocationRequest({
+              req,
+              rawBody: payload.raw,
+              input,
+              auth,
+              policy,
+              store:
+                clientSecurityStore
+            });
+
+          if (!requestSecurity.ok) {
+            if (opsStore) {
+              await opsStore.recordSecurityEvent({
+                projectId:
+                  auth.key.projectId,
+                keyRef:
+                  apiKeyRef(auth.key),
+                eventType:
+                  `api.${requestSecurity.error}`,
+                severity: "warning",
+                metadata: {
+                  route:
+                    "locations.write"
+                }
+              });
+            }
+            await recordUsage({
+              auth,
+              route:
+                "locations.write",
+              statusCode:
+                requestSecurity.status,
+              startedAt
+            });
+            return json(
+              res,
+              requestSecurity.status,
+              {
+                error:
+                  requestSecurity.error
+              }
+            );
+          }
+        }
+
+        const operations =
+          await enforceOperations(
+            auth,
+            "ingest",
+            "locations.write"
+          );
         if (!operations.ok) {
           await recordUsage({
             auth,
@@ -395,11 +903,15 @@ export function createGeoLiveServer({
         }
 
         const headers = {
-          ...corsHeaders(origin, config, auth.key),
+          ...corsHeaders(
+            origin,
+            config,
+            auth.key
+          ),
           ...operations.headers
         };
-        const input = validateLocation(await readJson(req));
-        const receivedAt = new Date().toISOString();
+        const receivedAt =
+          new Date().toISOString();
 
         try {
           const record = await store.upsertLocation(
@@ -856,6 +1368,24 @@ async function start() {
   const realtimeStore = config.persistence === "postgres"
     ? new PostgresRealtimeStore({ pool: store.pool })
     : null;
+  const clientSecurityStore =
+    config.persistence === "postgres"
+      ? new PostgresClientSecurityStore({
+          pool: store.pool
+        })
+      : null;
+  const clientTokenService =
+    new ClientTokenService({
+      signingKeys:
+        config.clientTokens
+          ?.signingKeys || []
+    });
+  const playIntegrityVerifier =
+    new PlayIntegrityVerifier({
+      apps:
+        config.clientTokens
+          ?.playIntegrityApps || []
+    });
 
   if (config.persistence === "postgres" && typeof store.assertReady === "function") {
     await store.assertReady();
@@ -863,6 +1393,7 @@ async function start() {
     await keyStore.assertReady();
     await opsStore.assertReady();
     await realtimeStore.assertReady();
+    await clientSecurityStore.assertReady();
   }
 
   const realtimeGateway = createRealtimeGateway({
@@ -879,6 +1410,9 @@ async function start() {
     adminStore,
     keyStore,
     opsStore,
+    clientSecurityStore,
+    clientTokenService,
+    playIntegrityVerifier,
     realtimeGateway
   });
   realtimeGateway.attach(server);

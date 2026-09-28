@@ -2,181 +2,215 @@
 
 GeoLive is designed so existing projects can integrate without architectural rewrites or direct database coupling.
 
-## 1. Create project credentials
+## 1. Pick the correct credential model
 
-From the authenticated GeoLive dashboard, select a project and open **API Keys**.
+For trusted backends or controlled server integrations, database-backed `rgl_live_...` keys remain supported.
 
-Create separate credentials:
+For untrusted mobile/browser producers, use P2:
 
-- ingest key: `location:write`
-- read/realtime key: `users:read`, `summary:read`, `events:read`
+```text
+Product backend -> GeoLive tokens:issue exchange -> short-lived rgl_client_ token -> client location writes
+```
 
-The full `rgl_live_...` secret is displayed once. Store it in the consuming project's secret manager or trusted backend configuration.
+Never put a `tokens:issue` key in an APK, Flutter bundle or browser JavaScript.
 
-Do not put admin credentials in client applications.
+## 2. Create project credentials
 
-## 2. REST ingestion
+From the GeoLive dashboard, create separate credentials:
+
+- ingest key: `location:write` for trusted/legacy ingest;
+- read key: `users:read`, `summary:read`, `events:read`;
+- client-token issuer: `tokens:issue` only.
+
+The full `rgl_live_...` secret is displayed once.
+
+Issuer keys may include allowed package IDs such as:
+
+```text
+com.example.app
+```
+
+## 3. Short-lived token exchange
+
+The product backend authenticates its own user, then exchanges its trusted issuer key:
 
 ```http
-POST /v1/locations
-Authorization: Bearer rgl_live_<prefix>_<secret>
+POST /v1/client-tokens/exchange
+Authorization: Bearer rgl_live_<issuer>
 Content-Type: application/json
-X-GeoLive-Package: com.example.app
 
 {
   "userId": "user_123",
-  "latitude": 21.2514,
-  "longitude": 81.6296,
-  "accuracyM": 12.5,
-  "capturedAt": "2026-09-28T05:00:00.000Z",
-  "device": {
-    "platform": "android",
-    "appVersion": "2.27"
-  }
+  "platform": "android",
+  "packageId": "com.example.app",
+  "clientNonce": "<random-url-safe-nonce>",
+  "clientTimestampMs": 1790553600000,
+  "proofPublicKey": "<base64url-DER-P256-SPKI>"
 }
 ```
 
-The project is resolved from the authenticated key. The request body cannot choose another project.
+Response:
 
-Accepted responses include `eventSequence` when durable realtime persistence is active.
+```json
+{
+  "token": "rgl_client_...",
+  "tokenType": "Bearer",
+  "expiresAt": "2026-09-28T05:05:00.000Z",
+  "projectId": "...",
+  "userId": "user_123",
+  "attested": false,
+  "proofRequired": true
+}
+```
 
-## 3. Production realtime WebSocket
+Client tokens are `location:write` only. Their project and user ID cannot be selected by the later location body.
 
-Connect to:
+Revoking the issuer key invalidates its child tokens.
+
+## 4. P-256 request proof
+
+When the project requires proof, generate a P-256 key pair in the client security/keystore layer. Send the public SPKI during token exchange and keep the private key non-exportable when the platform supports it.
+
+For every location request, create a fresh timestamp and nonce. Sign this exact canonical value:
+
+```text
+RGL-PROOF-V1
+POST
+/v1/locations
+<TIMESTAMP_MS>
+<NONCE>
+<BASE64URL_SHA256_OF_EXACT_RAW_JSON_BODY>
+```
+
+Send:
+
+```http
+POST /v1/locations
+Authorization: Bearer rgl_client_...
+Content-Type: application/json
+X-GeoLive-Package: com.example.app
+X-GeoLive-Request-Timestamp: 1790553600123
+X-GeoLive-Request-Nonce: <one-time-url-safe-nonce>
+X-GeoLive-Request-Signature: <base64url-DER-ECDSA-signature>
+
+{"userId":"user_123","latitude":21.2514,"longitude":81.6296,"device":{"platform":"android"}}
+```
+
+The signature must be calculated over the exact bytes sent as the HTTP body.
+
+## 5. Android Play Integrity
+
+For Android projects, set attestation policy in **Security & Operations -> Client Security**.
+
+The progression can be:
+
+```text
+off -> optional -> required
+```
+
+For a standard Play Integrity request, compute the requestHash over:
+
+```text
+RGL-TOKEN-EXCHANGE-V1
+<PROJECT_ID>
+<USER_ID>
+<PACKAGE_ID>
+<CLIENT_NONCE>
+<CLIENT_TIMESTAMP_MS>
+<P-256-PROOF-PUBLIC-KEY>
+```
+
+using SHA-256 encoded as base64url.
+
+The Android SDK includes `GeoLiveClientSecurity.exchangeRequestHash(...)` so the host app can pass the correct request hash to its Play Integrity integration without GeoLive forcing a Play library dependency into every project.
+
+Send the resulting standard Integrity token to your trusted backend along with the same exchange fields. The backend calls GeoLive with:
+
+```json
+"attestation": {
+  "provider": "google-play-integrity",
+  "token": "<opaque-integrity-token>"
+}
+```
+
+GeoLive performs server-side decode/verification before issuing the client token.
+
+## 6. JavaScript SDK
+
+Existing static-key use continues to work.
+
+For P2, provide a rotating token provider and request-proof provider:
+
+```js
+const geo = new GeoLiveClient({
+  baseUrl: "https://geolive.example.com",
+  userId: "user_123",
+  packageId: "com.example.web",
+  tokenProvider: async () => getCurrentShortLivedToken(),
+  requestProofProvider: async ({ method, path, body }) => {
+    return signGeoLiveRequest({ method, path, body });
+  }
+});
+```
+
+The proof provider returns:
+
+```js
+{ timestamp, nonce, signature }
+```
+
+## 7. Android SDK
+
+Legacy:
+
+```kotlin
+val geo = RekixoGeoLiveClient(
+    baseUrl = "https://geolive.example.com",
+    ingestToken = trustedToken,
+    userId = userId,
+    packageId = applicationContext.packageName
+)
+```
+
+P2 can use `GeoLiveTokenProvider` and `GeoLiveRequestProofProvider` so the host app controls token refresh and private-key operations. `GeoLiveClientSecurity` exposes the exchange requestHash and request-proof canonical helpers.
+
+The host app still owns runtime permission prompts, foreground/background policy and location acquisition.
+
+## 8. Flutter SDK
+
+Flutter supports either `ingestToken` or an async `tokenProvider`.
+
+A `GeoLiveRequestProofProvider` receives the exact UTF-8 request-body bytes and returns timestamp, nonce and signature headers. This keeps the adapter dependency-neutral while allowing the host app/plugin to use secure platform keys.
+
+## 9. Production realtime readers
+
+Connect:
 
 ```text
 wss://geolive.example.com/v1/realtime
 ```
 
-Do not place the API key in the WebSocket URL.
+Authenticate after open with a read key containing `events:read`, and persist the last applied event sequence for reconnect/resume.
 
-After the connection opens, authenticate:
+## 10. Large-map clustering
 
-```json
-{
-  "type": "authenticate",
-  "token": "rgl_live_...",
-  "packageId": "com.example.app",
-  "resumeAfter": "12345"
-}
-```
-
-The credential must include `events:read`.
-
-The server replies with `ready`, then emits project-scoped `location` events.
-
-Persist the latest applied numeric `sequence`. On reconnect, send it as `resumeAfter`.
-
-If the replay gap is too large, GeoLive sends `resync_required`. Reload current state via REST and continue receiving new events.
-
-## 4. Realtime event example
-
-```json
-{
-  "type": "location",
-  "sequence": "12346",
-  "eventId": "f7d59f39-6cbd-4c8a-a88c-a1b146882003",
-  "projectId": "5d1d0b97-5ef0-4d34-95f8-0c655675798d",
-  "userId": "user_123",
-  "payload": {
-    "userId": "user_123",
-    "latitude": 21.2514,
-    "longitude": 81.6296,
-    "status": "online"
-  },
-  "createdAt": "2026-09-28T05:00:01.000Z"
-}
-```
-
-## 5. Backpressure and reconnect
-
-GeoLive bounds WebSocket memory use.
-
-Queued location updates can be coalesced per user. Persistently slow consumers may be closed with WebSocket code `1013`.
-
-Reconnect using the last successfully applied sequence.
-
-## 6. Large-map clustering
-
-Read-key clients can request aggregate map cells:
+Read-key clients may use:
 
 ```http
 GET /v1/clusters?gridDegrees=8
 Authorization: Bearer rgl_live_...
 ```
 
-Each result contains a cluster center, user count and online/recent/offline/inactive counts.
-
-Smaller `gridDegrees` produces finer cells.
-
-## 7. Browser integrations
-
-Configure exact allowed origins on the API key.
-
-Browser `Origin` is checked during REST and WebSocket authentication.
-
-Long-lived keys embedded in browser JavaScript can be extracted. For sensitive deployments, use a trusted backend and the future P2 short-lived token flow.
-
-## 8. JavaScript SDK
-
-```js
-import { GeoLiveClient } from "./sdk/javascript/index.mjs";
-
-const geo = new GeoLiveClient({
-  baseUrl: "https://geolive.example.com",
-  ingestToken: "<ingest-key-or-short-lived-token>",
-  userId: "user_123"
-});
-
-await geo.sendLocation({
-  latitude: 21.2514,
-  longitude: 81.6296,
-  accuracyM: 10
-});
-```
-
-Call browser geolocation only after explicit user permission.
-
-## 9. Android
-
-```kotlin
-val geo = RekixoGeoLiveClient(
-    baseUrl = "https://geolive.example.com",
-    ingestToken = "<ingest-key-or-short-lived-token>",
-    userId = userId,
-    packageId = applicationContext.packageName
-)
-```
-
-Package-header restrictions are defense-in-depth. P2 app attestation is required for stronger client identity.
-
-The host app owns permission prompts and foreground/background location policy.
-
-## 10. Flutter
-
-```dart
-final geo = RekixoGeoLiveClient(
-  baseUrl: 'https://geolive.example.com',
-  ingestToken: '<ingest-key-or-short-lived-token>',
-  userId: userId,
-  packageId: 'com.example.app',
-);
-```
+Cluster responses contain aggregate user/activity counts rather than extra user identities.
 
 ## 11. Trusted server projects
 
-Firebase Functions, Node services and other trusted backends can hold GeoLive credentials in their own secret manager and call the REST or WebSocket contracts.
+Firebase Functions, Node services and other trusted backends should keep GeoLive API keys only in their own secret manager.
 
-Never log raw GeoLive credentials.
+The product backend is also the correct location for a P2 `tokens:issue` key because it can authenticate the product user before requesting a GeoLive client token.
 
-## 12. Multi-instance GeoLive
-
-Client integrations do not change when GeoLive scales horizontally.
-
-GeoLive instances can share Redis Pub/Sub for realtime fanout while PostgreSQL remains the durable replay source.
-
-## 13. Compatibility boundary
+## 12. Compatibility boundary
 
 GeoLive does not directly read sibling-project databases.
 
-Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories stay independent until they intentionally integrate through these contracts.
+FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories stay independent until they intentionally integrate through these contracts.

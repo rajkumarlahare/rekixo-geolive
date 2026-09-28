@@ -1,32 +1,30 @@
 # Rekixo GeoLive
 
-**Rekixo GeoLive** is project-neutral live-location infrastructure for Android apps, Flutter apps, websites, Cloudflare/Firebase/Node backends and future Rekixo products.
+**Rekixo GeoLive** is project-neutral live-location infrastructure for Android apps, Flutter apps, websites, trusted backends and future Rekixo products.
 
-> Projects integrate through GeoLive API/SDK contracts. GeoLive does not read sibling-project private databases or require sibling repositories to share deployments, secrets or source trees.
+> Products integrate through GeoLive API/SDK contracts. GeoLive does not read sibling-project private databases or require sibling repositories to share deployments, secrets or source trees.
 
 ## Current implementation
 
-P0 + P1A + P1B + P1C + P1D + P1E now provide:
+P0 + P1A + P1B + P1C + P1D + P1E + P2 now provide:
 
 - project-scoped live-location ingestion
-- durable PostgreSQL + PostGIS latest-state/history storage
-- secure admin login and revocable sessions
-- owner/admin/viewer account memberships
-- project create/select/edit/suspend/soft-delete
-- database-backed `rgl_live_...` API keys
-- key expiry / rotate / revoke / origin/package restrictions
-- PostgreSQL-distributed rate limits and quotas
-- cursor pagination
-- security events and operational metrics
-- configurable retention worker
-- **authenticated WebSocket project rooms**
-- **ordered replay/resume using durable realtime sequences**
-- **heartbeat, reconnect and backpressure controls**
-- **optional Redis multi-instance realtime fanout**
-- **server-side marker clustering for large projects**
-- dashboard live reconnect/resume and clustered markers
-- JavaScript / Android / Flutter adapters
-- real PostgreSQL/PostGIS CI integration tests
+- PostgreSQL/PostGIS latest-state and append-only history
+- secure admin control plane and project isolation
+- database-backed revocable `rgl_live_...` API keys
+- distributed rate limits, quotas, security events and metrics
+- cursor pagination and bounded retention
+- authenticated WebSocket rooms with durable replay/resume
+- optional Redis multi-instance fanout
+- server-side live-map clustering
+- **dedicated `tokens:issue` issuer keys**
+- **short-lived `rgl_client_...` location-write tokens**
+- **project/user/package/platform token binding**
+- **P-256 proof-of-possession and one-time request nonces**
+- **optional/required Android Google Play Integrity verification**
+- **issuer revocation propagation to already-issued client tokens**
+- dashboard controls for client token TTL, proof and attestation policy
+- JavaScript / Android / Flutter adapters for rotating tokens and request proof
 
 Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
@@ -55,94 +53,114 @@ GEOLIVE_BOOTSTRAP_PASSWORD="your-strong-password" \
 npm run admin:bootstrap -- admin@example.com "Admin Name" "Rekixo"
 ```
 
-Open the dashboard, sign in, create/select a project, then configure API keys and Security & Operations.
+## P2 short-lived client tokens
+
+For mobile/browser producers, keep long-lived credentials on trusted infrastructure.
+
+Create a dedicated API key in the dashboard with:
+
+```text
+tokens:issue
+```
+
+Do not embed that issuer key in the client application.
+
+Configure a signing key ring in deployment secrets:
+
+```text
+GEOLIVE_CLIENT_TOKEN_KEYS_JSON=[{"kid":"2026-09","secret":"<base64url-secret-at-least-32-bytes>"}]
+```
+
+The first key signs new client tokens and every listed key can verify tokens, which allows safe key rotation.
+
+A trusted product backend exchanges the issuer key:
+
+```http
+POST /v1/client-tokens/exchange
+Authorization: Bearer rgl_live_...
+Content-Type: application/json
+
+{
+  "userId": "user_123",
+  "platform": "android",
+  "packageId": "com.example.app",
+  "clientNonce": "<one-time-url-safe-nonce>",
+  "clientTimestampMs": 1790553600000,
+  "proofPublicKey": "<base64url-P256-SPKI>"
+}
+```
+
+GeoLive returns a short-lived `rgl_client_...` bearer token. Default lifetime is 5 minutes; project policy can configure 60–3600 seconds.
+
+## Proof-bound location writes
+
+Short-lived client tokens always use a timestamp and one-time request nonce. Projects default to requiring P-256 proof-of-possession.
+
+The client signs a canonical string containing the exact raw JSON-body SHA-256 and sends:
+
+```text
+Authorization: Bearer rgl_client_...
+X-GeoLive-Package: com.example.app
+X-GeoLive-Request-Timestamp: <epoch-ms>
+X-GeoLive-Request-Nonce: <one-time-nonce>
+X-GeoLive-Request-Signature: <base64url-ECDSA-signature>
+```
+
+Replay nonces are stored only as hashes and are consumed atomically.
+
+## Android Play Integrity
+
+Per project, Android attestation can be:
+
+- `off`
+- `optional`
+- `required`
+
+GeoLive supports Google Play Integrity standard tokens. The client uses a GeoLive-derived requestHash that binds project, user, package, nonce, timestamp and proof public key. GeoLive decodes the token server-side and checks the configured app/device/licensing verdict policy.
+
+The Play Integrity service-account private key must live only in deployment secrets:
+
+```text
+GEOLIVE_PLAY_INTEGRITY_APPS_JSON=[{"packageName":"com.example.app","serviceAccount":{"client_email":"...","private_key":"<secret>"},"requiredDeviceVerdicts":["MEETS_DEVICE_INTEGRITY"]}]
+```
 
 ## Production realtime
 
-Integration clients connect to:
+Integration readers connect to:
 
 ```text
 wss://<host>/v1/realtime
 ```
 
-The API key is **not** placed in the URL. After the socket opens, send:
+After the socket opens, send a read key with `events:read` in the authenticate message. Do not put API keys in the URL.
 
-```json
-{
-  "type": "authenticate",
-  "token": "rgl_live_...",
-  "resumeAfter": "12345"
-}
-```
+GeoLive provides durable sequence replay, reconnect/resume, heartbeat, bounded backpressure and optional Redis fanout.
 
-A read key with `events:read` is required.
+## Large-map clustering
 
-GeoLive emits:
-
-- `ready`
-- `location`
-- `resync_required`
-- `pong`
-
-Each durable PostgreSQL location event has a monotonically increasing `sequence`. Clients persist the last applied sequence and send it as `resumeAfter` after reconnect.
-
-If the replay gap exceeds the configured replay limit, GeoLive sends `resync_required`; the client should reload current state through REST and continue receiving new events.
-
-The authenticated dashboard uses a same-origin admin WebSocket automatically.
-
-## Multi-instance fanout
-
-For more than one GeoLive application instance, configure Redis:
-
-```text
-GEOLIVE_REDIS_URL=redis://redis.internal:6379/0
-GEOLIVE_REDIS_REQUIRED=true
-```
-
-`rediss://` is supported for TLS.
-
-Each instance broadcasts locally and publishes durable events to a shared Redis channel. Messages originating from the same instance are ignored on subscriber echo.
-
-If Redis is required but unavailable, `/ready` reports not-ready.
-
-## Backpressure
-
-Slow WebSocket clients do not receive unbounded queues.
-
-GeoLive:
-
-- coalesces queued location updates per user
-- caps queued frames
-- caps writable buffering
-- closes persistently slow consumers with WebSocket code `1013`
-
-Clients should reconnect with their last durable sequence.
-
-## Marker clustering
-
-Large projects use server-side geographic grid clustering. The dashboard automatically switches to cluster markers above 500 users when no user filter is active, and requests smaller grid cells as the globe zoom increases.
-
-Public read-key clients can use:
+Projects with large user sets can use:
 
 ```text
 GET /v1/clusters?gridDegrees=8
 ```
 
-## Realtime retention
+The admin dashboard automatically changes clustering resolution with globe zoom.
 
-Durable replay events default to 24 hours per project and are deleted by the existing trusted retention worker:
+## Retention
+
+Run bounded cleanup from trusted scheduling infrastructure:
 
 ```bash
 npm run retention
 ```
 
-The retention period is editable in Security & Operations.
+This cleans location history, realtime replay events, operational data, expired sessions and expired P2 replay-nonce records according to configured policies.
 
 ## Compatibility
 
-`GET /v1/events` SSE remains available for compatibility, but multi-instance production realtime should use the P1E WebSocket path.
+Existing database-backed `location:write` keys continue to work for trusted/controlled integrations. P2 is additive and is the preferred ingest path for untrusted clients.
 
-The old `GEOLIVE_KEYS_JSON` bridge remains migration-only. New production integrations should use database-backed keys.
+The legacy `GEOLIVE_KEYS_JSON` bridge remains migration-only.
 
 ## Verification
 
@@ -150,15 +168,14 @@ The old `GEOLIVE_KEYS_JSON` bridge remains migration-only. New production integr
 npm run check
 ```
 
-CI applies all migrations and verifies PostGIS persistence, API-key lifecycle, quotas, pagination, realtime event replay, WebSocket delivery, clustering and retention.
+CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, rate limits/quotas, realtime replay, Redis fanout, short-lived client tokens, P-256 request proof, replay guards and Play Integrity verification logic.
 
 See:
 
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
 - [Integration guide](docs/INTEGRATION.md)
-- [P1C API-key lifecycle](docs/P1C-API-KEY-LIFECYCLE.md)
-- [P1D security & operations](docs/P1D-SECURITY-OPERATIONS.md)
+- [P2 client security](docs/P2-CLIENT-SECURITY.md)
 - [P1E production realtime](docs/P1E-PRODUCTION-REALTIME.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)

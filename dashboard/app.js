@@ -866,8 +866,13 @@ function renderKeys() {
 }
 
 document.querySelector("#keyType").addEventListener("change", (event) => {
+  const names = {
+    ingest: "Production ingest",
+    read: "Production read",
+    issuer: "Client token issuer"
+  };
   document.querySelector("#keyName").value =
-    event.target.value === "read" ? "Production read" : "Production ingest";
+    names[event.target.value] || "API key";
 });
 
 document.querySelector("#keyForm").addEventListener("submit", async (event) => {
@@ -893,7 +898,9 @@ document.querySelector("#keyForm").addEventListener("submit", async (event) => {
         name: document.querySelector("#keyName").value.trim(),
         scopes: type === "read"
           ? ["users:read", "summary:read", "events:read"]
-          : ["location:write"],
+          : type === "issuer"
+            ? ["tokens:issue"]
+            : ["location:write"],
         allowedOrigins: parseLines(document.querySelector("#keyOrigins").value),
         allowedPackages: parseLines(document.querySelector("#keyPackages").value),
         expiresAt
@@ -908,7 +915,7 @@ document.querySelector("#keyForm").addEventListener("submit", async (event) => {
     const messages = {
       invalid_allowed_origins: "Use exact origins such as https://app.example.com.",
       invalid_allowed_packages: "Use valid app package IDs such as com.example.app.",
-      mixed_key_scopes_not_allowed: "Use separate ingest and read keys.",
+      mixed_key_scopes_not_allowed: "Use separate ingest, read and client-token issuer keys.",
       invalid_key_expiry: "Choose a valid future expiry.",
       project_write_forbidden: "Your role is read-only."
     };
@@ -997,6 +1004,44 @@ function setLimitFields(limits) {
   document.querySelector("#saveLimits").hidden = !writable;
 }
 
+function setClientSecurityFields(payload) {
+  const policy = payload.policy || {};
+  document.querySelector("#clientTokenTtl").value =
+    policy.clientTokenTtlSeconds || 300;
+  document.querySelector("#clientRequestMaxAge").value =
+    policy.requestMaxAgeSeconds || 120;
+  document.querySelector("#clientExchangeMinute").value =
+    policy.tokenExchangeRequestsPerMinute || 120;
+  document.querySelector("#requireRequestProof").checked =
+    policy.requireRequestProof !== false;
+  document.querySelector("#androidAttestationMode").value =
+    policy.androidAttestationMode || "off";
+
+  const packages =
+    payload.playIntegrityConfiguredPackages || [];
+  setText(
+    "clientSecurityStatus",
+    payload.clientTokensConfigured
+      ? "Signing ready"
+      : "Signing key not configured"
+  );
+  setText(
+    "playIntegrityPackages",
+    packages.length
+      ? `Play Integrity packages: ${packages.join(", ")}`
+      : "No Play Integrity package configured."
+  );
+
+  const writable = canWriteProject();
+  document
+    .querySelectorAll("#clientSecurityForm input, #clientSecurityForm select")
+    .forEach((element) => {
+      element.disabled = !writable;
+    });
+  document.querySelector("#saveClientSecurity").hidden =
+    !writable;
+}
+
 function renderSecurityEvents(events) {
   const list = document.querySelector("#securityList");
   list.replaceChildren();
@@ -1039,14 +1084,20 @@ async function loadOperations() {
 
   setText("opsError", "");
   try {
-    const [limitsPayload, metricsPayload, eventsPayload] =
-      await Promise.all([
-        api(`/v1/admin/projects/${project.id}/operations/limits`),
-        api(`/v1/admin/projects/${project.id}/operations/metrics?hours=24`),
-        api(`/v1/admin/projects/${project.id}/operations/security-events?limit=25`)
-      ]);
+    const [
+      limitsPayload,
+      metricsPayload,
+      eventsPayload,
+      clientSecurityPayload
+    ] = await Promise.all([
+      api(`/v1/admin/projects/${project.id}/operations/limits`),
+      api(`/v1/admin/projects/${project.id}/operations/metrics?hours=24`),
+      api(`/v1/admin/projects/${project.id}/operations/security-events?limit=25`),
+      api(`/v1/admin/projects/${project.id}/client-security`)
+    ]);
 
     setLimitFields(limitsPayload.limits);
+    setClientSecurityFields(clientSecurityPayload);
     const totals = metricsPayload.metrics?.totals || {};
     setText("opsRequests", totals.requests || 0);
     setText("opsErrors", totals.errors || 0);
@@ -1088,6 +1139,47 @@ document.querySelector("#limitsForm").addEventListener("submit", async (event) =
     setLimitFields(payload.limits);
   } catch (error) {
     setText("opsError", `Could not save limits: ${error.code}`);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelector("#clientSecurityForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const project = projectById();
+  if (!project || !canWriteProject(project)) return;
+
+  setText("opsError", "");
+  const button = document.querySelector("#saveClientSecurity");
+  button.disabled = true;
+
+  try {
+    await api(
+      `/v1/admin/projects/${project.id}/client-security`,
+      {
+        method: "PATCH",
+        mutate: true,
+        body: JSON.stringify({
+          clientTokenTtlSeconds:
+            Number(document.querySelector("#clientTokenTtl").value),
+          requestMaxAgeSeconds:
+            Number(document.querySelector("#clientRequestMaxAge").value),
+          tokenExchangeRequestsPerMinute:
+            Number(document.querySelector("#clientExchangeMinute").value),
+          requireRequestProof:
+            document.querySelector("#requireRequestProof").checked,
+          androidAttestationMode:
+            document.querySelector("#androidAttestationMode").value
+        })
+      }
+    );
+
+    await loadOperations();
+  } catch (error) {
+    setText(
+      "opsError",
+      `Could not save client security: ${error.code}`
+    );
   } finally {
     button.disabled = false;
   }

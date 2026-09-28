@@ -133,6 +133,47 @@ export class PostgresApiKeyStore {
     };
   }
 
+  async isKeyActive(
+    keyId,
+    projectId,
+    requiredScope = ""
+  ) {
+    const result = await this.pool.query(
+      `SELECT
+          k.scopes,
+          k.expires_at,
+          k.revoked_at,
+          p.status AS project_status
+       FROM api_keys k
+       JOIN projects p ON p.id = k.project_id
+       WHERE k.id = $1
+         AND k.project_id = $2
+       LIMIT 1`,
+      [keyId, projectId]
+    );
+
+    const row = result.rows[0];
+    if (!row) return false;
+    if (row.revoked_at) return false;
+    if (
+      row.expires_at &&
+      new Date(row.expires_at).getTime() <=
+        Date.now()
+    ) {
+      return false;
+    }
+    if (row.project_status !== "active") {
+      return false;
+    }
+    if (
+      requiredScope &&
+      !(row.scopes || []).includes(requiredScope)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   async listKeys(projectId) {
     const result = await this.pool.query(
       `SELECT id, project_id, name, key_prefix, scopes,

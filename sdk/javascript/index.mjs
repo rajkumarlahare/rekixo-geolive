@@ -1,16 +1,26 @@
 export class GeoLiveClient {
   constructor({
     baseUrl,
-    ingestToken,
+    ingestToken = "",
+    tokenProvider = null,
+    requestProofProvider = null,
     userId,
     defaults = {},
     packageId = ""
   }) {
-    if (!baseUrl || !ingestToken || !userId) {
-      throw new Error("baseUrl, ingestToken and userId are required.");
+    if (
+      !baseUrl ||
+      !userId ||
+      (!ingestToken && typeof tokenProvider !== "function")
+    ) {
+      throw new Error(
+        "baseUrl, userId and ingestToken or tokenProvider are required."
+      );
     }
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
-    this.ingestToken = ingestToken;
+    this.ingestToken = String(ingestToken || "");
+    this.tokenProvider = tokenProvider;
+    this.requestProofProvider = requestProofProvider;
     this.userId = userId;
     this.defaults = { ...defaults };
     this.packageId = String(packageId || "").trim();
@@ -18,25 +28,69 @@ export class GeoLiveClient {
     this.lastSentAt = 0;
   }
 
+  async resolveToken() {
+    const value = this.tokenProvider
+      ? await this.tokenProvider()
+      : this.ingestToken;
+    const token = String(value || "").trim();
+    if (!token) {
+      throw new Error("GeoLive ingest token is unavailable.");
+    }
+    return token;
+  }
+
   async sendLocation(location) {
+    const token = await this.resolveToken();
+    const body = JSON.stringify({
+      ...this.defaults,
+      ...location,
+      userId: this.userId,
+      capturedAt:
+        location.capturedAt ||
+        new Date().toISOString()
+    });
+
     const headers = {
-      authorization: `Bearer ${this.ingestToken}`,
+      authorization: `Bearer ${token}`,
       "content-type": "application/json"
     };
     if (this.packageId) {
-      headers["x-geolive-package"] = this.packageId;
+      headers["x-geolive-package"] =
+        this.packageId;
     }
 
-    const response = await fetch(`${this.baseUrl}/v1/locations`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        ...this.defaults,
-        ...location,
-        userId: this.userId,
-        capturedAt: location.capturedAt || new Date().toISOString()
-      })
-    });
+    if (this.requestProofProvider) {
+      const proof =
+        await this.requestProofProvider({
+          method: "POST",
+          path: "/v1/locations",
+          body
+        });
+      if (
+        !proof?.timestamp ||
+        !proof?.nonce ||
+        !proof?.signature
+      ) {
+        throw new Error(
+          "GeoLive requestProofProvider must return timestamp, nonce and signature."
+        );
+      }
+      headers["x-geolive-request-timestamp"] =
+        String(proof.timestamp);
+      headers["x-geolive-request-nonce"] =
+        String(proof.nonce);
+      headers["x-geolive-request-signature"] =
+        String(proof.signature);
+    }
+
+    const response = await fetch(
+      `${this.baseUrl}/v1/locations`,
+      {
+        method: "POST",
+        headers,
+        body
+      }
+    );
 
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {

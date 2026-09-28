@@ -17,6 +17,142 @@ function boundedNumber(value, fallback, min, max) {
   return Math.min(Math.max(parsed, min), max);
 }
 
+function parseClientTokenKeys(env, isProduction) {
+  const raw = String(
+    env.GEOLIVE_CLIENT_TOKEN_KEYS_JSON || ""
+  ).trim();
+  let source = [];
+
+  if (raw) {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      throw new Error(
+        "GEOLIVE_CLIENT_TOKEN_KEYS_JSON must be an array."
+      );
+    }
+    source = parsed;
+  } else if (
+    !isProduction &&
+    env.GEOLIVE_DEV_CLIENT_TOKEN_SECRET
+  ) {
+    source = [{
+      kid: "dev",
+      secret:
+        env.GEOLIVE_DEV_CLIENT_TOKEN_SECRET
+    }];
+  }
+
+  return source.map((item) => {
+    const kid = String(item?.kid || "").trim();
+    const secretText =
+      String(item?.secret || "").trim();
+
+    if (
+      !/^[A-Za-z0-9._-]{1,64}$/.test(kid) ||
+      !/^[A-Za-z0-9_-]+$/.test(secretText)
+    ) {
+      throw new Error(
+        "Invalid GeoLive client-token signing key."
+      );
+    }
+
+    const secret = Buffer.from(
+      secretText,
+      "base64url"
+    );
+    if (secret.length < 32) {
+      throw new Error(
+        "GeoLive client-token signing secrets must be at least 32 bytes."
+      );
+    }
+
+    return { kid, secret };
+  });
+}
+
+function parsePlayIntegrityApps(env) {
+  const raw = String(
+    env.GEOLIVE_PLAY_INTEGRITY_APPS_JSON || ""
+  ).trim();
+  if (!raw) return [];
+
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) {
+    throw new Error(
+      "GEOLIVE_PLAY_INTEGRITY_APPS_JSON must be an array."
+    );
+  }
+
+  const seen = new Set();
+  return parsed.map((item) => {
+    const packageName = String(
+      item?.packageName || ""
+    ).trim();
+    if (
+      !packageName ||
+      packageName.length > 200 ||
+      !/^[A-Za-z0-9_.-]+$/.test(packageName) ||
+      seen.has(packageName)
+    ) {
+      throw new Error(
+        "Invalid or duplicate Play Integrity package."
+      );
+    }
+    seen.add(packageName);
+
+    const serviceAccount =
+      item?.serviceAccount;
+    if (
+      !serviceAccount ||
+      typeof serviceAccount !== "object" ||
+      !serviceAccount.client_email ||
+      !serviceAccount.private_key
+    ) {
+      throw new Error(
+        `Play Integrity app ${packageName} requires a service account.`
+      );
+    }
+
+    const requiredDeviceVerdicts =
+      Array.isArray(item.requiredDeviceVerdicts)
+        ? [...new Set(
+            item.requiredDeviceVerdicts
+              .map(String)
+              .filter(Boolean)
+          )]
+        : ["MEETS_DEVICE_INTEGRITY"];
+
+    return {
+      packageName,
+      cloudProjectNumber:
+        item.cloudProjectNumber
+          ? String(item.cloudProjectNumber)
+          : "",
+      serviceAccount: {
+        client_email:
+          String(serviceAccount.client_email),
+        private_key:
+          String(serviceAccount.private_key)
+      },
+      requiredAppVerdict:
+        String(
+          item.requiredAppVerdict ||
+          "PLAY_RECOGNIZED"
+        ),
+      requiredDeviceVerdicts,
+      requireLicensed:
+        Boolean(item.requireLicensed),
+      maxVerdictAgeSeconds:
+        boundedNumber(
+          item.maxVerdictAgeSeconds,
+          120,
+          30,
+          600
+        )
+    };
+  });
+}
+
 function normalizeKey(item) {
   if (!item || typeof item !== "object") throw new Error("Invalid GeoLive key entry.");
   const scopes = Array.isArray(item.scopes) ? item.scopes.map(String) : [];
@@ -88,6 +224,11 @@ export function loadConfig(env = process.env) {
     throw new Error("Production requires GEOLIVE_PERSISTENCE=postgres.");
   }
 
+  const clientTokenSigningKeys =
+    parseClientTokenKeys(env, isProduction);
+  const playIntegrityApps =
+    parsePlayIntegrityApps(env);
+
   return {
     port: boundedNumber(env.PORT, 8787, 1, 65535),
     isProduction,
@@ -103,6 +244,14 @@ export function loadConfig(env = process.env) {
       sessionHours: boundedNumber(env.GEOLIVE_ADMIN_SESSION_HOURS, 12, 1, 168),
       maxFailedLogins: boundedNumber(env.GEOLIVE_ADMIN_MAX_FAILED_LOGINS, 5, 3, 20),
       lockMinutes: boundedNumber(env.GEOLIVE_ADMIN_LOCK_MINUTES, 15, 1, 1440)
+    },
+    clientTokens: {
+      required:
+        String(
+          env.GEOLIVE_CLIENT_TOKENS_REQUIRED || ""
+        ).toLowerCase() === "true",
+      signingKeys: clientTokenSigningKeys,
+      playIntegrityApps
     },
     realtime: {
       redisUrl: String(env.GEOLIVE_REDIS_URL || "").trim(),

@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.6.0
-  description: Project-scoped live-location API with durable realtime replay, WebSocket rooms, clustering and account-scoped administration.
+  version: 0.7.0
+  description: Project-scoped live-location API with short-lived client tokens, request proof, optional Android attestation, durable realtime replay and account-scoped administration.
 servers:
   - url: https://geolive.example.com
 
@@ -27,6 +27,9 @@ paths:
         - integrationBearer: []
       parameters:
         - $ref: "#/components/parameters/PackageHeader"
+        - $ref: "#/components/parameters/RequestTimestampHeader"
+        - $ref: "#/components/parameters/RequestNonceHeader"
+        - $ref: "#/components/parameters/RequestSignatureHeader"
       requestBody:
         required: true
         content:
@@ -38,6 +41,30 @@ paths:
         "400": { description: Invalid input }
         "401": { description: Missing, invalid, expired or revoked key }
         "403": { description: Scope, project, origin or package restriction denied }
+
+  /v1/client-tokens/exchange:
+    post:
+      operationId: exchangeClientToken
+      description: |
+        Trusted backend exchanges a database-backed tokens:issue key for a
+        short-lived, project/user-bound location:write client token.
+        Android requests may include a Google Play Integrity standard token.
+      security:
+        - integrationBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientTokenExchange"
+      responses:
+        "201": { description: Short-lived client token issued }
+        "400": { description: Invalid exchange, proof key or attestation input }
+        "401": { description: Invalid/expired issuer credential or stale exchange }
+        "403": { description: Package, origin or attestation policy denied }
+        "409": { description: Exchange nonce replayed }
+        "429": { description: Token exchange rate limited }
+        "503": { description: Client-token signing or attestation service unavailable }
 
   /v1/users:
     get:
@@ -354,6 +381,32 @@ paths:
       responses:
         "200": { description: Key revoked }
 
+  /v1/admin/projects/{projectId}/client-security:
+    get:
+      operationId: adminGetClientSecurity
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project client-token, proof and Android attestation policy }
+    patch:
+      operationId: adminUpdateClientSecurity
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientSecurityPolicyPatch"
+      responses:
+        "200": { description: Client security policy updated }
+        "403": { description: Owner/admin role required }
+
   /v1/admin/projects/{projectId}/operations/limits:
     get:
       operationId: adminGetProjectLimits
@@ -442,8 +495,65 @@ components:
       required: false
       description: Required when the integration key defines allowed package IDs. Defense-in-depth until attestation.
       schema: { type: string }
+    RequestTimestampHeader:
+      in: header
+      name: X-GeoLive-Request-Timestamp
+      required: false
+      description: Required for rgl_client_ location writes. Unix epoch milliseconds used for freshness checks.
+      schema: { type: string, pattern: "^[0-9]+$" }
+    RequestNonceHeader:
+      in: header
+      name: X-GeoLive-Request-Nonce
+      required: false
+      description: Required for rgl_client_ location writes; one-time URL-safe request nonce.
+      schema: { type: string, minLength: 16, maxLength: 128 }
+    RequestSignatureHeader:
+      in: header
+      name: X-GeoLive-Request-Signature
+      required: false
+      description: Base64url SHA256withECDSA P-256 signature when the short-lived token is proof-bound.
+      schema: { type: string }
 
   schemas:
+    ClientTokenExchange:
+      type: object
+      required: [userId, platform, clientNonce, clientTimestampMs]
+      additionalProperties: false
+      properties:
+        userId: { type: string, minLength: 1, maxLength: 160 }
+        platform:
+          type: string
+          enum: [android, flutter, web, ios, server]
+        packageId: { type: string, maxLength: 200 }
+        clientNonce: { type: string, minLength: 16, maxLength: 128 }
+        clientTimestampMs: { type: integer, minimum: 1 }
+        proofPublicKey:
+          type: string
+          description: Base64url DER SubjectPublicKeyInfo for an EC P-256 public key.
+        attestation:
+          type: object
+          required: [provider, token]
+          additionalProperties: false
+          properties:
+            provider:
+              type: string
+              enum: [google-play-integrity]
+            token:
+              type: string
+              maxLength: 25000
+
+    ClientSecurityPolicyPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        clientTokenTtlSeconds: { type: integer, minimum: 60, maximum: 3600 }
+        requestMaxAgeSeconds: { type: integer, minimum: 30, maximum: 600 }
+        tokenExchangeRequestsPerMinute: { type: integer, minimum: 1, maximum: 100000 }
+        requireRequestProof: { type: boolean }
+        androidAttestationMode:
+          type: string
+          enum: [off, optional, required]
+
     ProjectLimitsPatch:
       type: object
       additionalProperties: false
@@ -469,7 +579,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [location:write, users:read, summary:read, events:read]
+            enum: [location:write, users:read, summary:read, events:read, tokens:issue]
         allowedOrigins:
           type: array
           maxItems: 50

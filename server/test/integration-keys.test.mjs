@@ -32,6 +32,15 @@ test("API key scopes are allowlisted, deduplicated and split by trust purpose", 
     () => validateApiKeyScopes(["location:write", "users:read"]),
     /separate API keys/
   );
+
+  assert.deepEqual(
+    validateApiKeyScopes(["tokens:issue"]),
+    ["tokens:issue"]
+  );
+  assert.throws(
+    () => validateApiKeyScopes(["tokens:issue", "events:read"]),
+    /separate API keys/
+  );
 });
 
 test("origin and package restrictions normalize safely", () => {

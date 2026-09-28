@@ -160,7 +160,7 @@
         <div><small>INTEGRATION</small><h2>API Keys</h2></div>
         <button type="button" class="close" id="keyModalClose">×</button>
       </div>
-      <p class="modal-help">Create separate ingest and read keys. Full secrets are shown only once.</p>
+      <p class="modal-help">Create separate ingest, read and client-token issuer keys. Full secrets are shown only once.</p>
 
       <div class="secret-reveal" id="secretReveal" hidden>
         <strong>Copy this secret now</strong>
@@ -178,6 +178,7 @@
             <select id="keyType">
               <option value="ingest">Ingest · location:write</option>
               <option value="read">Read · users/summary/events</option>
+              <option value="issuer">Client token issuer · tokens:issue</option>
             </select>
           </label>
           <label>Expires
@@ -240,6 +241,37 @@
         </div>
         <div class="form-error" id="opsError"></div>
         <button type="submit" class="primary-button" id="saveLimits">Save limits</button>
+      </form>
+
+      <form id="clientSecurityForm" class="limits-form">
+        <div class="key-list-head">
+          <h3>Client Security</h3>
+          <span id="clientSecurityStatus"></span>
+        </div>
+        <div class="key-form-grid">
+          <label>Client token TTL (seconds)
+            <input id="clientTokenTtl" type="number" min="60" max="3600" required />
+          </label>
+          <label>Request max age (seconds)
+            <input id="clientRequestMaxAge" type="number" min="30" max="600" required />
+          </label>
+          <label>Token exchanges / minute
+            <input id="clientExchangeMinute" type="number" min="1" max="100000" required />
+          </label>
+          <label>Android attestation
+            <select id="androidAttestationMode">
+              <option value="off">Off</option>
+              <option value="optional">Optional</option>
+              <option value="required">Required</option>
+            </select>
+          </label>
+          <label class="checkbox-label">
+            <input id="requireRequestProof" type="checkbox" />
+            Require P-256 request proof
+          </label>
+        </div>
+        <small id="playIntegrityPackages"></small>
+        <button type="submit" class="primary-button" id="saveClientSecurity">Save client security</button>
       </form>
 
       <div class="key-list-head">
