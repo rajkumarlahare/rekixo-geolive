@@ -987,6 +987,8 @@ function setLimitFields(limits) {
     limits.securityEventRetentionDays;
   document.querySelector("#limitMetricsDays").value =
     limits.metricsRetentionDays;
+  document.querySelector("#limitRealtimeHours").value =
+    limits.realtimeEventRetentionHours;
 
   const writable = canWriteProject();
   document.querySelectorAll("#limitsForm input").forEach((input) => {
@@ -1078,7 +1080,8 @@ document.querySelector("#limitsForm").addEventListener("submit", async (event) =
           maxLiveUsers: Number(document.querySelector("#limitLiveUsers").value),
           historyRetentionDays: Number(document.querySelector("#limitHistoryDays").value),
           securityEventRetentionDays: Number(document.querySelector("#limitSecurityDays").value),
-          metricsRetentionDays: Number(document.querySelector("#limitMetricsDays").value)
+          metricsRetentionDays: Number(document.querySelector("#limitMetricsDays").value),
+          realtimeEventRetentionHours: Number(document.querySelector("#limitRealtimeHours").value)
         })
       }
     );
