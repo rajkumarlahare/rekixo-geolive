@@ -48,6 +48,38 @@ function mapRow(row) {
     status: row.status ?? undefined
   };
 }
+function mapHistoryRow(row) {
+  if (!row) return null;
+  return {
+    historyId: String(row.id),
+    projectId: row.project_id,
+    userId: row.external_user_id,
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    accuracyM:
+      row.accuracy_m == null
+        ? undefined
+        : Number(row.accuracy_m),
+    altitudeM:
+      row.altitude_m == null
+        ? undefined
+        : Number(row.altitude_m),
+    headingDeg:
+      row.heading_deg == null
+        ? undefined
+        : Number(row.heading_deg),
+    speedMps:
+      row.speed_mps == null
+        ? undefined
+        : Number(row.speed_mps),
+    capturedAt: iso(row.captured_at),
+    receivedAt: iso(row.received_at),
+    country: row.country ?? undefined,
+    state: row.state ?? undefined,
+    city: row.city ?? undefined
+  };
+}
+
 
 export class GeoLiveStoreError extends Error {
   constructor(code, status = 400, message = code) {
@@ -643,6 +675,240 @@ export class PostgresGeoLiveStore {
       options
     );
     return page.users;
+  }
+
+  async listMovementHistoryPage(
+    projectId,
+    {
+      userId,
+      from,
+      to,
+      limit = 250,
+      cursor = ""
+    } = {}
+  ) {
+    const pageSize = Math.min(
+      Math.max(Number(limit) || 250, 1),
+      1000
+    );
+    const params = [
+      projectId,
+      userId,
+      from,
+      to
+    ];
+    const where = [
+      "project_id = $1",
+      "external_user_id = $2",
+      "received_at >= $3::timestamptz",
+      "received_at < $4::timestamptz"
+    ];
+
+    if (cursor) {
+      const decoded = decodeCursor(
+        cursor,
+        ["receivedAt", "id"]
+      );
+      const receivedAt =
+        new Date(decoded.receivedAt);
+      if (
+        Number.isNaN(
+          receivedAt.getTime()
+        ) ||
+        !/^\d+$/.test(
+          String(decoded.id)
+        )
+      ) {
+        throw Object.assign(
+          new Error(
+            "invalid_cursor"
+          ),
+          {
+            code: "invalid_cursor",
+            status: 400
+          }
+        );
+      }
+
+      params.push(
+        receivedAt.toISOString(),
+        String(decoded.id)
+      );
+      const timeParam =
+        params.length - 1;
+      const idParam =
+        params.length;
+      where.push(
+        `(
+          received_at < ${timeParam}::timestamptz
+          OR (
+            received_at = ${timeParam}::timestamptz
+            AND id < ${idParam}::bigint
+          )
+        )`
+      );
+    }
+
+    params.push(pageSize + 1);
+    const limitParam =
+      params.length;
+
+    const result =
+      await this.pool.query(
+        `SELECT
+          id,
+          project_id,
+          external_user_id,
+          latitude,
+          longitude,
+          accuracy_m,
+          altitude_m,
+          heading_deg,
+          speed_mps,
+          captured_at,
+          received_at,
+          country,
+          state,
+          city
+        FROM location_history
+        WHERE ${where.join(
+          " AND "
+        )}
+        ORDER BY
+          received_at DESC,
+          id DESC
+        LIMIT ${limitParam}`,
+        params
+      );
+
+    const hasMore =
+      result.rows.length >
+      pageSize;
+    const rows =
+      result.rows.slice(
+        0,
+        pageSize
+      );
+    const points =
+      rows.map(mapHistoryRow);
+    const last =
+      rows.at(-1);
+
+    return {
+      points,
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({
+              receivedAt:
+                iso(
+                  last.received_at
+                ),
+              id: String(last.id)
+            })
+          : null
+    };
+  }
+
+  async heatmapHistory(
+    projectId,
+    {
+      from,
+      to,
+      gridDegrees = 2,
+      userId = ""
+    } = {}
+  ) {
+    const grid = Math.min(
+      Math.max(
+        Number(gridDegrees) || 2,
+        0.25
+      ),
+      45
+    );
+    const params = [
+      projectId,
+      from,
+      to,
+      grid
+    ];
+    const where = [
+      "project_id = $1",
+      "received_at >= $2::timestamptz",
+      "received_at < $3::timestamptz"
+    ];
+
+    if (userId) {
+      params.push(
+        String(userId)
+      );
+      where.push(
+        `external_user_id = ${params.length}`
+      );
+    }
+
+    const result =
+      await this.pool.query(
+        `SELECT
+          (
+            floor(
+              (latitude + 90.0) /
+              $4
+            ) * $4
+            - 90.0
+            + $4 / 2.0
+          )::double precision
+            AS latitude,
+          (
+            floor(
+              (longitude + 180.0) /
+              $4
+            ) * $4
+            - 180.0
+            + $4 / 2.0
+          )::double precision
+            AS longitude,
+          count(*)::int
+            AS count,
+          count(
+            DISTINCT external_user_id
+          )::int
+            AS unique_users,
+          min(received_at)
+            AS first_seen_at,
+          max(received_at)
+            AS last_seen_at
+        FROM location_history
+        WHERE ${where.join(
+          " AND "
+        )}
+        GROUP BY 1, 2
+        ORDER BY count DESC
+        LIMIT 10000`,
+        params
+      );
+
+    return result.rows.map(
+      (row) => ({
+        latitude:
+          Number(row.latitude),
+        longitude:
+          Number(row.longitude),
+        count:
+          Number(row.count),
+        uniqueUsers:
+          Number(
+            row.unique_users
+          ),
+        firstSeenAt:
+          iso(
+            row.first_seen_at
+          ),
+        lastSeenAt:
+          iso(
+            row.last_seen_at
+          )
+      })
+    );
   }
 
   async clusterUsers(
