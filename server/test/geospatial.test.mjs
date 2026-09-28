@@ -247,7 +247,9 @@ test("P4A public history and heatmap routes require scoped project credentials",
     GEOLIVE_DEV_PROJECT_ID:
       "demo-project",
     GEOLIVE_DEV_ADMIN_KEY:
-      readKey
+      readKey,
+    GEOLIVE_DEV_INGEST_KEY:
+      "rgl_dev_ingest_p4a_ci"
   });
   const store =
     new MemoryGeoLiveStore();
@@ -387,6 +389,36 @@ test("P4A public history and heatmap routes require scoped project credentials",
         "movementHistory",
         "heatmap"
       ]
+    );
+
+    const wrongScope = await fetch(
+      base +
+        "/v1/history?" +
+        new URLSearchParams({
+          userId:
+            "route-user",
+          from:
+            "2026-09-28T00:00:00.000Z",
+          to:
+            "2026-09-28T01:00:00.000Z"
+        }),
+      {
+        headers: {
+          authorization:
+            "Bearer rgl_dev_ingest_p4a_ci"
+        }
+      }
+    );
+    assert.equal(
+      wrongScope.status,
+      403
+    );
+    assert.deepEqual(
+      await wrongScope.json(),
+      {
+        error:
+          "insufficient_scope"
+      }
     );
 
     const insufficient = await fetch(
