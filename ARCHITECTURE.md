@@ -66,13 +66,13 @@ Existing trusted long-lived location ingestion remains compatible. Subscription 
 
 Operational usage remains the source of truth. P3 snapshots account usage into `billing_usage_periods` for a calendar period.
 
-The current metering model includes:
+The authoritative billable metering model currently includes:
 
-- ingest requests;
-- read requests;
-- distinct tracked users;
-- client-token exchange requests;
-- durable realtime events.
+- ingest requests from the long-retained daily usage counter;
+- read requests from the long-retained daily usage counter;
+- distinct tracked users from a dedicated daily billing meter.
+
+Tracked-user membership is written transactionally by a PostgreSQL trigger when location history is inserted, so normal location-history/realtime retention does not erase the billing basis. The migration backfills the current calendar month on rollout.
 
 Finalized usage snapshots are immutable from later rollups.
 
