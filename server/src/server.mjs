@@ -25,6 +25,10 @@ import {
 import { createRealtimeGateway } from "./realtime-gateway.mjs";
 import { handleAdminApi } from "./admin-api.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
+import {
+  parseHeatmapQuery,
+  parseMovementHistoryQuery
+} from "./geospatial-validation.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.resolve(__dirname, "../../dashboard");
@@ -346,7 +350,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.8.0"
+          version: "0.9.0"
         });
       }
 
@@ -1203,6 +1207,270 @@ export function createGeoLiveServer({
           },
           {
             ...corsHeaders(origin, config, auth.key),
+            ...operations.headers
+          }
+        );
+      }
+
+      if (
+        req.method === "GET" &&
+        url.pathname === "/v1/history"
+      ) {
+        const startedAt = Date.now();
+        const auth = await authorizePublic(
+          req,
+          "history:read"
+        );
+        if (!auth.ok) {
+          return json(
+            res,
+            auth.status,
+            { error: auth.error }
+          );
+        }
+
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              auth.key.projectId,
+              "movementHistory"
+            );
+        }
+
+        const restrictions =
+          validateClientRestrictions(
+            req,
+            origin,
+            config,
+            auth.key
+          );
+        if (!restrictions.ok) {
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "history.read"
+          );
+          await recordUsage({
+            auth,
+            route: "history.read",
+            statusCode:
+              restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            {
+              error:
+                restrictions.error
+            }
+          );
+        }
+
+        const operations =
+          await enforceOperations(
+            auth,
+            "read",
+            "history.read"
+          );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "history.read",
+            statusCode:
+              operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            {
+              error:
+                operations.error
+            },
+            operations.headers
+          );
+        }
+
+        if (
+          typeof store
+            .listMovementHistoryPage !==
+          "function"
+        ) {
+          return json(res, 501, {
+            error:
+              "movement_history_unavailable"
+          });
+        }
+
+        const query =
+          parseMovementHistoryQuery(
+            url.searchParams
+          );
+        const page =
+          await store
+            .listMovementHistoryPage(
+              auth.key.projectId,
+              query
+            );
+
+        await recordUsage({
+          auth,
+          route: "history.read",
+          statusCode: 200,
+          startedAt
+        });
+        return json(
+          res,
+          200,
+          {
+            projectId:
+              auth.key.projectId,
+            userId: query.userId,
+            window: {
+              from: query.from,
+              to: query.to
+            },
+            ...page
+          },
+          {
+            ...corsHeaders(
+              origin,
+              config,
+              auth.key
+            ),
+            ...operations.headers
+          }
+        );
+      }
+
+      if (
+        req.method === "GET" &&
+        url.pathname === "/v1/heatmap"
+      ) {
+        const startedAt = Date.now();
+        const auth = await authorizePublic(
+          req,
+          "history:read"
+        );
+        if (!auth.ok) {
+          return json(
+            res,
+            auth.status,
+            { error: auth.error }
+          );
+        }
+
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              auth.key.projectId,
+              "heatmap"
+            );
+        }
+
+        const restrictions =
+          validateClientRestrictions(
+            req,
+            origin,
+            config,
+            auth.key
+          );
+        if (!restrictions.ok) {
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "heatmap.read"
+          );
+          await recordUsage({
+            auth,
+            route: "heatmap.read",
+            statusCode:
+              restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            {
+              error:
+                restrictions.error
+            }
+          );
+        }
+
+        const operations =
+          await enforceOperations(
+            auth,
+            "read",
+            "heatmap.read"
+          );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "heatmap.read",
+            statusCode:
+              operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            {
+              error:
+                operations.error
+            },
+            operations.headers
+          );
+        }
+
+        if (
+          typeof store.heatmapHistory !==
+          "function"
+        ) {
+          return json(res, 501, {
+            error: "heatmap_unavailable"
+          });
+        }
+
+        const query =
+          parseHeatmapQuery(
+            url.searchParams
+          );
+        const cells =
+          await store.heatmapHistory(
+            auth.key.projectId,
+            query
+          );
+
+        await recordUsage({
+          auth,
+          route: "heatmap.read",
+          statusCode: 200,
+          startedAt
+        });
+        return json(
+          res,
+          200,
+          {
+            projectId:
+              auth.key.projectId,
+            window: {
+              from: query.from,
+              to: query.to
+            },
+            gridDegrees:
+              query.gridDegrees,
+            userId:
+              query.userId || null,
+            cells
+          },
+          {
+            ...corsHeaders(
+              origin,
+              config,
+              auth.key
+            ),
             ...operations.headers
           }
         );
