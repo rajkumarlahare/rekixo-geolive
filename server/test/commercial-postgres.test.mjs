@@ -163,6 +163,27 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
         error.status === 402
     );
 
+    const inherited =
+      await commercialStore
+        .setEntitlementOverrides({
+          accountId: owner.accountId,
+          actorUserId: owner.userId,
+          overrides: {
+            maxProjects: null
+          }
+        });
+    assert.equal(
+      inherited.effective.maxProjects,
+      3
+    );
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(
+        inherited.overrides,
+        "maxProjects"
+      ),
+      false
+    );
+
     const clientTokenFeature =
       await commercialStore.assertProjectFeature(
         project.id,
