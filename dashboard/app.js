@@ -2388,6 +2388,69 @@ document.querySelector("#billingAccount").addEventListener(
     await loadBilling();
   }
 );
+document.querySelector("#tenantSupportThreadClose").addEventListener(
+  "click",
+  () => {
+    state.tenantSupportCaseId = "";
+    document.querySelector(
+      "#tenantSupportThread"
+    ).hidden = true;
+  }
+);
+
+document.querySelector("#tenantSupportReplyForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (!state.tenantSupportCaseId) return;
+
+    const account =
+      accountById(state.billingAccountId);
+    if (
+      !account ||
+      !["owner", "admin"].includes(
+        account.role
+      )
+    ) {
+      return;
+    }
+
+    const button =
+      document.querySelector(
+        "#tenantSupportReplyButton"
+      );
+    button.disabled = true;
+
+    try {
+      await api(
+        `/v1/admin/support-cases/${state.tenantSupportCaseId}/messages`,
+        {
+          method: "POST",
+          mutate: true,
+          body: JSON.stringify({
+            body:
+              document.querySelector(
+                "#tenantSupportReplyBody"
+              ).value.trim()
+          })
+        }
+      );
+      document.querySelector(
+        "#tenantSupportReplyBody"
+      ).value = "";
+      await loadTenantSupportMessages();
+      await loadBilling();
+    } catch (error) {
+      setText(
+        "billingError",
+        `Could not send reply: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
 document.querySelector("#supportCaseForm").addEventListener(
   "submit",
   async (event) => {
@@ -2447,6 +2510,161 @@ document.querySelector("#refreshPlatform").addEventListener(
   "click",
   loadPlatform
 );
+document.querySelector("#platformAccountDetailClose").addEventListener(
+  "click",
+  () => {
+    state.platform.selectedAccountId = "";
+    state.platform.accountCommercial = null;
+    document.querySelector(
+      "#platformAccountDetail"
+    ).hidden = true;
+  }
+);
+
+document.querySelector("#platformEntitlementForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (
+      !platformCan("superadmin") ||
+      !state.platform.selectedAccountId
+    ) {
+      return;
+    }
+
+    const button =
+      document.querySelector(
+        "#saveEntitlements"
+      );
+    button.disabled = true;
+    setText("platformError", "");
+
+    try {
+      await api(
+        `/v1/platform/accounts/${state.platform.selectedAccountId}/entitlements`,
+        {
+          method: "PATCH",
+          mutate: true,
+          body: JSON.stringify({
+            maxProjects:
+              nullableNumberValue(
+                "entitlementMaxProjects"
+              ),
+            includedIngest:
+              nullableNumberValue(
+                "entitlementIngest"
+              ),
+            includedRead:
+              nullableNumberValue(
+                "entitlementRead"
+              ),
+            includedTrackedUsers:
+              nullableNumberValue(
+                "entitlementUsers"
+              ),
+            realtime:
+              nullableBooleanValue(
+                "entitlementRealtime"
+              ),
+            clientTokens:
+              nullableBooleanValue(
+                "entitlementClientTokens"
+              ),
+            androidAttestation:
+              nullableBooleanValue(
+                "entitlementAttestation"
+              ),
+            prioritySupport:
+              nullableBooleanValue(
+                "entitlementPrioritySupport"
+              )
+          })
+        }
+      );
+      await loadPlatformAccount(
+        state.platform.selectedAccountId
+      );
+      await loadPlatform();
+    } catch (error) {
+      setText(
+        "platformError",
+        `Could not save entitlement overrides: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+document.querySelector("#platformSupportThreadClose").addEventListener(
+  "click",
+  () => {
+    state.platform.selectedSupportCaseId = "";
+    document.querySelector(
+      "#platformSupportThread"
+    ).hidden = true;
+  }
+);
+
+document.querySelector("#platformSupportReplyForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (
+      !platformCan(
+        "superadmin",
+        "support"
+      ) ||
+      !state.platform.selectedSupportCaseId
+    ) {
+      return;
+    }
+
+    const button =
+      document.querySelector(
+        "#platformSupportReplyButton"
+      );
+    button.disabled = true;
+    setText("platformError", "");
+
+    try {
+      await api(
+        `/v1/platform/support-cases/${state.platform.selectedSupportCaseId}/messages`,
+        {
+          method: "POST",
+          mutate: true,
+          body: JSON.stringify({
+            body:
+              document.querySelector(
+                "#platformSupportReplyBody"
+              ).value.trim(),
+            internal:
+              document.querySelector(
+                "#platformSupportInternal"
+              ).checked
+          })
+        }
+      );
+      document.querySelector(
+        "#platformSupportReplyBody"
+      ).value = "";
+      document.querySelector(
+        "#platformSupportInternal"
+      ).checked = false;
+      await loadPlatformSupportMessages();
+      await loadPlatform();
+    } catch (error) {
+      setText(
+        "platformError",
+        `Could not send support message: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+
 document.querySelector("#platformPlanForm").addEventListener(
   "submit",
   async (event) => {
