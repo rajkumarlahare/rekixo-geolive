@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { MemoryGeoLiveStore } from "../src/store-memory.mjs";
 import { presenceStatus } from "../src/status.mjs";
 import { loadConfig, sha256 } from "../src/config.mjs";
-import { authenticate } from "../src/auth.mjs";
+import {
+  authenticate,
+  originAllowed,
+  packageAllowed
+} from "../src/auth.mjs";
 
 test("presence states follow configured thresholds", () => {
   const now = new Date("2026-09-28T00:00:00Z");
@@ -37,14 +41,15 @@ test("memory store isolates projects", async () => {
   assert.equal(b[0].latitude, 30);
 });
 
-test("credential resolves project from the key", () => {
+test("development credential resolves project from the key", () => {
   const secret = "rgl_test_123";
   const key = {
     id: "k1",
     projectId: "locked-project",
     hash: sha256(secret),
     scopes: ["location:write"],
-    allowedOrigins: []
+    allowedOrigins: [],
+    allowedPackages: []
   };
   const req = { headers: { authorization: `Bearer ${secret}` } };
   const auth = authenticate(req, [key], "location:write");
@@ -52,24 +57,48 @@ test("credential resolves project from the key", () => {
   assert.equal(auth.key.projectId, "locked-project");
 });
 
-test("production refuses to start without configured keys", () => {
-  assert.throws(() => loadConfig({ NODE_ENV: "production" }), /GEOLIVE_KEYS_JSON/);
+test("production requires Postgres but no longer requires environment API keys", () => {
+  assert.throws(
+    () => loadConfig({ NODE_ENV: "production" }),
+    /GEOLIVE_PERSISTENCE=postgres/
+  );
+
+  const cfg = loadConfig({
+    NODE_ENV: "production",
+    GEOLIVE_PERSISTENCE: "postgres",
+    DATABASE_URL: "postgresql://example.invalid/geolive",
+    DATABASE_SSL: "disable"
+  });
+  assert.equal(cfg.persistence, "postgres");
+  assert.equal(cfg.keys.length, 0);
 });
 
-
-test("configured key origins are included in preflight allowlist", () => {
+test("legacy environment keys remain readable during P1C migration", () => {
   const cfg = loadConfig({
     NODE_ENV: "production",
     GEOLIVE_PERSISTENCE: "postgres",
     DATABASE_URL: "postgresql://example.invalid/geolive",
     DATABASE_SSL: "disable",
     GEOLIVE_KEYS_JSON: JSON.stringify([{
-      id: "k1",
+      id: "legacy",
       projectId: "p1",
       hash: "a".repeat(64),
       scopes: ["location:write"],
       allowedOrigins: ["https://app.example.com"]
     }])
   });
+  assert.equal(cfg.keys.length, 1);
   assert.deepEqual(cfg.allowedOrigins, ["https://app.example.com"]);
+});
+
+test("per-key origin and package restrictions are exact", () => {
+  const key = {
+    allowedOrigins: ["https://app.example.com"],
+    allowedPackages: ["com.rekixo.app"]
+  };
+  assert.equal(originAllowed("https://app.example.com", key, []), true);
+  assert.equal(originAllowed("https://evil.example.com", key, []), false);
+  assert.equal(packageAllowed("com.rekixo.app", key), true);
+  assert.equal(packageAllowed("com.other.app", key), false);
+  assert.equal(packageAllowed("", key), false);
 });

@@ -22,12 +22,16 @@ data class GeoLiveObservation(
  *
  * The host Android app owns runtime permission prompts, foreground/background
  * location policy, and LocationServices. Never embed a dashboard/admin secret.
- * In production prefer a short-lived location:write token from a trusted backend.
+ *
+ * Long-lived API keys are appropriate only when the host accepts extraction risk.
+ * Prefer the later short-lived-token/attestation path for untrusted clients.
+ * packageId is only defense-in-depth until attestation is enabled.
  */
 class RekixoGeoLiveClient(
     baseUrl: String,
     private val ingestToken: String,
     private val userId: String,
+    private val packageId: String? = null,
     private val executor: Executor = Executors.newSingleThreadExecutor()
 ) {
     private val endpoint = baseUrl.trimEnd('/') + "/v1/locations"
@@ -65,6 +69,9 @@ class RekixoGeoLiveClient(
                     doOutput = true
                     setRequestProperty("Authorization", "Bearer $ingestToken")
                     setRequestProperty("Content-Type", "application/json")
+                    packageId?.takeIf { it.isNotBlank() }?.let {
+                        setRequestProperty("X-GeoLive-Package", it)
+                    }
                 }
 
                 connection.outputStream.use {

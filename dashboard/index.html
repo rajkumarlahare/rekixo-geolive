@@ -16,6 +16,7 @@
       <select id="project" disabled><option>Sign in to continue</option></select>
       <button id="newProject" class="icon-button" title="Create project" disabled>＋</button>
       <button id="editProject" class="icon-button" title="Project settings" disabled>⚙</button>
+      <button id="manageKeys" class="icon-button" title="API keys" disabled>⌘</button>
     </div>
 
     <div class="top-search"><span>⌕</span><input id="search" placeholder="Search User" disabled /></div>
@@ -97,8 +98,8 @@
       </div>
       <section class="api-card">
         <div><h3>Integration</h3><span>Project isolated</span></div>
-        <code>API key lifecycle → P1C</code>
-        <small>Admin sessions are separate from integration credentials.</small>
+        <code>rgl_live_••••••••••••</code>
+        <small>Keys are scoped, revocable and stored only as hashes.</small>
       </section>
       <section>
         <h3>Recent Activity</h3>
@@ -150,6 +151,64 @@
         <button type="submit" class="primary-button">Save</button>
       </div>
     </form>
+  </div>
+
+  <div class="modal-overlay" id="keyModal" hidden>
+    <section class="modal-card key-modal-card">
+      <div class="modal-title">
+        <div><small>INTEGRATION</small><h2>API Keys</h2></div>
+        <button type="button" class="close" id="keyModalClose">×</button>
+      </div>
+      <p class="modal-help">Create separate ingest and read keys. Full secrets are shown only once.</p>
+
+      <div class="secret-reveal" id="secretReveal" hidden>
+        <strong>Copy this secret now</strong>
+        <code id="oneTimeSecret"></code>
+        <button type="button" class="primary-button" id="copySecret">Copy secret</button>
+        <small>GeoLive cannot show this complete secret again.</small>
+      </div>
+
+      <form id="keyForm" class="key-form">
+        <div class="key-form-grid">
+          <label>Name
+            <input id="keyName" maxlength="80" value="Production ingest" required />
+          </label>
+          <label>Key type
+            <select id="keyType">
+              <option value="ingest">Ingest · location:write</option>
+              <option value="read">Read · users/summary/events</option>
+            </select>
+          </label>
+          <label>Expires
+            <select id="keyExpiry">
+              <option value="30">30 days</option>
+              <option value="90" selected>90 days</option>
+              <option value="365">1 year</option>
+              <option value="">No expiry</option>
+            </select>
+          </label>
+        </div>
+
+        <label>Allowed browser origins
+          <textarea id="keyOrigins" rows="2" placeholder="https://app.example.com"></textarea>
+          <small>Optional. One exact origin per line.</small>
+        </label>
+
+        <label>Allowed app packages
+          <textarea id="keyPackages" rows="2" placeholder="com.example.app"></textarea>
+          <small>Optional defense-in-depth restriction; strong binding comes with app attestation.</small>
+        </label>
+
+        <div class="form-error" id="keyError"></div>
+        <button type="submit" class="primary-button" id="createKeyButton">Generate API key</button>
+      </form>
+
+      <div class="key-list-head">
+        <h3>Project keys</h3>
+        <button type="button" class="text-button" id="refreshKeys">Refresh</button>
+      </div>
+      <div class="key-list" id="keyList"></div>
+    </section>
   </div>
 
   <script type="module" src="/dashboard/app.js"></script>

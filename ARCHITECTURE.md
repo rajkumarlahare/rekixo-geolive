@@ -1,123 +1,94 @@
 # Rekixo GeoLive Architecture Contract
 
-Status: **P1B CONTROL-PLANE FOUNDATION**
+Status: **P1C DATABASE CREDENTIAL LIFECYCLE**
 
-## 1. Product boundary
+## Product boundary
 
 GeoLive is reusable infrastructure. FinWorkar, EntroNex, LudoProof, Rekixo AR3D, Rekixo websites and future products are clients/tenants, not the identity of this codebase.
 
 No sibling repository is required to share a database, deployment, secret or source tree with GeoLive.
 
-## 2. Non-invasive integration
+## Non-invasive integration
 
-Integration happens only through explicit API/SDK contracts:
+Integration happens through explicit REST/SDK contracts. GeoLive does not directly read a sibling project's Firebase, D1, PostgreSQL, R2, Firestore or other private application database.
 
-- HTTPS REST API
-- JavaScript SDK
-- Android/Kotlin adapter
-- Flutter/Dart adapter
-- future webhooks/realtime SDKs
-
-GeoLive must never read a sibling project's Firebase, D1, PostgreSQL, R2, Firestore or private application database directly.
-
-## 3. Tenancy and control plane
+## Tenancy
 
 ```text
 Account
   -> Membership (owner/admin/viewer)
   -> Project
-      -> Integration Credentials
+      -> Integration API Keys
       -> Users
       -> live_user_state
       -> location_history
 ```
 
-Every mutable location record is keyed by `project_id`.
+Public API project identity is resolved from the authenticated API key. Admin access is resolved from account membership.
 
-Admin users do not gain access merely by knowing a project ID. Project access is derived from `account_memberships`.
+## Admin authentication
 
-## 4. Admin authentication
+Admin auth and integration-key auth are separate security domains.
 
-Admin authentication is separate from integration API keys.
+Admin:
+- Scrypt password hash
+- opaque DB-backed session token
+- HttpOnly SameSite cookie
+- rotating CSRF token
+- revocable session
 
-- passwords: Scrypt + random salt
-- sessions: opaque random token, hash at rest
-- browser cookie: HttpOnly + SameSite=Strict; Secure in production
-- mutations: rotating CSRF token
-- login lockout: configurable failed-attempt threshold
-- sessions: database-backed and revocable
+Integration:
+- `rgl_live_<prefix>_<secret>`
+- public lookup prefix
+- SHA-256 full-secret hash at rest
+- explicit scopes
+- optional origin/package restrictions
+- expiry/revocation
+- last-used metadata
 
-There is no unauthenticated public admin-signup endpoint in P1B. The first owner is provisioned through the operator bootstrap command.
+The full integration secret is one-time output only.
 
-## 5. Project lifecycle
+## Scope separation
 
-Projects are tenant data, not repositories or deployments.
+Ingest keys use:
 
-Supported states:
+- `location:write`
 
-- `active`: ingestion allowed
-- `suspended`: ingestion blocked; admins may still inspect data
-- `deleted`: hidden from normal admin lists; data is retained until an explicit deletion/retention process
+Read keys use one or more of:
 
-## 6. Integration credentials
+- `users:read`
+- `summary:read`
+- `events:read`
 
-Current P1B runtime keeps the P0/P1A hashed environment credential bridge.
+Write + read scopes are deliberately not combined on one key.
 
-P1C will move generate/revoke/rotate lifecycle into the database and dashboard. Integration credentials remain separate from admin sessions.
+## Project lifecycle
 
-## 7. Location model
+- `active`: API-key authentication and ingestion can proceed.
+- `suspended`: integration authentication is denied; admin inspection remains available.
+- `deleted`: hidden from ordinary control-plane lists; data remains for explicit retention/deletion processing.
 
-A location update is an observation, not an identity authority.
+## Persistence
 
-Required:
+PostgreSQL/PostGIS stores:
 
-- external user ID
-- latitude
-- longitude
+- accounts/projects/memberships
+- admin users/sessions
+- integration API-key metadata/hashes
+- live user state
+- append-only location history
+- audit log
 
-Optional:
+Migrations are immutable and checksum verified.
 
-- accuracy
-- altitude
-- heading
-- speed
-- capture time
-- city/state/country
-- device/app metadata
-- caller-defined safe metadata
+## Compatibility
 
-The server records receive time independently.
+The environment-key bridge remains temporarily readable so an existing P0/P1A/P1B deployment can migrate without an immediate outage. All new credentials should use the P1C database lifecycle.
 
-## 8. Presence model
+## Realtime
 
-Default derived states:
+The foundation currently exposes project-scoped SSE for integration readers. Production scale work may add authenticated WebSocket project rooms and Redis fanout.
 
-- online: last seen <= 120 seconds
-- recent: <= 15 minutes
-- offline: <= 24 hours
-- inactive: > 24 hours
+## Remaining production gates
 
-Thresholds are configuration, not hard-coded tenant identity.
-
-## 9. Durable data separation
-
-Production uses PostgreSQL/PostGIS:
-
-- `live_user_state`: one latest row per project/user
-- `location_history`: append-only observations
-- `admin_users`, `admin_sessions`, `account_memberships`: control plane
-- `audit_log`: admin mutation trail
-
-The live dashboard must not reconstruct current state by scanning full history.
-
-## 10. Realtime
-
-The public API-key foundation exposes Server-Sent Events. Production evolution may add authenticated project rooms with WebSocket/Redis. Admin dashboard data in P1B uses authenticated project reads with refresh polling.
-
-## 11. Sibling-project safety
-
-GeoLive development must not modify production code or infrastructure in sibling repositories merely to make GeoLive work. Each sibling project adopts the API/SDK independently.
-
-## 12. Production gate
-
-Before broad customer rollout, remaining gates include database-backed integration key lifecycle, distributed rate limits, short-lived mobile/web ingest tokens, retention jobs, realtime scale testing, privacy controls and operational monitoring.
+P1D/P1E/P2 include distributed rate limits, pagination, retention, quotas, operational monitoring, scaled realtime, short-lived ingest tokens, app attestation and replay protection.

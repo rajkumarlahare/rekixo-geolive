@@ -1,13 +1,27 @@
 # Universal Integration Guide
 
-GeoLive is designed so existing projects can integrate without architectural rewrites.
+GeoLive is designed so existing projects can integrate without architectural rewrites or direct database coupling.
 
-## REST ingestion
+## 1. Create a project key
+
+From the authenticated GeoLive dashboard, select a project and open **API Keys**.
+
+Create separate credentials:
+
+- ingest key: `location:write`
+- read key: `users:read`, `summary:read`, `events:read`
+
+The full `rgl_live_...` secret is displayed once. Store it in the consuming project's secret manager or trusted backend configuration.
+
+Do not put read/admin credentials in a mobile or browser bundle.
+
+## 2. REST ingestion
 
 ```http
 POST /v1/locations
-Authorization: Bearer <ingest credential or short-lived ingest token>
+Authorization: Bearer rgl_live_<prefix>_<secret>
 Content-Type: application/json
+X-GeoLive-Package: com.example.app
 
 {
   "userId": "user_123",
@@ -19,16 +33,36 @@ Content-Type: application/json
 }
 ```
 
-The project comes from the credential, not from the request body.
+`X-GeoLive-Package` is required only when the key has package restrictions.
 
-## JavaScript
+The project is resolved from the authenticated key. The request body cannot choose another project.
+
+## 3. Browser integrations
+
+Configure exact allowed origins on the key, for example:
+
+```text
+https://app.example.com
+```
+
+Do not include paths.
+
+The browser's Origin header is checked on the authenticated request.
+
+Long-lived secrets in browser JavaScript can be extracted by users. For sensitive production deployments, prefer:
+
+```text
+Browser -> trusted backend -> future short-lived GeoLive token -> GeoLive
+```
+
+## 4. JavaScript SDK
 
 ```js
 import { GeoLiveClient } from "./sdk/javascript/index.mjs";
 
 const geo = new GeoLiveClient({
   baseUrl: "https://geolive.example.com",
-  ingestToken: "<short-lived-token>",
+  ingestToken: "<ingest-key-or-short-lived-token>",
   userId: "user_123"
 });
 
@@ -39,32 +73,54 @@ await geo.sendLocation({
 });
 ```
 
-Call browser tracking only after explicit user permission.
+Call browser geolocation only after explicit user permission.
 
-## Android and Flutter
+## 5. Android
 
-The adapters accept a location observation supplied by the host application. They do not own location permission, background policy or platform location acquisition. This keeps them reusable across FinWorkar and future mobile apps.
+The Android adapter accepts an optional package ID:
 
-## Server projects
-
-Firebase Functions, Node services and Cloudflare Workers can call the REST contract using server-held credentials.
-
-Recommended browser/mobile production path:
-
-```text
-App/Web -> own trusted backend -> short-lived GeoLive ingest token -> GeoLive
+```kotlin
+val geo = RekixoGeoLiveClient(
+    baseUrl = "https://geolive.example.com",
+    ingestToken = "<ingest-key-or-short-lived-token>",
+    userId = userId,
+    packageId = applicationContext.packageName
+)
 ```
 
-## Compatibility reviewed read-only
+Package-header restrictions are defense-in-depth, not cryptographic app identity. The later attestation phase is required for strong binding.
 
-Current sibling repositories were inspected without changing them:
+The host Android app owns runtime permission prompts, foreground/background policy and location acquisition.
 
-- FinWorkar Android: native Kotlin/Android, Google location services, OkHttp capability
-- FinWorkar backend: Node 22 Firebase Functions
-- FinWorkar web / Rekixo site: static Firebase-hosted web surfaces
-- EntroNex: Node 22 API with tenant-scoped credential discipline
-- LudoProof: Kotlin Android + Cloudflare Worker backend
-- Rekixo AR3D Platform: Next/React/Cloudflare multi-project platform
-- Rekixo AR3D Engine: Node/React/Vite/Cloudflare project-neutral engine
+## 6. Flutter
 
-No sibling repository needs modification for the GeoLive foundation.
+The Flutter adapter also accepts `packageId`:
+
+```dart
+final geo = RekixoGeoLiveClient(
+  baseUrl: 'https://geolive.example.com',
+  ingestToken: '<ingest-key-or-short-lived-token>',
+  userId: userId,
+  packageId: 'com.example.app',
+);
+```
+
+## 7. Trusted server projects
+
+Firebase Functions, Node services and other trusted backends can call GeoLive with server-held keys.
+
+For server-to-server usage, keep the key only in the platform's secret store/environment and never log it.
+
+## 8. Key lifecycle
+
+- create -> copy full secret once
+- rotate -> old key is revoked atomically, new secret shown once
+- revoke -> authentication fails immediately
+- expire -> authentication fails after expiry
+- last-used metadata -> visible in dashboard
+
+## 9. Compatibility boundary
+
+GeoLive does not require direct access to a sibling product database. Each product opts in through the API/SDK contract.
+
+Existing sibling repositories remain unchanged until their owners intentionally add a GeoLive integration.

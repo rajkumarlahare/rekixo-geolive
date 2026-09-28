@@ -8,6 +8,13 @@ import {
   verifyPassword
 } from "./passwords.mjs";
 import { AdminStoreError } from "./admin-store-postgres.mjs";
+import {
+  normalizeAllowedOrigins,
+  normalizeAllowedPackages,
+  normalizeExpiry,
+  safeKeyName,
+  validateApiKeyScopes
+} from "./integration-keys.mjs";
 
 const COOKIE_NAME = "geolive_admin_session";
 
@@ -97,7 +104,10 @@ async function requireSession(req, adminStore) {
 
 function requireCsrf(req, session) {
   const value = req.headers["x-csrf-token"];
-  if (typeof value !== "string" || !timingSafeHexEqual(sha256Secret(value), session.csrfHash)) {
+  if (
+    typeof value !== "string" ||
+    !timingSafeHexEqual(sha256Secret(value), session.csrfHash)
+  ) {
     throw new AdminStoreError("csrf_invalid", 403);
   }
 }
@@ -132,6 +142,40 @@ function validateProjectInput(body, { partial = false } = {}) {
   return out;
 }
 
+function validateKeyInput(body, { partial = false } = {}) {
+  const out = {};
+
+  if (!partial || body.name !== undefined) {
+    out.name = safeKeyName(body.name, partial ? undefined : "API key");
+  }
+
+  if (!partial || body.scopes !== undefined) {
+    out.scopes = validateApiKeyScopes(body.scopes);
+  }
+
+  if (body.allowedOrigins !== undefined) {
+    out.allowedOrigins = normalizeAllowedOrigins(body.allowedOrigins);
+  } else if (!partial) {
+    out.allowedOrigins = [];
+  }
+
+  if (body.allowedPackages !== undefined) {
+    out.allowedPackages = normalizeAllowedPackages(body.allowedPackages);
+  } else if (!partial) {
+    out.allowedPackages = [];
+  }
+
+  if (body.expiresAt !== undefined) {
+    out.expiresAt = normalizeExpiry(body.expiresAt);
+  } else if (!partial) {
+    out.expiresAt = new Date(
+      Date.now() + 90 * 24 * 60 * 60 * 1000
+    ).toISOString();
+  }
+
+  return out;
+}
+
 async function sessionPayload(adminStore, session) {
   const [accounts, projects] = await Promise.all([
     adminStore.listAccounts(session.user.id),
@@ -150,6 +194,7 @@ export async function handleAdminApi({
   url,
   config,
   adminStore,
+  keyStore,
   geoStore
 }) {
   if (!url.pathname.startsWith("/v1/admin/")) return false;
@@ -176,7 +221,10 @@ export async function handleAdminApi({
         throw new AdminStoreError("invalid_credentials", 401);
       }
 
-      if (user.locked_until && new Date(user.locked_until).getTime() > Date.now()) {
+      if (
+        user.locked_until &&
+        new Date(user.locked_until).getTime() > Date.now()
+      ) {
         await burnPasswordCheck(body.password);
         throw new AdminStoreError("login_temporarily_locked", 429);
       }
@@ -195,7 +243,9 @@ export async function handleAdminApi({
 
       const rawSession = randomSessionToken();
       const rawCsrf = randomCsrfToken();
-      const expiresAt = new Date(Date.now() + config.admin.sessionHours * 3600 * 1000);
+      const expiresAt = new Date(
+        Date.now() + config.admin.sessionHours * 3600 * 1000
+      );
 
       const created = await adminStore.createSession({
         userId: user.id,
@@ -216,13 +266,18 @@ export async function handleAdminApi({
       };
       const payload = await sessionPayload(adminStore, session);
 
-      sendJson(res, 200, {
-        ...payload,
-        csrfToken: rawCsrf,
-        expiresAt: expiresAt.toISOString()
-      }, {
-        "set-cookie": sessionCookie(rawSession, config)
-      });
+      sendJson(
+        res,
+        200,
+        {
+          ...payload,
+          csrfToken: rawCsrf,
+          expiresAt: expiresAt.toISOString()
+        },
+        {
+          "set-cookie": sessionCookie(rawSession, config)
+        }
+      );
       return true;
     }
 
@@ -230,24 +285,34 @@ export async function handleAdminApi({
 
     if (req.method === "GET" && url.pathname === "/v1/admin/me") {
       const rawCsrf = randomCsrfToken();
-      await adminStore.rotateCsrf(session.sessionId, sha256Secret(rawCsrf));
+      await adminStore.rotateCsrf(
+        session.sessionId,
+        sha256Secret(rawCsrf)
+      );
       const payload = await sessionPayload(adminStore, session);
       sendJson(res, 200, {
         ...payload,
         csrfToken: rawCsrf,
-        expiresAt: session.expiresAt instanceof Date
-          ? session.expiresAt.toISOString()
-          : session.expiresAt
+        expiresAt:
+          session.expiresAt instanceof Date
+            ? session.expiresAt.toISOString()
+            : session.expiresAt
       });
       return true;
     }
 
     if (req.method === "POST" && url.pathname === "/v1/admin/logout") {
       requireCsrf(req, session);
-      await adminStore.revokeSession(session.sessionId, session.user.id);
-      sendJson(res, 200, { ok: true }, {
-        "set-cookie": clearCookie(config)
-      });
+      await adminStore.revokeSession(
+        session.sessionId,
+        session.user.id
+      );
+      sendJson(
+        res,
+        200,
+        { ok: true },
+        { "set-cookie": clearCookie(config) }
+      );
       return true;
     }
 
@@ -261,14 +326,138 @@ export async function handleAdminApi({
       requireCsrf(req, session);
       const body = await readJson(req);
       const accountId = String(body.accountId || "");
-      if (!accountId) throw new AdminStoreError("account_required", 400);
+      if (!accountId) {
+        throw new AdminStoreError("account_required", 400);
+      }
       const input = validateProjectInput(body);
-      const project = await adminStore.createProject(session.user.id, {
-        accountId,
-        ...input
-      });
+      const project = await adminStore.createProject(
+        session.user.id,
+        {
+          accountId,
+          ...input
+        }
+      );
       sendJson(res, 201, { project });
       return true;
+    }
+
+    const keyRoute = url.pathname.match(
+      /^\/v1\/admin\/projects\/([0-9a-f-]{36})\/keys(?:\/([0-9a-f-]{36})(?:\/(rotate|revoke))?)?$/
+    );
+
+    if (keyRoute) {
+      if (!keyStore) {
+        sendJson(res, 503, { error: "api_keys_require_postgres" });
+        return true;
+      }
+
+      const projectId = keyRoute[1];
+      const keyId = keyRoute[2] || "";
+      const action = keyRoute[3] || "";
+
+      if (req.method === "GET" && !keyId) {
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId
+        );
+        const keys = await keyStore.listKeys(projectId);
+        sendJson(res, 200, { projectId, keys });
+        return true;
+      }
+
+      if (req.method === "POST" && !keyId) {
+        requireCsrf(req, session);
+        const project = await adminStore.authorizeProject(
+          session.user.id,
+          projectId,
+          { write: true }
+        );
+        const input = validateKeyInput(await readJson(req));
+
+        const created = await keyStore.createKey({
+          project,
+          actorUserId: session.user.id,
+          ...input
+        });
+
+        sendJson(res, 201, {
+          key: created.key,
+          secret: created.secret,
+          secretShownOnce: true
+        });
+        return true;
+      }
+
+      if (req.method === "PATCH" && keyId && !action) {
+        requireCsrf(req, session);
+        const project = await adminStore.authorizeProject(
+          session.user.id,
+          projectId,
+          { write: true }
+        );
+        const input = validateKeyInput(
+          await readJson(req),
+          { partial: true }
+        );
+        delete input.scopes;
+
+        if (!Object.keys(input).length) {
+          throw new AdminStoreError("empty_api_key_update", 400);
+        }
+
+        const key = await keyStore.updateKey({
+          project,
+          actorUserId: session.user.id,
+          keyId,
+          ...input
+        });
+        sendJson(res, 200, { key });
+        return true;
+      }
+
+      if (
+        req.method === "POST" &&
+        keyId &&
+        action === "rotate"
+      ) {
+        requireCsrf(req, session);
+        const project = await adminStore.authorizeProject(
+          session.user.id,
+          projectId,
+          { write: true }
+        );
+        const rotated = await keyStore.rotateKey({
+          project,
+          actorUserId: session.user.id,
+          keyId
+        });
+        sendJson(res, 201, {
+          key: rotated.key,
+          secret: rotated.secret,
+          secretShownOnce: true
+        });
+        return true;
+      }
+
+      if (
+        req.method === "POST" &&
+        keyId &&
+        action === "revoke"
+      ) {
+        requireCsrf(req, session);
+        const project = await adminStore.authorizeProject(
+          session.user.id,
+          projectId,
+          { write: true }
+        );
+        const key = await keyStore.revokeKey({
+          project,
+          actorUserId: session.user.id,
+          keyId
+        });
+        sendJson(res, 200, { key });
+        return true;
+      }
     }
 
     const projectMatch = url.pathname.match(
@@ -280,7 +469,10 @@ export async function handleAdminApi({
       const resource = projectMatch[2] || "";
 
       if (req.method === "GET" && resource === "users") {
-        await adminStore.authorizeProject(session.user.id, projectId);
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId
+        );
         const users = await geoStore.listUsers(projectId, {
           search: url.searchParams.get("search") || "",
           status: url.searchParams.get("status") || "",
@@ -295,8 +487,14 @@ export async function handleAdminApi({
       }
 
       if (req.method === "GET" && resource === "summary") {
-        await adminStore.authorizeProject(session.user.id, projectId);
-        const summary = await geoStore.summary(projectId, config.thresholds);
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId
+        );
+        const summary = await geoStore.summary(
+          projectId,
+          config.thresholds
+        );
         sendJson(res, 200, { projectId, ...summary });
         return true;
       }
@@ -304,9 +502,15 @@ export async function handleAdminApi({
       if (resource === "" && req.method === "PATCH") {
         requireCsrf(req, session);
         const body = await readJson(req);
-        const patch = validateProjectInput(body, { partial: true });
+        const patch = validateProjectInput(
+          body,
+          { partial: true }
+        );
         if (!Object.keys(patch).length) {
-          throw new AdminStoreError("empty_project_update", 400);
+          throw new AdminStoreError(
+            "empty_project_update",
+            400
+          );
         }
         const project = await adminStore.updateProject(
           session.user.id,
@@ -319,7 +523,10 @@ export async function handleAdminApi({
 
       if (resource === "" && req.method === "DELETE") {
         requireCsrf(req, session);
-        await adminStore.deleteProject(session.user.id, projectId);
+        await adminStore.deleteProject(
+          session.user.id,
+          projectId
+        );
         sendJson(res, 200, { ok: true });
         return true;
       }
@@ -328,10 +535,18 @@ export async function handleAdminApi({
     sendJson(res, 404, { error: "not_found" });
     return true;
   } catch (error) {
-    if (error instanceof AdminStoreError || (error?.status && error?.code)) {
-      sendJson(res, error.status || 400, { error: error.code });
+    if (
+      error instanceof AdminStoreError ||
+      (error?.status && error?.code)
+    ) {
+      sendJson(
+        res,
+        error.status || 400,
+        { error: error.code }
+      );
       return true;
     }
+
     console.error("GeoLive admin API failed", error);
     sendJson(res, 500, { error: "internal_error" });
     return true;

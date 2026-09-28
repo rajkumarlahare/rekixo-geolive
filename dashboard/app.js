@@ -20,7 +20,8 @@ const state = {
   paused: false,
   refreshes: 0,
   pollTimer: null,
-  projectMode: "create"
+  projectMode: "create",
+  keys: []
 };
 
 const colors = {
@@ -111,6 +112,7 @@ function populateProjectSelect() {
   );
   document.querySelector("#newProject").disabled = writableAccounts.length === 0;
   document.querySelector("#editProject").disabled = !canWriteProject();
+  document.querySelector("#manageKeys").disabled = !state.projectId;
 }
 
 function applyIdentity() {
@@ -311,14 +313,18 @@ document.querySelector("#logout").addEventListener("click", async () => {
 projectSelect.addEventListener("change", () => {
   state.projectId = projectSelect.value;
   document.querySelector("#editProject").disabled = !canWriteProject();
+  document.querySelector("#manageKeys").disabled = !state.projectId;
   loadProject();
   startPolling();
 });
 
 document.querySelector("#newProject").addEventListener("click", () => openProjectModal("create"));
 document.querySelector("#editProject").addEventListener("click", () => openProjectModal("edit"));
+document.querySelector("#manageKeys").addEventListener("click", openKeyModal);
 document.querySelector("#projectModalClose").addEventListener("click", closeProjectModal);
 document.querySelector("#projectCancel").addEventListener("click", closeProjectModal);
+document.querySelector("#keyModalClose").addEventListener("click", closeKeyModal);
+document.querySelector("#refreshKeys").addEventListener("click", loadKeys);
 
 function slugify(value) {
   return String(value || "")
@@ -448,6 +454,214 @@ document.querySelector("#deleteProject").addEventListener("click", async () => {
     hydrateSession(me);
   } catch (error) {
     setText("projectError", `Could not delete project: ${error.code}`);
+  }
+});
+
+
+function parseLines(value) {
+  return [...new Set(
+    String(value || "")
+      .split(/[\n,]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  )];
+}
+
+function formatKeyTime(value) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+async function openKeyModal() {
+  if (!state.projectId) return;
+  setText("keyError", "");
+  document.querySelector("#secretReveal").hidden = true;
+  document.querySelector("#oneTimeSecret").textContent = "";
+  document.querySelector("#keyForm").hidden = !canWriteProject();
+  document.querySelector("#keyModal").hidden = false;
+  await loadKeys();
+}
+
+function closeKeyModal() {
+  document.querySelector("#oneTimeSecret").textContent = "";
+  document.querySelector("#secretReveal").hidden = true;
+  document.querySelector("#keyModal").hidden = true;
+}
+
+function revealSecret(secret) {
+  document.querySelector("#oneTimeSecret").textContent = secret;
+  document.querySelector("#secretReveal").hidden = false;
+}
+
+async function loadKeys() {
+  const project = projectById();
+  if (!project) return;
+  try {
+    const payload = await api(`/v1/admin/projects/${project.id}/keys`);
+    state.keys = payload.keys || [];
+    renderKeys();
+  } catch (error) {
+    setText("keyError", `Could not load keys: ${error.code}`);
+  }
+}
+
+function renderKeys() {
+  const list = document.querySelector("#keyList");
+  list.replaceChildren();
+
+  if (!state.keys.length) {
+    const empty = document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent = "No API keys for this project yet.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const key of state.keys) {
+    const row = document.createElement("div");
+    row.className = "key-row";
+
+    const identity = document.createElement("div");
+    const name = document.createElement("strong");
+    name.textContent = key.name;
+    const prefix = document.createElement("code");
+    prefix.textContent = key.prefix + "_••••••";
+    const status = document.createElement("span");
+    status.className = `key-status ${key.status}`;
+    status.textContent = key.status;
+    identity.append(name, prefix, status);
+
+    const times = document.createElement("div");
+    const expiry = document.createElement("small");
+    expiry.textContent = `Expires: ${formatKeyTime(key.expiresAt)}`;
+    const used = document.createElement("small");
+    used.textContent = `Last used: ${formatKeyTime(key.lastUsedAt)}`;
+    times.append(expiry, document.createElement("br"), used);
+
+    const scopes = document.createElement("div");
+    scopes.className = "key-scopes";
+    for (const scope of key.scopes || []) {
+      const chip = document.createElement("span");
+      chip.className = "scope-chip";
+      chip.textContent = scope;
+      scopes.appendChild(chip);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "key-actions";
+    if (canWriteProject() && key.status === "active") {
+      const rotate = document.createElement("button");
+      rotate.type = "button";
+      rotate.textContent = "Rotate";
+      rotate.addEventListener("click", () => rotateKey(key));
+
+      const revoke = document.createElement("button");
+      revoke.type = "button";
+      revoke.className = "revoke";
+      revoke.textContent = "Revoke";
+      revoke.addEventListener("click", () => revokeKey(key));
+      actions.append(rotate, revoke);
+    }
+
+    row.append(identity, times, scopes, actions);
+    list.appendChild(row);
+  }
+}
+
+document.querySelector("#keyType").addEventListener("change", (event) => {
+  document.querySelector("#keyName").value =
+    event.target.value === "read" ? "Production read" : "Production ingest";
+});
+
+document.querySelector("#keyForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const project = projectById();
+  if (!project || !canWriteProject(project)) return;
+
+  setText("keyError", "");
+  const button = document.querySelector("#createKeyButton");
+  button.disabled = true;
+
+  try {
+    const type = document.querySelector("#keyType").value;
+    const days = document.querySelector("#keyExpiry").value;
+    const expiresAt = days
+      ? new Date(Date.now() + Number(days) * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+
+    const payload = await api(`/v1/admin/projects/${project.id}/keys`, {
+      method: "POST",
+      mutate: true,
+      body: JSON.stringify({
+        name: document.querySelector("#keyName").value.trim(),
+        scopes: type === "read"
+          ? ["users:read", "summary:read", "events:read"]
+          : ["location:write"],
+        allowedOrigins: parseLines(document.querySelector("#keyOrigins").value),
+        allowedPackages: parseLines(document.querySelector("#keyPackages").value),
+        expiresAt
+      })
+    });
+
+    revealSecret(payload.secret);
+    document.querySelector("#keyOrigins").value = "";
+    document.querySelector("#keyPackages").value = "";
+    await loadKeys();
+  } catch (error) {
+    const messages = {
+      invalid_allowed_origins: "Use exact origins such as https://app.example.com.",
+      invalid_allowed_packages: "Use valid app package IDs such as com.example.app.",
+      mixed_key_scopes_not_allowed: "Use separate ingest and read keys.",
+      invalid_key_expiry: "Choose a valid future expiry.",
+      project_write_forbidden: "Your role is read-only."
+    };
+    setText("keyError", messages[error.code] || `Could not create key: ${error.code}`);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+async function rotateKey(key) {
+  if (!confirm(`Rotate "${key.name}"? The current secret will stop working immediately.`)) return;
+  setText("keyError", "");
+  try {
+    const payload = await api(
+      `/v1/admin/projects/${state.projectId}/keys/${key.id}/rotate`,
+      { method: "POST", mutate: true }
+    );
+    revealSecret(payload.secret);
+    await loadKeys();
+  } catch (error) {
+    setText("keyError", `Could not rotate key: ${error.code}`);
+  }
+}
+
+async function revokeKey(key) {
+  if (!confirm(`Revoke "${key.name}"? This cannot be undone.`)) return;
+  setText("keyError", "");
+  try {
+    await api(
+      `/v1/admin/projects/${state.projectId}/keys/${key.id}/revoke`,
+      { method: "POST", mutate: true }
+    );
+    await loadKeys();
+  } catch (error) {
+    setText("keyError", `Could not revoke key: ${error.code}`);
+  }
+}
+
+document.querySelector("#copySecret").addEventListener("click", async () => {
+  const secret = document.querySelector("#oneTimeSecret").textContent;
+  if (!secret) return;
+  try {
+    await navigator.clipboard.writeText(secret);
+    document.querySelector("#copySecret").textContent = "Copied";
+    setTimeout(() => {
+      document.querySelector("#copySecret").textContent = "Copy secret";
+    }, 1200);
+  } catch {
+    setText("keyError", "Clipboard access failed. Select and copy the secret manually.");
   }
 });
 

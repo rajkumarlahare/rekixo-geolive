@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import { sha256 } from "./config.mjs";
 
 function constantTimeHexEqual(a, b) {
-  if (!/^[a-f0-9]{64}$/i.test(a) || !/^[a-f0-9]{64}$/i.test(b)) return false;
-  return crypto.timingSafeEqual(Buffer.from(a, "hex"), Buffer.from(b, "hex"));
+  if (!/^[a-f0-9]{64}$/i.test(String(a)) || !/^[a-f0-9]{64}$/i.test(String(b))) return false;
+  return crypto.timingSafeEqual(Buffer.from(String(a), "hex"), Buffer.from(String(b), "hex"));
 }
 
 export function extractCredential(req) {
@@ -26,8 +26,38 @@ export function authenticate(req, keys, requiredScope) {
   return { ok: true, key: record };
 }
 
+export async function authenticateRequest(req, {
+  keyStore = null,
+  environmentKeys = []
+} = {}, requiredScope) {
+  const presented = extractCredential(req);
+  if (!presented) return { ok: false, status: 401, error: "missing_credential" };
+
+  if (keyStore && presented.startsWith("rgl_live_")) {
+    const result = await keyStore.authenticateSecret(presented, requiredScope);
+    if (result.ok || result.error !== "invalid_credential") {
+      return result;
+    }
+  }
+
+  return authenticate(req, environmentKeys, requiredScope);
+}
+
 export function originAllowed(origin, key, globalAllowed = []) {
   if (!origin) return true;
-  const allowed = new Set([...(globalAllowed || []), ...(key?.allowedOrigins || [])]);
-  return allowed.has(origin);
+
+  const keyAllowed = key?.allowedOrigins || [];
+  if (keyAllowed.length > 0) return keyAllowed.includes(origin);
+
+  const global = globalAllowed || [];
+  if (global.length > 0) return global.includes(origin);
+
+  return false;
+}
+
+export function packageAllowed(packageId, key) {
+  const allowed = key?.allowedPackages || [];
+  if (allowed.length === 0) return true;
+  if (!packageId) return false;
+  return allowed.includes(String(packageId));
 }
