@@ -40,7 +40,7 @@ Plan configuration supports:
 
 Account entitlement overrides take precedence over plan defaults for supported limit/feature keys. Sending `null` for an override removes that row and restores inheritance from the plan.
 
-Current enforced entitlements include project count, public integration realtime, P2 client tokens and Android attestation.
+P3 core enforcement includes project count, public integration realtime, P2 client tokens and Android attestation. P4A additionally uses `movementHistory` and `heatmap` feature entitlements.
 
 ## Subscription states
 
