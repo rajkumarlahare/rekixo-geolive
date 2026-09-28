@@ -13,11 +13,15 @@ const state = {
   projects: [],
   billingAccountId: "",
   commercial: null,
+  tenantSupportCaseId: "",
   platform: {
     plans: [],
     accounts: [],
     supportCases: [],
-    overview: null
+    overview: null,
+    selectedAccountId: "",
+    accountCommercial: null,
+    selectedSupportCaseId: ""
   },
   projectId: "",
   users: [],
@@ -1466,6 +1470,8 @@ function platformMoneySummary(byCurrency, key) {
 async function loadPlatform() {
   setText("platformError", "");
   try {
+    const canReadSupport =
+      platformCan("superadmin", "support", "viewer");
     const [
       overviewPayload,
       plansPayload,
@@ -1475,17 +1481,48 @@ async function loadPlatform() {
       api("/v1/platform/overview"),
       api("/v1/platform/plans"),
       api("/v1/platform/accounts?limit=200"),
-      api("/v1/platform/support-cases?limit=100")
+      canReadSupport
+        ? api("/v1/platform/support-cases?limit=100")
+        : Promise.resolve({ supportCases: [] })
     ]);
+
+    const selectedAccountId =
+      state.platform.selectedAccountId || "";
+    const selectedSupportCaseId =
+      state.platform.selectedSupportCaseId || "";
 
     state.platform = {
       overview: overviewPayload.overview,
       plans: plansPayload.plans || [],
       accounts: accountsPayload.accounts || [],
       supportCases:
-        supportPayload.supportCases || []
+        supportPayload.supportCases || [],
+      selectedAccountId,
+      accountCommercial:
+        state.platform.accountCommercial || null,
+      selectedSupportCaseId
     };
     renderPlatform();
+
+    if (
+      selectedAccountId &&
+      state.platform.accounts.some(
+        (account) => account.id === selectedAccountId
+      )
+    ) {
+      await loadPlatformAccount(selectedAccountId);
+    }
+    if (
+      selectedSupportCaseId &&
+      state.platform.supportCases.some(
+        (supportCase) =>
+          supportCase.id === selectedSupportCaseId
+      )
+    ) {
+      await loadPlatformSupportMessages(
+        selectedSupportCaseId
+      );
+    }
   } catch (error) {
     setText(
       "platformError",
