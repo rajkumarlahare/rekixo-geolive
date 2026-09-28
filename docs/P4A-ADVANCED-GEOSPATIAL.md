@@ -24,6 +24,8 @@ P4A adds indexes for:
 (project_id, external_user_id, received_at DESC, id DESC)
 ```
 
+Migration 008 is explicitly marked nontransactional so these indexes are built with `CREATE INDEX CONCURRENTLY`, avoiding a long write lock on an existing production history table. The migration runner only splits files that opt in with the GeoLive nontransactional marker; each split statement in such a migration must be retry-safe/idempotent.
+
 No sibling-project database is accessed and no second raw-location copy is created.
 
 ## Authorization
