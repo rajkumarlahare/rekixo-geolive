@@ -21,8 +21,18 @@ test("API key scopes are allowlisted, deduplicated and split by trust purpose", 
     ["location:write"]
   );
   assert.deepEqual(
-    validateApiKeyScopes(["users:read", "summary:read", "events:read"]),
-    ["users:read", "summary:read", "events:read"]
+    validateApiKeyScopes([
+      "users:read",
+      "history:read",
+      "summary:read",
+      "events:read"
+    ]),
+    [
+      "users:read",
+      "history:read",
+      "summary:read",
+      "events:read"
+    ]
   );
   assert.throws(
     () => validateApiKeyScopes(["admin:write"]),
