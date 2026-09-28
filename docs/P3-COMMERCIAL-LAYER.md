@@ -40,7 +40,7 @@ Plan configuration supports:
 
 Account entitlement overrides take precedence over plan defaults for supported limit/feature keys.
 
-Current enforced entitlements include project count, P2 client tokens and Android attestation.
+Current enforced entitlements include project count, public integration realtime, P2 client tokens and Android attestation.
 
 ## Subscription states
 
