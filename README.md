@@ -6,76 +6,81 @@ The core boundary is:
 
 > Projects integrate with GeoLive through a stable API/SDK contract. GeoLive does not directly depend on, edit, or share private databases with sibling products.
 
-## Current foundation
+## Current implementation
 
-Implemented:
+P0 + P1A + P1B now provide:
 
 - project-scoped location ingestion
-- project-scoped user list and summary APIs
-- online / recent / offline / inactive presence states
-- server-sent real-time events
-- dark live-globe dashboard prototype
-- JavaScript SDK
-- Android/Kotlin transport adapter
-- Flutter/Dart transport adapter
-- **durable PostgreSQL + PostGIS store**
-- latest-state + append-only history transaction
-- immutable checksum-verified database migrations
-- PostGIS indexes
-- graceful database shutdown/readiness
-- OpenAPI contract
-- CI with real PostGIS integration tests
+- online / recent / offline / inactive presence
+- durable PostgreSQL + PostGIS live/history storage
+- immutable checksum-verified migrations
+- dark live-globe dashboard
+- admin login with Scrypt password hashing
+- database-backed revocable admin sessions
+- HttpOnly SameSite session cookie + rotating CSRF token
+- account memberships: owner/admin/viewer
+- project create/select/edit/suspend/soft-delete
+- account/project authorization on dashboard reads
+- audit records for admin/project mutations
+- JavaScript, Android/Kotlin and Flutter integration adapters
+- CI against a real PostGIS service
 
-Memory persistence remains available for local demos only. **Production refuses to use the memory store.**
+Only the `rekixo-geolive` repository is changed by this product. Existing sibling repositories remain independently deployable.
 
-## Durable Postgres setup
+## Production database setup
 
-1. Create a PostgreSQL database with PostGIS available.
-2. Configure:
+Configure PostgreSQL/PostGIS:
 
 ```text
+NODE_ENV=production
 GEOLIVE_PERSISTENCE=postgres
 DATABASE_URL=postgresql://...
 DATABASE_SSL=verify-full
 ```
 
-3. Apply immutable migrations:
+Apply migrations:
 
 ```bash
 npm ci
 npm run migrate
 ```
 
-4. Until the Admin/Project UI is built, provision a project from the operator CLI:
+## Create the first owner
+
+There is no public unauthenticated admin-signup endpoint.
+
+Create the first owner through the operator command:
 
 ```bash
-npm run db:bootstrap -- finworkar "FinWorkar"
+GEOLIVE_BOOTSTRAP_PASSWORD="your-strong-password" \
+npm run admin:bootstrap -- admin@example.com "Admin Name" "Rekixo"
 ```
 
-The command prints the database project UUID. Use that UUID as the `projectId` in the currently configured hashed runtime key record.
+Then open the dashboard and sign in.
 
-5. Start:
+If a P1A account already exists, set:
 
-```bash
-npm start
+```text
+GEOLIVE_BOOTSTRAP_ACCOUNT_ID=<account-uuid>
 ```
 
-The production process fails closed if Postgres/PostGIS/migrations are not ready.
+before running the bootstrap command.
 
-## Repository boundary
+## Project lifecycle
 
-Only this repository contains GeoLive changes. Existing sibling repositories remain read-only references for compatibility and do not need to be modified or redeployed.
+Projects are tenant data inside GeoLive.
 
-## Credential model
+- `active`: ingestion allowed
+- `suspended`: new ingestion is rejected; admins can still inspect historical/current state
+- `deleted`: hidden from normal project lists; data is retained for an explicit later deletion workflow
 
-A credential is bound to exactly one project and minimal scopes:
+Creating a new customer project does not create a new code repository or deployment.
 
-- ingestion: `location:write`
-- dashboard: `users:read`, `summary:read`, `events:read`
+## Integration credentials
 
-The client does not select its authoritative tenant through an arbitrary request-body `projectId`; authentication resolves it first.
+Admin sessions and integration API keys are separate security domains.
 
-The next control-plane phase will move key lifecycle (generate/revoke/rotate) fully into Postgres/Admin APIs. Until then, production runtime keys remain supplied as hashed `GEOLIVE_KEYS_JSON`.
+P1B still uses the hashed `GEOLIVE_KEYS_JSON` bridge for app/server integration credentials. **P1C is the next phase**: database-backed `rgl_live_...` key generate/revoke/rotate lifecycle and dashboard controls.
 
 ## Verification
 
@@ -83,7 +88,7 @@ The next control-plane phase will move key lifecycle (generate/revoke/rotate) fu
 npm run check
 ```
 
-CI also boots a real PostGIS database, applies migrations and verifies that the same external user ID can exist in two projects without crossing tenant boundaries.
+CI runs both normal verification and Postgres/PostGIS integration tests, including admin role enforcement and project isolation.
 
 See:
 
@@ -91,6 +96,6 @@ See:
 - [Security](SECURITY.md)
 - [Integration guide](docs/INTEGRATION.md)
 - [P1A durable Postgres](docs/P1A-DURABLE-POSTGRES.md)
+- [P1B admin control plane](docs/P1B-ADMIN-CONTROL-PLANE.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
-- [Sibling repository safety](docs/REPOSITORY-SAFETY.md)
 - [OpenAPI](openapi.yaml)

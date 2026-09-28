@@ -30,6 +30,14 @@ function mapRow(row) {
   };
 }
 
+export class GeoLiveStoreError extends Error {
+  constructor(code, status = 400, message = code) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
 export class PostgresGeoLiveStore {
   kind = "postgres";
 
@@ -68,6 +76,17 @@ export class PostgresGeoLiveStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+
+      const project = await client.query(
+        "SELECT status FROM projects WHERE id = $1 FOR SHARE",
+        [projectId]
+      );
+      if (!project.rows.length) {
+        throw new GeoLiveStoreError("project_not_found", 404);
+      }
+      if (project.rows[0].status !== "active") {
+        throw new GeoLiveStoreError("project_not_active", 403);
+      }
 
       await client.query(
         `INSERT INTO users (

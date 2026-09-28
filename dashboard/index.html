@@ -10,11 +10,21 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="brand-icon">◎</span><strong>Rekixo <em>GeoLive</em></strong></div>
-    <label class="project-label">Project
-      <select id="project"><option>Demo Project</option></select>
-    </label>
-    <div class="top-search"><span>⌕</span><input id="search" placeholder="Search User" /></div>
-    <div class="avatar">RK</div>
+
+    <div class="project-switcher">
+      <span>Project</span>
+      <select id="project" disabled><option>Sign in to continue</option></select>
+      <button id="newProject" class="icon-button" title="Create project" disabled>＋</button>
+      <button id="editProject" class="icon-button" title="Project settings" disabled>⚙</button>
+    </div>
+
+    <div class="top-search"><span>⌕</span><input id="search" placeholder="Search User" disabled /></div>
+
+    <div class="admin-user">
+      <div class="avatar" id="avatar">RK</div>
+      <div class="admin-meta"><strong id="adminName">Admin</strong><small id="adminEmail">Not signed in</small></div>
+      <button id="logout" class="text-button" hidden>Logout</button>
+    </div>
   </header>
 
   <main class="shell">
@@ -47,7 +57,7 @@
         <article><span class="metric-icon green">●</span><div><small>Online</small><strong id="online">0</strong><p>Live now</p></div></article>
         <article><span class="metric-icon red">●</span><div><small>Offline</small><strong id="offline">0</strong><p>Seen earlier</p></div></article>
         <article><span class="metric-icon amber">⌁</span><div><small>Recent</small><strong id="recent">0</strong><p>Recently active</p></div></article>
-        <article><span class="metric-icon cyan">▤</span><div><small>Updates</small><strong id="updates">0</strong><p>This demo session</p></div></article>
+        <article><span class="metric-icon cyan">▤</span><div><small>Refreshes</small><strong id="updates">0</strong><p>Authenticated reads</p></div></article>
       </section>
 
       <section class="globe-card">
@@ -61,7 +71,15 @@
           <span><i class="dot inactive"></i>Inactive</span>
         </div>
         <div class="live-badge"><span><i class="dot online"></i> LIVE</span><small>Users online</small><strong id="liveBadge">0</strong></div>
-        <div class="globe-footer"><span>Showing <b id="showingCount">0</b> users</span><span><i class="dot online"></i> Data updates in real time</span><span id="lastUpdated">Last updated: just now</span></div>
+        <div class="empty-state" id="emptyState">
+          <strong>Select a project</strong>
+          <span>Live project users will appear here.</span>
+        </div>
+        <div class="globe-footer">
+          <span>Showing <b id="showingCount">0</b> users</span>
+          <span id="projectState">No project selected</span>
+          <span id="lastUpdated">Last updated: —</span>
+        </div>
       </section>
     </section>
 
@@ -78,9 +96,9 @@
         <p><span>Last seen</span><b id="detailSeen">—</b></p>
       </div>
       <section class="api-card">
-        <div><h3>Integration</h3><span>SDK / API</span></div>
-        <code>rgl_••••••••••••••••••••</code>
-        <small>Never expose admin/read credentials in a client app.</small>
+        <div><h3>Integration</h3><span>Project isolated</span></div>
+        <code>API key lifecycle → P1C</code>
+        <small>Admin sessions are separate from integration credentials.</small>
       </section>
       <section>
         <h3>Recent Activity</h3>
@@ -88,6 +106,51 @@
       </section>
     </aside>
   </main>
+
+  <div class="auth-overlay" id="authOverlay">
+    <form class="auth-card" id="loginForm">
+      <div class="auth-logo">◎</div>
+      <h1>Rekixo GeoLive</h1>
+      <p>Sign in to your control plane.</p>
+      <label>Email<input id="loginEmail" type="email" autocomplete="username" required /></label>
+      <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required minlength="12" /></label>
+      <button type="submit" class="primary-button" id="loginButton">Sign in</button>
+      <div class="form-error" id="loginError"></div>
+    </form>
+  </div>
+
+  <div class="modal-overlay" id="projectModal" hidden>
+    <form class="modal-card" id="projectForm">
+      <div class="modal-title">
+        <div><small>PROJECT</small><h2 id="projectModalTitle">Create project</h2></div>
+        <button type="button" class="close" id="projectModalClose">×</button>
+      </div>
+
+      <label id="accountField">Account
+        <select id="projectAccount"></select>
+      </label>
+      <label>Name
+        <input id="projectName" maxlength="120" required />
+      </label>
+      <label>Slug
+        <input id="projectSlug" maxlength="63" pattern="[a-z0-9][a-z0-9-]{1,62}" required />
+      </label>
+      <label id="statusField">Status
+        <select id="projectStatus">
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+        </select>
+      </label>
+
+      <div class="form-error" id="projectError"></div>
+      <div class="modal-actions">
+        <button type="button" class="danger-button" id="deleteProject" hidden>Delete project</button>
+        <span></span>
+        <button type="button" class="text-button" id="projectCancel">Cancel</button>
+        <button type="submit" class="primary-button">Save</button>
+      </div>
+    </form>
+  </div>
 
   <script type="module" src="/dashboard/app.js"></script>
 </body>

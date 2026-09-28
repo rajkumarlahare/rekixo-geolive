@@ -6,14 +6,24 @@ import { loadConfig } from "./config.mjs";
 import { authenticate, originAllowed } from "./auth.mjs";
 import { MemoryGeoLiveStore } from "./store-memory.mjs";
 import { createConfiguredStore } from "./store-factory.mjs";
+import { PostgresAdminStore } from "./admin-store-postgres.mjs";
+import { handleAdminApi } from "./admin-api.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.resolve(__dirname, "../../dashboard");
 
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "x-frame-options": "DENY",
+  "permissions-policy": "geolocation=(), camera=(), microphone=()"
+};
+
 function json(res, status, payload, headers = {}) {
   const body = JSON.stringify(payload);
   res.writeHead(status, {
+    ...SECURITY_HEADERS,
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
     ...headers
@@ -41,7 +51,7 @@ function corsHeaders(origin, config, key) {
   if (!origin || !originAllowed(origin, key, config.allowedOrigins)) return {};
   return {
     "access-control-allow-origin": origin,
-    "vary": "Origin",
+    vary: "Origin",
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key",
     "access-control-max-age": "600"
@@ -63,6 +73,8 @@ async function serveDashboard(res, pathname) {
   try {
     const content = await fs.readFile(path.join(dashboardDir, relative));
     res.writeHead(200, {
+      ...SECURITY_HEADERS,
+      "content-security-policy": "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
       "content-type": MIME[path.extname(relative)] || "application/octet-stream",
       "cache-control": relative === "index.html" ? "no-store" : "public, max-age=300"
     });
@@ -75,7 +87,8 @@ async function serveDashboard(res, pathname) {
 
 export function createGeoLiveServer({
   config = loadConfig(),
-  store = new MemoryGeoLiveStore()
+  store = new MemoryGeoLiveStore(),
+  adminStore = null
 } = {}) {
   const eventClients = new Map();
 
@@ -95,8 +108,22 @@ export function createGeoLiveServer({
         if (origin && !config.allowedOrigins.includes(origin)) {
           return json(res, 403, { error: "origin_not_allowed" });
         }
-        res.writeHead(204, corsHeaders(origin, config));
+        res.writeHead(204, {
+          ...SECURITY_HEADERS,
+          ...corsHeaders(origin, config)
+        });
         return res.end();
+      }
+
+      if (await handleAdminApi({
+        req,
+        res,
+        url,
+        config,
+        adminStore,
+        geoStore: store
+      })) {
+        return;
       }
 
       if (req.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/dashboard"))) {
@@ -107,7 +134,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.2.0"
+          version: "0.3.0"
         });
       }
 
@@ -115,15 +142,20 @@ export function createGeoLiveServer({
         const persistenceReady = typeof store.ready === "function"
           ? await store.ready()
           : true;
+        const adminReady = adminStore
+          ? await adminStore.ready()
+          : !config.isProduction;
         const ready = config.keys.length > 0
           && persistenceReady
+          && adminReady
           && (!config.isProduction || config.persistence === "postgres");
 
         return json(res, ready ? 200 : 503, {
           ready,
           credentialCount: config.keys.length,
           persistence: config.persistence,
-          persistenceReady
+          persistenceReady,
+          adminReady
         });
       }
 
@@ -196,6 +228,7 @@ export function createGeoLiveServer({
         }
 
         res.writeHead(200, {
+          ...SECURITY_HEADERS,
           ...headers,
           "content-type": "text/event-stream",
           "cache-control": "no-cache, no-transform",
@@ -224,6 +257,9 @@ export function createGeoLiveServer({
       if (error instanceof InputError) {
         return json(res, 400, { error: error.code });
       }
+      if (error?.status && error?.code) {
+        return json(res, error.status, { error: error.code });
+      }
       console.error("GeoLive request failed", error);
       return json(res, 500, { error: "internal_error" });
     }
@@ -233,12 +269,16 @@ export function createGeoLiveServer({
 async function start() {
   const config = loadConfig();
   const store = await createConfiguredStore(config);
+  const adminStore = config.persistence === "postgres"
+    ? new PostgresAdminStore({ pool: store.pool })
+    : null;
 
   if (config.persistence === "postgres" && typeof store.assertReady === "function") {
     await store.assertReady();
+    await adminStore.assertReady();
   }
 
-  const server = createGeoLiveServer({ config, store });
+  const server = createGeoLiveServer({ config, store, adminStore });
   server.listen(config.port, () => {
     console.log(
       `Rekixo GeoLive listening on http://localhost:${config.port} (${config.persistence})`
