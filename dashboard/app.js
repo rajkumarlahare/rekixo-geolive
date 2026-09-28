@@ -43,7 +43,11 @@ const state = {
   realtimeSequence: "0",
   realtimeProjectId: "",
   clusterRefreshTimer: null,
-  liveRefreshTimer: null
+  liveRefreshTimer: null,
+  selectedUserId: "",
+  historyPoints: [],
+  heatmapCells: [],
+  geospatialMode: ""
 };
 
 const colors = {
@@ -163,6 +167,7 @@ function populateProjectSelect() {
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#loadHeatmap").disabled = !state.projectId;
   document.querySelector("#manageBilling").disabled =
     state.accounts.length === 0;
   document.querySelector("#platformConsole").hidden =
@@ -182,6 +187,10 @@ function resetData() {
   state.filtered = [];
   state.clusters = [];
   state.useClusters = false;
+  state.selectedUserId = "";
+  state.historyPoints = [];
+  state.heatmapCells = [];
+  state.geospatialMode = "";
   state.summary = { total: 0, online: 0, recent: 0, offline: 0, inactive: 0 };
   state.refreshes = 0;
   updateStats();
@@ -190,6 +199,16 @@ function resetData() {
   document.querySelector("#emptyState").hidden = false;
   setText("projectState", "No project selected");
   setText("lastUpdated", "Last updated: —");
+  setText(
+    "geoStatus",
+    "Select a project to explore history."
+  );
+  setText(
+    "trailStatus",
+    "Select a user marker, then load its movement trail."
+  );
+  document.querySelector("#loadTrail").disabled = true;
+  document.querySelector("#clearGeo").disabled = true;
 }
 
 function updateStats() {
@@ -959,7 +978,7 @@ document.querySelector("#keyForm").addEventListener("submit", async (event) => {
       body: JSON.stringify({
         name: document.querySelector("#keyName").value.trim(),
         scopes: type === "read"
-          ? ["users:read", "summary:read", "events:read"]
+          ? ["users:read", "history:read", "summary:read", "events:read"]
           : type === "issuer"
             ? ["tokens:issue"]
             : ["location:write"],
