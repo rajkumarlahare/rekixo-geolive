@@ -219,7 +219,7 @@ FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories stay independ
 
 P3 introduces account-level commercial state while keeping the integration contract project-scoped.
 
-When a new project or an entitled P2 feature is unavailable, GeoLive may return HTTP `402` with a machine-readable error such as:
+When a new project, public integration realtime, or an entitled P2 feature is unavailable, GeoLive may return HTTP `402` with a machine-readable error such as:
 
 ```text
 subscription_not_active
