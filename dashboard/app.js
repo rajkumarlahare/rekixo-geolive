@@ -1555,7 +1555,7 @@ function renderPlatform() {
     const usage =
       document.createElement("small");
     usage.textContent =
-      `Ingest ${compactNumber(plan.includedIngest)} · Read ${compactNumber(plan.includedRead)} · Users ${compactNumber(plan.includedTrackedUsers)}`;
+      `Ingest ${compactNumber(plan.includedIngest)} · Read ${compactNumber(plan.includedRead)} · Users ${compactNumber(plan.includedTrackedUsers)} · Overage I/R/U ${formatMoney(plan.overageIngestPer1000Minor, plan.currency)} / ${formatMoney(plan.overageReadPer1000Minor, plan.currency)} / ${formatMoney(plan.overageTrackedUserMinor, plan.currency)}`;
     row.append(left, usage);
     plans.appendChild(row);
   }
@@ -1917,6 +1917,12 @@ document.querySelector("#platformPlanForm").addEventListener(
             Number(document.querySelector("#platformPlanUsers").value),
           maxProjects:
             Number(document.querySelector("#platformPlanProjects").value),
+          overageIngestPer1000Minor:
+            Number(document.querySelector("#platformPlanIngestOverage").value),
+          overageReadPer1000Minor:
+            Number(document.querySelector("#platformPlanReadOverage").value),
+          overageTrackedUserMinor:
+            Number(document.querySelector("#platformPlanUserOverage").value),
           features: {
             realtime:
               document.querySelector("#platformFeatureRealtime").checked,
