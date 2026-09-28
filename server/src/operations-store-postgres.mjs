@@ -656,6 +656,22 @@ export class PostgresOperationsStore {
          WHERE usage_date < CURRENT_DATE - 400`
       );
 
+      const billingTrackedUsers =
+        await this.pool.query(
+          `WITH doomed AS (
+            SELECT u.ctid
+            FROM billing_tracked_users_daily u
+            WHERE u.usage_date < CURRENT_DATE - 400
+            ORDER BY u.usage_date ASC
+            LIMIT $1
+          )
+          DELETE FROM billing_tracked_users_daily u
+          USING doomed d
+          WHERE u.ctid = d.ctid
+          RETURNING u.external_user_id`,
+          [size]
+        );
+
       const sessions = await this.pool.query(
         `DELETE FROM admin_sessions
          WHERE (
@@ -677,6 +693,8 @@ export class PostgresOperationsStore {
           exchangeNonces.rowCount,
         clientRequestNoncesDeleted:
           requestNonces.rowCount,
+        billingTrackedUsersDeleted:
+          billingTrackedUsers.rowCount,
         rateCountersDeleted: counters.rowCount,
         sessionsDeleted: sessions.rowCount
       };
@@ -690,8 +708,9 @@ export class PostgresOperationsStore {
              realtime_events_deleted = $5,
              client_exchange_nonces_deleted = $6,
              client_request_nonces_deleted = $7,
-             rate_counters_deleted = $8,
-             sessions_deleted = $9,
+             billing_tracked_users_deleted = $8,
+             rate_counters_deleted = $9,
+             sessions_deleted = $10,
              status = 'success'
          WHERE id = $1`,
         [
@@ -702,6 +721,7 @@ export class PostgresOperationsStore {
           summary.realtimeEventsDeleted,
           summary.clientExchangeNoncesDeleted,
           summary.clientRequestNoncesDeleted,
+          summary.billingTrackedUsersDeleted,
           summary.rateCountersDeleted,
           summary.sessionsDeleted
         ]
