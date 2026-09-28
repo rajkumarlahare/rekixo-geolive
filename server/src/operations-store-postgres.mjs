@@ -613,6 +613,38 @@ export class PostgresOperationsStore {
         [size, DEFAULT_LIMITS.realtimeEventRetentionHours]
       );
 
+      const exchangeNonces =
+        await this.pool.query(
+          `WITH doomed AS (
+            SELECT n.ctid
+            FROM client_exchange_nonces n
+            WHERE n.expires_at < now()
+            ORDER BY n.expires_at ASC
+            LIMIT $1
+          )
+          DELETE FROM client_exchange_nonces n
+          USING doomed d
+          WHERE n.ctid = d.ctid
+          RETURNING n.nonce_hash`,
+          [size]
+        );
+
+      const requestNonces =
+        await this.pool.query(
+          `WITH doomed AS (
+            SELECT n.ctid
+            FROM client_request_nonces n
+            WHERE n.expires_at < now()
+            ORDER BY n.expires_at ASC
+            LIMIT $1
+          )
+          DELETE FROM client_request_nonces n
+          USING doomed d
+          WHERE n.ctid = d.ctid
+          RETURNING n.nonce_hash`,
+          [size]
+        );
+
       const counters = await this.pool.query(
         `DELETE FROM api_rate_limit_counters
          WHERE expires_at < now()
@@ -641,6 +673,10 @@ export class PostgresOperationsStore {
         securityEventsDeleted: security.rowCount,
         metricsDeleted: metrics.rowCount,
         realtimeEventsDeleted: realtime.rowCount,
+        clientExchangeNoncesDeleted:
+          exchangeNonces.rowCount,
+        clientRequestNoncesDeleted:
+          requestNonces.rowCount,
         rateCountersDeleted: counters.rowCount,
         sessionsDeleted: sessions.rowCount
       };
@@ -652,8 +688,10 @@ export class PostgresOperationsStore {
              security_events_deleted = $3,
              metrics_deleted = $4,
              realtime_events_deleted = $5,
-             rate_counters_deleted = $6,
-             sessions_deleted = $7,
+             client_exchange_nonces_deleted = $6,
+             client_request_nonces_deleted = $7,
+             rate_counters_deleted = $8,
+             sessions_deleted = $9,
              status = 'success'
          WHERE id = $1`,
         [
@@ -662,6 +700,8 @@ export class PostgresOperationsStore {
           summary.securityEventsDeleted,
           summary.metricsDeleted,
           summary.realtimeEventsDeleted,
+          summary.clientExchangeNoncesDeleted,
+          summary.clientRequestNoncesDeleted,
           summary.rateCountersDeleted,
           summary.sessionsDeleted
         ]
