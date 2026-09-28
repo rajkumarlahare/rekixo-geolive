@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.1.0
-  description: Project-scoped live location ingestion and dashboard read contract.
+  version: 0.3.0
+  description: Project-scoped live location API plus account-scoped admin control plane.
 servers:
   - url: https://geolive.example.com
 paths:
@@ -12,6 +12,7 @@ paths:
       responses:
         "200":
           description: Service health
+
   /v1/locations:
     post:
       operationId: ingestLocation
@@ -27,37 +28,24 @@ paths:
         "202": { description: Accepted }
         "400": { description: Invalid input }
         "401": { description: Invalid credential }
-        "403": { description: Insufficient scope or origin denied }
+        "403": { description: Insufficient scope, origin denied or project inactive }
+
   /v1/users:
     get:
       operationId: listUsers
       security:
         - bearerAuth: []
-      parameters:
-        - in: query
-          name: search
-          schema: { type: string }
-        - in: query
-          name: status
-          schema: { type: string, enum: [online, recent, offline, inactive] }
-        - in: query
-          name: country
-          schema: { type: string }
-        - in: query
-          name: state
-          schema: { type: string }
-        - in: query
-          name: city
-          schema: { type: string }
       responses:
         "200": { description: Project-scoped latest users }
+
   /v1/summary:
     get:
       operationId: summary
       security:
         - bearerAuth: []
       responses:
-        "200": { description: Status totals }
+        "200": { description: Project-scoped status totals }
+
   /v1/events:
     get:
       operationId: realtimeEvents
@@ -65,11 +53,159 @@ paths:
         - bearerAuth: []
       responses:
         "200": { description: Server-Sent Events stream }
+
+  /v1/admin/login:
+    post:
+      operationId: adminLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              additionalProperties: false
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 12, maxLength: 256 }
+      responses:
+        "200":
+          description: Authenticated admin session; sets HttpOnly session cookie and returns CSRF token
+        "401": { description: Invalid credentials }
+        "429": { description: Login temporarily locked }
+
+  /v1/admin/me:
+    get:
+      operationId: adminMe
+      security:
+        - adminCookie: []
+      responses:
+        "200":
+          description: Current admin, accounts, projects and refreshed CSRF token
+        "401": { description: Admin session required }
+
+  /v1/admin/logout:
+    post:
+      operationId: adminLogout
+      security:
+        - adminCookie: []
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Session revoked }
+
+  /v1/admin/projects:
+    get:
+      operationId: adminListProjects
+      security:
+        - adminCookie: []
+      responses:
+        "200": { description: Projects visible through account membership }
+    post:
+      operationId: adminCreateProject
+      security:
+        - adminCookie: []
+      parameters:
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [accountId, name, slug]
+              properties:
+                accountId: { type: string, format: uuid }
+                name: { type: string, minLength: 2, maxLength: 120 }
+                slug: { type: string, pattern: "^[a-z0-9][a-z0-9-]{1,62}$" }
+      responses:
+        "201": { description: Project created }
+        "403": { description: Owner/admin role required }
+
+  /v1/admin/projects/{projectId}:
+    patch:
+      operationId: adminUpdateProject
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 2, maxLength: 120 }
+                slug: { type: string, pattern: "^[a-z0-9][a-z0-9-]{1,62}$" }
+                status: { type: string, enum: [active, suspended] }
+      responses:
+        "200": { description: Project updated }
+        "403": { description: Owner/admin role required }
+        "404": { description: Project unavailable }
+    delete:
+      operationId: adminDeleteProject
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: header
+          name: X-CSRF-Token
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Project soft-deleted }
+
+  /v1/admin/projects/{projectId}/users:
+    get:
+      operationId: adminProjectUsers
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Latest users for an authorized project }
+
+  /v1/admin/projects/{projectId}/summary:
+    get:
+      operationId: adminProjectSummary
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Status totals for an authorized project }
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+    adminCookie:
+      type: apiKey
+      in: cookie
+      name: geolive_admin_session
+
+  parameters:
+    ProjectId:
+      in: path
+      name: projectId
+      required: true
+      schema:
+        type: string
+        format: uuid
+
   schemas:
     LocationObservation:
       type: object

@@ -1,52 +1,74 @@
 # Production Roadmap
 
-## P0 — universal contract and isolation
+## Completed — P0 universal contract and isolation
 - stable ingestion contract
 - scope-bound credentials
 - project-derived authorization
 - latest-state model
 - presence logic
-- basic live globe dashboard
+- live globe dashboard foundation
 - JS/Android/Flutter adapters
 - regression tests
 
-## P1 — durable control plane
-- admin signup/login
-- project create/edit
-- hashed key generate/revoke/rotate
+## Completed — P1A durable persistence
 - PostgreSQL/PostGIS store
-- immutable migrations
-- audit log
-- pagination
-- retention worker
+- latest-state + append-only history transaction
+- immutable checksum migrations
+- readiness and graceful shutdown
+- real PostGIS integration tests
 
-## P1 — production realtime
-- Redis where needed
-- WebSocket project rooms
+## Completed — P1B admin control plane
+- admin login
+- Scrypt password hashing
+- database-backed revocable sessions
+- CSRF protection
+- account memberships
+- project create/select/edit/suspend/soft-delete
+- admin dashboard authorization
+- audit log foundation
+
+## Next — P1C integration key lifecycle
+- database-backed API key generation
+- one-time secret display
+- key prefix + hash storage
+- separate ingest/read scopes
+- rotate/revoke/expire
+- allowed-origin/package restrictions
+- dashboard key management
+
+## P1D security and operations
+- distributed rate limits
+- admin/API security event monitoring
+- pagination/cursors
+- retention worker
+- quotas
+- operational metrics
+
+## P1E production realtime
+- authenticated project rooms
+- WebSocket where justified
+- Redis fanout at multi-instance scale
 - reconnect/resume
 - backpressure
-- distributed rate limits
 - marker clustering
 
-## P2 — client security
+## P2 client security
 - short-lived ingest tokens
 - Android app attestation option
-- origin/package restrictions
 - replay/abuse protection
-- per-project quotas
 
-## P2 — commercial layer
+## P2 commercial layer
 - plans/limits
 - usage metering
 - billing/invoices
 - support
 - super-admin
 
-## P3 — advanced geospatial
+## P3 advanced geospatial
 - movement history
 - heatmap
 - geofence
 - alerts
 - webhooks
-- team roles
+- team/invite management
 - white-label dashboard

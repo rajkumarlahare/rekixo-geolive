@@ -1,14 +1,14 @@
 # Rekixo GeoLive Architecture Contract
 
-Status: **FOUNDATION**
+Status: **P1B CONTROL-PLANE FOUNDATION**
 
-## Product boundary
+## 1. Product boundary
 
 GeoLive is reusable infrastructure. FinWorkar, EntroNex, LudoProof, Rekixo AR3D, Rekixo websites and future products are clients/tenants, not the identity of this codebase.
 
 No sibling repository is required to share a database, deployment, secret or source tree with GeoLive.
 
-## Non-invasive integration
+## 2. Non-invasive integration
 
 Integration happens only through explicit API/SDK contracts:
 
@@ -20,75 +20,104 @@ Integration happens only through explicit API/SDK contracts:
 
 GeoLive must never read a sibling project's Firebase, D1, PostgreSQL, R2, Firestore or private application database directly.
 
-## Tenancy
+## 3. Tenancy and control plane
 
 ```text
 Account
+  -> Membership (owner/admin/viewer)
   -> Project
-      -> Credentials
+      -> Integration Credentials
       -> Users
       -> live_user_state
       -> location_history
 ```
 
-Every mutable record is keyed by `project_id`. A normal request does not choose its authoritative project by sending `projectId`; authentication resolves the project first.
+Every mutable location record is keyed by `project_id`.
 
-## Credentials
+Admin users do not gain access merely by knowing a project ID. Project access is derived from `account_memberships`.
 
-Credentials are separated by purpose:
+## 4. Admin authentication
 
-- `location:write` for ingestion
-- `users:read`, `summary:read`, `events:read` for dashboards
-- future control-plane scopes for project/admin management
-- future operator scopes for Rekixo super-admin
+Admin authentication is separate from integration API keys.
 
-Production stores only a hash of long-lived secrets. Browser/mobile production integrations should use short-lived ingest tokens or platform attestation rather than embedding privileged secrets.
+- passwords: Scrypt + random salt
+- sessions: opaque random token, hash at rest
+- browser cookie: HttpOnly + SameSite=Strict; Secure in production
+- mutations: rotating CSRF token
+- login lockout: configurable failed-attempt threshold
+- sessions: database-backed and revocable
 
-## Location and presence
+There is no unauthenticated public admin-signup endpoint in P1B. The first owner is provisioned through the operator bootstrap command.
 
-Required observation fields are external user ID, latitude and longitude. Optional fields include accuracy, altitude, heading, speed, capture time, city/state/country, device/app details and bounded metadata.
+## 5. Project lifecycle
 
-Default states are configurable:
+Projects are tenant data, not repositories or deployments.
 
-- online: <= 120 seconds
+Supported states:
+
+- `active`: ingestion allowed
+- `suspended`: ingestion blocked; admins may still inspect data
+- `deleted`: hidden from normal admin lists; data is retained until an explicit deletion/retention process
+
+## 6. Integration credentials
+
+Current P1B runtime keeps the P0/P1A hashed environment credential bridge.
+
+P1C will move generate/revoke/rotate lifecycle into the database and dashboard. Integration credentials remain separate from admin sessions.
+
+## 7. Location model
+
+A location update is an observation, not an identity authority.
+
+Required:
+
+- external user ID
+- latitude
+- longitude
+
+Optional:
+
+- accuracy
+- altitude
+- heading
+- speed
+- capture time
+- city/state/country
+- device/app metadata
+- caller-defined safe metadata
+
+The server records receive time independently.
+
+## 8. Presence model
+
+Default derived states:
+
+- online: last seen <= 120 seconds
 - recent: <= 15 minutes
 - offline: <= 24 hours
 - inactive: > 24 hours
 
-## Data separation
+Thresholds are configuration, not hard-coded tenant identity.
 
-Production storage keeps:
+## 9. Durable data separation
+
+Production uses PostgreSQL/PostGIS:
 
 - `live_user_state`: one latest row per project/user
-- `location_history`: append-only observations with retention
+- `location_history`: append-only observations
+- `admin_users`, `admin_sessions`, `account_memberships`: control plane
+- `audit_log`: admin mutation trail
 
-The live dashboard must not scan full history to discover current state.
+The live dashboard must not reconstruct current state by scanning full history.
 
-## Realtime
+## 10. Realtime
 
-The dependency-light foundation uses Server-Sent Events. Production may add WebSocket/Socket.IO rooms keyed by project. Authorization happens before subscription regardless of transport.
+The public API-key foundation exposes Server-Sent Events. Production evolution may add authenticated project rooms with WebSocket/Redis. Admin dashboard data in P1B uses authenticated project reads with refresh polling.
 
-## Scale direction
+## 11. Sibling-project safety
 
-The product blueprint's production target remains:
+GeoLive development must not modify production code or infrastructure in sibling repositories merely to make GeoLive work. Each sibling project adopts the API/SDK independently.
 
-- PostgreSQL + PostGIS
-- Redis where hot state/aggregates justify it
-- project-specific realtime rooms
-- marker clustering and pagination
-- rate limits
-- retention workers
-- queue/batch ingestion at high volume
-- precomputed heatmap/dashboard aggregates at very large scale
+## 12. Production gate
 
-## Dashboard
-
-The dashboard is itself a client of the same tenant-scoped contract. Target capabilities: project selector, total/online/recent/offline statistics, search, country/state/city filters, colored globe markers, user detail, recent activity and live update state.
-
-## Sibling-project safety
-
-GeoLive development must not modify production code or infrastructure in sibling repositories merely to make GeoLive work. Each project adopts the API/SDK independently.
-
-## Production gate
-
-The included memory store is only for contract/demo development. Before real tracking: durable PostGIS persistence, admin auth/project lifecycle, key rotation/revocation, rate limiting, short-lived ingest tokens/attestation, retention jobs, audit logging, privacy controls and load testing are required.
+Before broad customer rollout, remaining gates include database-backed integration key lifecycle, distributed rate limits, short-lived mobile/web ingest tokens, retention jobs, realtime scale testing, privacy controls and operational monitoring.

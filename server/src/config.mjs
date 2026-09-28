@@ -11,6 +11,12 @@ function csv(value) {
     .filter(Boolean);
 }
 
+function boundedNumber(value, fallback, min, max) {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
 function normalizeKey(item) {
   if (!item || typeof item !== "object") throw new Error("Invalid GeoLive key entry.");
   const scopes = Array.isArray(item.scopes) ? item.scopes.map(String) : [];
@@ -59,7 +65,7 @@ export function loadConfig(env = process.env) {
   }
 
   if (isProduction && keys.length === 0) {
-    throw new Error("Production requires GEOLIVE_KEYS_JSON.");
+    throw new Error("Production requires GEOLIVE_KEYS_JSON until P1C key lifecycle is enabled.");
   }
 
   const allowedOrigins = [...new Set([
@@ -77,9 +83,12 @@ export function loadConfig(env = process.env) {
   if (persistence === "postgres" && !env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required for postgres persistence.");
   }
+  if (isProduction && persistence !== "postgres") {
+    throw new Error("Production requires GEOLIVE_PERSISTENCE=postgres.");
+  }
 
   return {
-    port: Number(env.PORT || 8787),
+    port: boundedNumber(env.PORT, 8787, 1, 65535),
     isProduction,
     allowedOrigins,
     keys,
@@ -87,12 +96,17 @@ export function loadConfig(env = process.env) {
     database: {
       url: env.DATABASE_URL || "",
       sslMode: env.DATABASE_SSL || (isProduction ? "verify-full" : "disable"),
-      maxPoolSize: Math.min(Math.max(Number(env.DATABASE_POOL_MAX || 10), 1), 50)
+      maxPoolSize: boundedNumber(env.DATABASE_POOL_MAX, 10, 1, 50)
+    },
+    admin: {
+      sessionHours: boundedNumber(env.GEOLIVE_ADMIN_SESSION_HOURS, 12, 1, 168),
+      maxFailedLogins: boundedNumber(env.GEOLIVE_ADMIN_MAX_FAILED_LOGINS, 5, 3, 20),
+      lockMinutes: boundedNumber(env.GEOLIVE_ADMIN_LOCK_MINUTES, 15, 1, 1440)
     },
     thresholds: {
-      onlineSeconds: Number(env.GEOLIVE_ONLINE_SECONDS || 120),
-      recentSeconds: Number(env.GEOLIVE_RECENT_SECONDS || 900),
-      inactiveSeconds: Number(env.GEOLIVE_INACTIVE_SECONDS || 86400)
+      onlineSeconds: boundedNumber(env.GEOLIVE_ONLINE_SECONDS, 120, 10, 3600),
+      recentSeconds: boundedNumber(env.GEOLIVE_RECENT_SECONDS, 900, 60, 86400),
+      inactiveSeconds: boundedNumber(env.GEOLIVE_INACTIVE_SECONDS, 86400, 3600, 2592000)
     }
   };
 }
