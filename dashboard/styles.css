@@ -61,3 +61,8 @@ button,select,input{font:inherit;color:inherit}button{cursor:pointer}
 .security-event .severity{font-size:10px;padding:3px 7px;border-radius:999px;text-transform:uppercase;background:#102a35}
 .security-event .severity.warning{background:#3d3212;color:#ffd66b}.security-event .severity.critical{background:#3d171c;color:#ff9298}.security-event .severity.info{background:#0e3042;color:#78c9ee}
 @media(max-width:720px){.ops-metrics{grid-template-columns:repeat(2,1fr)}.security-event{grid-template-columns:1fr}}
+
+.checkbox-label{display:flex;align-items:center;gap:9px;min-height:42px}
+.checkbox-label input{width:auto;margin:0}
+#clientSecurityStatus{font-size:12px;color:#8fa7b4}
+#playIntegrityPackages{display:block;margin:8px 0 12px;color:#81939e;overflow-wrap:anywhere}
