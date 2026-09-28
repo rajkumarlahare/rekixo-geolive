@@ -51,7 +51,6 @@ function mapRow(row) {
 function mapHistoryRow(row) {
   if (!row) return null;
   return {
-    historyId: String(row.id),
     projectId: row.project_id,
     userId: row.external_user_id,
     latitude: Number(row.latitude),
