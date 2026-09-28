@@ -70,6 +70,33 @@ test("P1E persists ordered realtime replay events and clusters users", {
       second._realtimeEvent.sequence
     );
 
+    await pool.query(
+      `DELETE FROM realtime_events
+       WHERE project_id = $1
+         AND id = $2::bigint`,
+      [project.id, first._realtimeEvent.sequence]
+    );
+
+    const expiredAnchor = await realtimeStore.replay(
+      project.id,
+      first._realtimeEvent.sequence,
+      { limit: 10 }
+    );
+    assert.equal(expiredAnchor.resyncRequired, true);
+    assert.equal(
+      expiredAnchor.latestSequence,
+      second._realtimeEvent.sequence
+    );
+
+    const futureAnchor = await realtimeStore.replay(
+      project.id,
+      String(
+        BigInt(second._realtimeEvent.sequence) + 100n
+      ),
+      { limit: 10 }
+    );
+    assert.equal(futureAnchor.resyncRequired, true);
+
     const clusters = await geoStore.clusterUsers(project.id, {
       gridDegrees: 10
     });
