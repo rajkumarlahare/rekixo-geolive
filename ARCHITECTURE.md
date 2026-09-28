@@ -1,6 +1,6 @@
 # Rekixo GeoLive Architecture Contract
 
-Status: **P1D SECURITY & OPERATIONS FOUNDATION**
+Status: **P1E PRODUCTION REALTIME FOUNDATION**
 
 ## Product boundary
 
@@ -19,74 +19,88 @@ Account
       -> Users
       -> live_user_state
       -> location_history
+      -> realtime_events
       -> usage/security operational data
 ```
 
-## Authentication boundaries
+## Durable write path
 
-Admin authentication and integration-key authentication remain separate.
+For PostgreSQL production persistence, a location update transaction writes:
 
-Integration project identity is resolved from the authenticated credential. Admin project access is resolved from account membership.
+1. user identity/upsert
+2. latest live state
+3. append-only location history
+4. durable realtime event
 
-## Durable data
+The realtime event is committed in the same transaction as the accepted location state.
 
-PostgreSQL/PostGIS stores:
+After commit, the event is delivered to the local project room and optionally published to Redis for other application instances.
 
-- accounts/projects/memberships
-- admin users/sessions
-- integration key metadata/hashes
-- project limits
-- live user state
-- append-only location history
-- distributed rate counters
-- daily usage counters
-- hourly API metrics
-- project/global security events
-- retention-run records
-- audit log
+## WebSocket project rooms
 
-## P1D rate limiting
+Two WebSocket entry points exist:
 
-Fixed-window counters are incremented atomically in PostgreSQL. Window boundaries use PostgreSQL time, so multiple server instances share one project limit without relying on each instance clock.
+- `/v1/realtime` — integration read key authenticates in the first WebSocket message
+- `/v1/admin/realtime` — same-origin admin session cookie + project membership
 
-This is deliberately database-backed at current scale. A later high-throughput deployment may move hot counters to Redis while retaining the same API semantics.
+Both join only one authorized project room.
 
-## Quota enforcement
+## Sequence / resume
 
-Daily ingest quota is atomic in PostgreSQL.
+`realtime_events.id` is the durable monotonic sequence.
 
-Live-user capacity is enforced inside the location transaction. Only first-seen users acquire a project-scoped advisory transaction lock for quota checking; existing user updates avoid that serialization.
+A reconnecting client presents its last applied sequence. The server:
 
-## Pagination
+1. joins the room in replay-hold mode
+2. reads durable events after the sequence
+3. buffers concurrent live events for that peer
+4. emits replay in sequence order
+5. flushes held live events in order
+6. sends `ready`
 
-Latest users are ordered by:
+If the bounded replay window is exceeded, the server sends `resync_required`. Current state is then reloaded via REST.
 
-1. `received_at DESC`
-2. `external_user_id DESC`
+## Redis fanout
 
-The opaque cursor contains only continuation state. Project authorization and filters are still enforced by the server.
+Each instance has a unique instance ID.
 
-## Metrics and security events
+On a committed location event:
 
-Operational metrics aggregate by project/key/route/hour and status class.
+```text
+Postgres commit
+   -> local project room
+   -> Redis PUBLISH
+        -> other GeoLive instances
+             -> their local project rooms
+```
 
-Security events are separate from the immutable admin audit trail:
+Subscriber echo from the publishing instance is ignored.
 
-- audit log = authorized administrative changes
-- security events = denied/risky operational signals
+Redis is optional for one instance. Multi-instance deployments should configure a shared Redis endpoint and may set `GEOLIVE_REDIS_REQUIRED=true`.
 
-Neither table stores raw API secrets or location payloads.
+## Backpressure
 
-## Retention
+The server does not maintain an unbounded WebSocket queue.
 
-The retention worker runs outside normal request handling and deletes bounded batches according to project retention policy.
+- location frames can be coalesced by external user ID
+- writable buffering is capped
+- queued frame count is capped
+- persistently slow clients are disconnected and resume by durable sequence
 
-Startup never automatically executes destructive retention.
+## Heartbeat
+
+Server ping frames detect dead sockets. Clients that do not answer with WebSocket pong within the heartbeat timeout are closed.
+
+## Marker clustering
+
+Large-project visualization uses project-scoped server-side latitude/longitude grid aggregation with activity counts.
+
+The dashboard changes requested grid size with zoom and uses clusters only when no individual-user filter is active.
 
 ## Compatibility
 
-The legacy environment-key bridge remains readable only for migration safety. New credentials are database-backed. Follow the documented staged retirement procedure before deleting compatibility code.
+SSE `/v1/events` remains a compatibility transport. The P1E WebSocket path is the multi-instance production realtime contract.
 
 ## Next boundary
 
-P1E adds scaled realtime transport: authenticated project rooms, reconnect/resume, backpressure and Redis fanout where multi-instance scale requires it.
+P2 introduces short-lived ingest tokens, app attestation and replay/abuse protection for untrusted mobile/browser producers.
