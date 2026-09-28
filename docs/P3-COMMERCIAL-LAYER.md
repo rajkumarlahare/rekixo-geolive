@@ -70,7 +70,9 @@ Current-period snapshots may refresh. Previous-period rollup finalizes the row.
 
 Once finalized, the stored usage metrics stay frozen even if operational tables later change.
 
-Measured fields currently include ingest/read requests, distinct tracked users, client-token exchanges and realtime events.
+Authoritative billable fields currently include ingest requests, read requests and distinct tracked users.
+
+Tracked users are written into a dedicated daily billing meter by a PostgreSQL trigger in the same transaction as location-history insertion. This keeps the billing basis independent of the shorter location-history/realtime retention windows. Migration 007 also best-effort backfills the current calendar month from retained history.
 
 ## Invoice engine
 
