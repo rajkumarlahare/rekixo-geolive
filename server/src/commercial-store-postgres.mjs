@@ -464,13 +464,8 @@ export class PostgresCommercialStore {
   }
 
   async getEffectiveEntitlements(accountId) {
-    const {
-      subscription,
-      plan,
-      effective
-    } = await this.getEffectiveEntitlements(
-      accountId
-    );
+    const { subscription, plan } =
+      await this.getSubscription(accountId);
 
     const result = await this.pool.query(
       `SELECT entitlement_key, value
@@ -892,8 +887,13 @@ export class PostgresCommercialStore {
     dueAt = null,
     notes = null
   }) {
-    const { subscription, plan } =
-      await this.getSubscription(accountId);
+    const {
+      subscription,
+      plan,
+      effective
+    } = await this.getEffectiveEntitlements(
+      accountId
+    );
 
     if (
       !["active","trialing","past_due","canceled"].includes(
