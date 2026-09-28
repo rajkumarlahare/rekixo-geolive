@@ -59,7 +59,7 @@ export function validateApiKeyScopes(scopes) {
   ) {
     throw Object.assign(
       new Error(
-        "Ingest, read and client-token issuer keys must stay separated."
+        "Use separate API keys for ingest, read and client-token issuer purposes."
       ),
       {
         code: "mixed_key_scopes_not_allowed",
