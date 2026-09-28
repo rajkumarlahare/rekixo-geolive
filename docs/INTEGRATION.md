@@ -214,3 +214,21 @@ The product backend is also the correct location for a P2 `tokens:issue` key bec
 GeoLive does not directly read sibling-project databases.
 
 FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories stay independent until they intentionally integrate through these contracts.
+
+## 13. Commercial entitlement responses
+
+P3 introduces account-level commercial state while keeping the integration contract project-scoped.
+
+When a new project or an entitled P2 feature is unavailable, GeoLive may return HTTP `402` with a machine-readable error such as:
+
+```text
+subscription_not_active
+project_entitlement_exceeded
+feature_not_entitled
+```
+
+Do not treat `402` as an authentication failure. The product backend should surface an account/plan action to an authorized operator.
+
+Existing trusted `location:write` calls are not automatically blocked by the P3 rollout; the `legacy` plan preserves compatibility.
+
+Billing usage is computed server-side. Client applications should not calculate authoritative invoice totals.
