@@ -597,6 +597,17 @@ paths:
       responses:
         "200": { description: Accounts with subscription summary }
 
+  /v1/platform/accounts/{accountId}/commercial:
+    get:
+      operationId: platformAccountCommercial
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200": { description: Cross-account subscription, entitlements, usage, invoices and support summary }
+        "403": { description: Platform role required }
+
   /v1/platform/accounts/{accountId}/subscription:
     patch:
       operationId: platformUpdateSubscription
@@ -837,16 +848,30 @@ components:
 
     EntitlementOverrides:
       type: object
+      minProperties: 1
       additionalProperties: false
+      description: Null removes an account override and restores inheritance from the plan.
       properties:
-        maxProjects: { type: integer, minimum: 1 }
-        includedIngest: { type: integer, minimum: 0 }
-        includedRead: { type: integer, minimum: 0 }
-        includedTrackedUsers: { type: integer, minimum: 0 }
-        realtime: { type: boolean }
-        clientTokens: { type: boolean }
-        androidAttestation: { type: boolean }
-        prioritySupport: { type: boolean }
+        maxProjects:
+          oneOf:
+            - { type: integer, minimum: 1 }
+            - { type: "null" }
+        includedIngest:
+          oneOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+        includedRead:
+          oneOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+        includedTrackedUsers:
+          oneOf:
+            - { type: integer, minimum: 0 }
+            - { type: "null" }
+        realtime: { type: [boolean, "null"] }
+        clientTokens: { type: [boolean, "null"] }
+        androidAttestation: { type: [boolean, "null"] }
+        prioritySupport: { type: [boolean, "null"] }
 
     SupportCaseCreate:
       type: object
