@@ -449,6 +449,72 @@ CREATE TABLE account_entitlement_overrides (
   PRIMARY KEY (account_id, entitlement_key)
 );
 
+CREATE TABLE billing_tracked_users_daily (
+  project_id uuid NOT NULL
+    REFERENCES projects(id) ON DELETE CASCADE,
+  usage_date date NOT NULL,
+  external_user_id text NOT NULL,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (
+    project_id,
+    usage_date,
+    external_user_id
+  )
+);
+
+CREATE INDEX billing_tracked_users_usage_date_idx
+  ON billing_tracked_users_daily (usage_date);
+
+INSERT INTO billing_tracked_users_daily (
+  project_id,
+  usage_date,
+  external_user_id,
+  first_seen_at
+)
+SELECT
+  project_id,
+  received_at::date,
+  external_user_id,
+  min(received_at)
+FROM location_history
+WHERE received_at >= date_trunc('month', CURRENT_DATE)
+GROUP BY
+  project_id,
+  received_at::date,
+  external_user_id
+ON CONFLICT DO NOTHING;
+
+CREATE OR REPLACE FUNCTION geolive_meter_tracked_user()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $billing$
+BEGIN
+  INSERT INTO billing_tracked_users_daily (
+    project_id,
+    usage_date,
+    external_user_id,
+    first_seen_at
+  ) VALUES (
+    NEW.project_id,
+    NEW.received_at::date,
+    NEW.external_user_id,
+    NEW.received_at
+  )
+  ON CONFLICT DO NOTHING;
+
+  RETURN NEW;
+END;
+$billing$;
+
+CREATE TRIGGER location_history_meter_tracked_user
+AFTER INSERT ON location_history
+FOR EACH ROW
+EXECUTE FUNCTION geolive_meter_tracked_user();
+
+ALTER TABLE retention_runs
+  ADD COLUMN billing_tracked_users_deleted bigint
+    NOT NULL DEFAULT 0;
+
 CREATE TABLE billing_usage_periods (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id uuid NOT NULL
