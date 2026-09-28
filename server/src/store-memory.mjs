@@ -165,37 +165,37 @@ export class MemoryGeoLiveStore {
       rows.slice(0, pageSize + 1);
     const hasMore =
       page.length > pageSize;
+    const visibleRows =
+      page.slice(0, pageSize);
     const points =
-      page
-        .slice(0, pageSize)
-        .map((row) => ({
-          historyId:
-            row.historyId,
-          userId: row.userId,
-          latitude: row.latitude,
-          longitude: row.longitude,
-          accuracyM: row.accuracyM,
-          altitudeM: row.altitudeM,
-          headingDeg: row.headingDeg,
-          speedMps: row.speedMps,
-          capturedAt:
-            row.capturedAt,
-          receivedAt:
-            row.receivedAt ||
-            row.lastSeenAt,
-          country: row.country,
-          state: row.state,
-          city: row.city
-        }));
+      visibleRows.map((row) => ({
+        userId: row.userId,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        accuracyM: row.accuracyM,
+        altitudeM: row.altitudeM,
+        headingDeg: row.headingDeg,
+        speedMps: row.speedMps,
+        capturedAt:
+          row.capturedAt,
+        receivedAt:
+          row.receivedAt ||
+          row.lastSeenAt,
+        country: row.country,
+        state: row.state,
+        city: row.city
+      }));
 
-    const last = points.at(-1);
+    const last =
+      visibleRows.at(-1);
     return {
       points,
       nextCursor:
         hasMore && last
           ? encodeCursor({
               receivedAt:
-                last.receivedAt,
+                last.receivedAt ||
+                last.lastSeenAt,
               id: last.historyId
             })
           : null
