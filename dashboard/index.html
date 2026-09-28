@@ -320,6 +320,20 @@
       </div>
       <div id="billingSupportCases" class="commercial-list"></div>
 
+      <section id="tenantSupportThread" class="commercial-detail-panel" hidden>
+        <div class="key-list-head">
+          <h3 id="tenantSupportThreadTitle">Support conversation</h3>
+          <button type="button" class="text-button" id="tenantSupportThreadClose">Close</button>
+        </div>
+        <div id="tenantSupportMessages" class="support-thread"></div>
+        <form id="tenantSupportReplyForm" class="limits-form">
+          <label>Reply
+            <textarea id="tenantSupportReplyBody" rows="3" maxlength="10000" required></textarea>
+          </label>
+          <button type="submit" class="primary-button" id="tenantSupportReplyButton">Send reply</button>
+        </form>
+      </section>
+
       <form id="supportCaseForm" class="limits-form">
         <h3>Create support case</h3>
         <div class="key-form-grid">
@@ -399,8 +413,81 @@
       <div class="key-list-head"><h3>Accounts & subscriptions</h3></div>
       <div id="platformAccounts" class="commercial-list"></div>
 
+      <section id="platformAccountDetail" class="commercial-detail-panel" hidden>
+        <div class="key-list-head">
+          <h3 id="platformAccountDetailTitle">Account commercial detail</h3>
+          <button type="button" class="text-button" id="platformAccountDetailClose">Close</button>
+        </div>
+        <section class="commercial-summary compact-commercial-summary">
+          <article><small>Plan</small><strong id="platformAccountPlan">—</strong><span id="platformAccountPlanPrice">—</span></article>
+          <article><small>Subscription</small><strong id="platformAccountSubscription">—</strong><span id="platformAccountPeriod">—</span></article>
+          <article><small>Usage</small><strong id="platformAccountUsage">—</strong><span>Ingest · Read · Users</span></article>
+        </section>
+
+        <form id="platformEntitlementForm" class="limits-form" hidden>
+          <div class="key-list-head"><h3>Account entitlement overrides</h3></div>
+          <p class="modal-help">Leave numeric fields empty and choose Inherit to remove an override and follow the plan.</p>
+          <div class="key-form-grid">
+            <label>Max projects<input id="entitlementMaxProjects" type="number" min="1" placeholder="Inherit" /></label>
+            <label>Included ingest<input id="entitlementIngest" type="number" min="0" placeholder="Inherit" /></label>
+            <label>Included read<input id="entitlementRead" type="number" min="0" placeholder="Inherit" /></label>
+            <label>Included tracked users<input id="entitlementUsers" type="number" min="0" placeholder="Inherit" /></label>
+            <label>Realtime
+              <select id="entitlementRealtime">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Client tokens
+              <select id="entitlementClientTokens">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Android attestation
+              <select id="entitlementAttestation">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Priority support
+              <select id="entitlementPrioritySupport">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit" class="primary-button" id="saveEntitlements">Save overrides</button>
+        </form>
+
+        <div class="key-list-head"><h3>Invoices</h3></div>
+        <div id="platformAccountInvoices" class="commercial-list"></div>
+      </section>
+
       <div class="key-list-head"><h3>Support queue</h3></div>
       <div id="platformSupport" class="commercial-list"></div>
+
+      <section id="platformSupportThread" class="commercial-detail-panel" hidden>
+        <div class="key-list-head">
+          <h3 id="platformSupportThreadTitle">Support conversation</h3>
+          <button type="button" class="text-button" id="platformSupportThreadClose">Close</button>
+        </div>
+        <div id="platformSupportMessages" class="support-thread"></div>
+        <form id="platformSupportReplyForm" class="limits-form" hidden>
+          <label>Reply or note
+            <textarea id="platformSupportReplyBody" rows="3" maxlength="10000" required></textarea>
+          </label>
+          <label class="checkbox-label">
+            <input id="platformSupportInternal" type="checkbox" />
+            Internal note (hidden from tenant)
+          </label>
+          <button type="submit" class="primary-button" id="platformSupportReplyButton">Send</button>
+        </form>
+      </section>
     </section>
   </div>
 
