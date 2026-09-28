@@ -22,6 +22,8 @@ try {
     securityEventsDeleted: 0,
     metricsDeleted: 0,
     realtimeEventsDeleted: 0,
+    clientExchangeNoncesDeleted: 0,
+    clientRequestNoncesDeleted: 0,
     rateCountersDeleted: 0,
     sessionsDeleted: 0
   };
@@ -35,6 +37,8 @@ try {
       "securityEventsDeleted",
       "metricsDeleted",
       "realtimeEventsDeleted",
+      "clientExchangeNoncesDeleted",
+      "clientRequestNoncesDeleted",
       "rateCountersDeleted",
       "sessionsDeleted"
     ]) {
@@ -45,7 +49,9 @@ try {
       result.historyDeleted < batchSize &&
       result.securityEventsDeleted < batchSize &&
       result.metricsDeleted < batchSize &&
-      result.realtimeEventsDeleted < batchSize
+      result.realtimeEventsDeleted < batchSize &&
+      result.clientExchangeNoncesDeleted < batchSize &&
+      result.clientRequestNoncesDeleted < batchSize
     ) {
       break;
     }
