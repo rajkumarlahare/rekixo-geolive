@@ -4,64 +4,83 @@ Location data is sensitive. GeoLive defaults to least privilege, explicit consen
 
 ## Integration API keys
 
-- New production credentials are generated through the database-backed P1C lifecycle.
-- Full `rgl_live_...` secrets are returned only on create/rotate and are not retrievable afterward.
-- PostgreSQL stores only the visible prefix and SHA-256 hash.
+- Full `rgl_live_...` secrets are returned only on create/rotate.
+- PostgreSQL stores the visible prefix and SHA-256 secret hash.
 - Ingest and read scopes use separate keys.
 - Revocation and expiry are enforced on authentication.
 - Exact browser origins and optional package IDs can restrict credentials.
-- Package headers are defense-in-depth only until attestation exists.
-- The legacy `GEOLIVE_KEYS_JSON` bridge is migration-only.
+- Package headers remain defense-in-depth until app attestation exists.
+- Legacy `GEOLIVE_KEYS_JSON` is migration-only.
+
+## WebSocket authentication
+
+The production integration WebSocket is `/v1/realtime`.
+
+Do **not** put API keys into the URL/query string. The client opens the socket first and sends the key in the initial `authenticate` message over TLS.
+
+The key must include `events:read`. Origin and package restrictions are re-applied to the WebSocket authentication.
+
+Admin dashboard realtime uses the existing HttpOnly admin session cookie and account/project authorization.
+
+Unauthenticated integration sockets have a short authentication timeout.
+
+## Reconnect and replay
+
+PostgreSQL stores a bounded durable `realtime_events` stream.
+
+Clients resume using the last applied numeric sequence. Replay is bounded; when a gap is too large, the server sends `resync_required` rather than allocating an unbounded replay.
+
+Realtime events are retention-controlled and are not a permanent audit log.
+
+## Backpressure
+
+Each WebSocket connection has bounded writable buffering and a bounded pending-frame queue.
+
+Queued location updates are coalesced by user ID. A persistently slow consumer is closed with code `1013` and should reconnect using its last durable sequence.
+
+## Multi-instance Redis
+
+Redis fanout is optional for single-instance deployments and expected for multi-instance production realtime.
+
+Supported configuration:
+
+- `redis://`
+- `rediss://`
+
+Redis carries already-authorized project event envelopes; it does not receive raw API keys, admin session tokens or passwords.
+
+When `GEOLIVE_REDIS_REQUIRED=true`, Redis connectivity participates in readiness.
 
 ## Admin control plane
 
-- Scrypt password hashing with random salts.
-- High-entropy opaque sessions; only hashes stored.
+- Scrypt password hashes with random salts.
+- Opaque high-entropy session tokens; only hashes stored.
 - HttpOnly + SameSite=Strict cookies; Secure in production.
-- CSRF token required for state changes.
-- Failed-login account lock plus PostgreSQL-distributed login rate limiting.
-- Owner/admin can mutate project/key/limit state; viewer is read-only.
-- Project/API-key/limit mutations are audited.
+- CSRF protection on state changes.
+- Failed-login lock plus distributed login rate limiting.
+- Owner/admin mutation roles; viewer is read-only.
+- Project/API-key/limit changes are audited.
 
 ## Rate limits and quotas
 
-Public authenticated traffic is limited using atomic PostgreSQL counters shared across application instances.
+Public authenticated traffic uses atomic PostgreSQL counters shared across application instances.
 
-Per-project controls include:
+Per-project controls include ingest/read requests per minute, daily ingest quota and maximum live users.
 
-- ingest requests/minute
-- read requests/minute
-- daily ingest quota
-- maximum live users
+## Clustering
 
-New-user quota checks are transactionally serialized per project to prevent concurrent quota races.
+Server-side marker clustering returns aggregate grid cells and activity counts; it does not expose extra user identities.
+
+When filters require individual-user semantics, the dashboard falls back to the bounded individual-user view.
 
 ## Security events and metrics
 
-GeoLive records bounded operational metadata for rate-limit blocks, quota blocks and client-restriction failures.
-
-Do not store raw API secrets, passwords, session tokens, CSRF tokens or location payloads in security/metrics tables.
-
-Admin-login source data is stored only as a one-way hash, not as a raw network address.
-
-## Pagination and input safety
-
-Large user/security-event lists use bounded cursor pagination.
-
-Cursors are opaque state, not authorization credentials; authorization is re-evaluated on every request.
+GeoLive never copies raw API secrets, passwords, session tokens, CSRF tokens or exact location payloads into security/metrics tables.
 
 ## Retention
 
-Location history, project security events and operational metrics have per-project retention windows.
+Location history, realtime replay events, security events and operational metrics have bounded retention. The retention worker runs only when invoked by trusted scheduling infrastructure.
 
-The retention worker is one-shot and batch-bounded. It must be invoked by trusted scheduling infrastructure and never runs automatically during server startup.
+## Remaining client-security gate
 
-## Tenancy
-
-Public API project identity comes from the authenticated key. Admin project access comes from account membership. Every project data query is scoped by `project_id`.
-
-Suspended/deleted projects cannot ingest new observations.
-
-## Remaining production gates
-
-P1E/P2 still cover scaled realtime, short-lived untrusted-client tokens, mobile attestation, replay protection and broader operational load testing.
+P2 still covers short-lived untrusted-client tokens, Android app attestation and replay/abuse protection.
