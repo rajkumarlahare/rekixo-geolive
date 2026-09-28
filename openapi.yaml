@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.5.0
-  description: Project-scoped live-location API with account-scoped admin and database-backed API-key lifecycle.
+  version: 0.6.0
+  description: Project-scoped live-location API with durable realtime replay, WebSocket rooms, clustering and account-scoped administration.
 servers:
   - url: https://geolive.example.com
 
@@ -56,6 +56,33 @@ paths:
         "200": { description: Cursor-paginated project-scoped latest users }
         "429": { description: Project read rate limit exceeded }
 
+  /v1/clusters:
+    get:
+      operationId: listClusters
+      description: Project-scoped server-side geographic marker aggregation for large live maps.
+      security:
+        - integrationBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PackageHeader"
+        - in: query
+          name: gridDegrees
+          schema: { type: number, minimum: 0.25, maximum: 45, default: 8 }
+        - in: query
+          name: status
+          schema: { type: string, enum: [online, recent, offline, inactive] }
+        - in: query
+          name: country
+          schema: { type: string }
+        - in: query
+          name: state
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
+      responses:
+        "200": { description: Aggregate cluster centers and activity counts }
+        "429": { description: Project read rate limit exceeded }
+
   /v1/summary:
     get:
       operationId: summary
@@ -75,6 +102,18 @@ paths:
         - $ref: "#/components/parameters/PackageHeader"
       responses:
         "200": { description: Project-scoped Server-Sent Events stream }
+
+  /v1/realtime:
+    get:
+      operationId: integrationRealtimeWebSocket
+      description: |
+        WebSocket upgrade endpoint. After upgrade, send an authenticate JSON message
+        containing a read key with events:read and optional resumeAfter sequence.
+        API keys are intentionally not accepted in the URL.
+      responses:
+        "101": { description: WebSocket protocol switched }
+        "400": { description: Invalid WebSocket upgrade }
+        "503": { description: Realtime unavailable }
 
   /v1/admin/login:
     post:
@@ -195,6 +234,39 @@ paths:
         - $ref: "#/components/parameters/ProjectId"
       responses:
         "200": { description: Status totals for an authorized project }
+
+  /v1/admin/projects/{projectId}/clusters:
+    get:
+      operationId: adminProjectClusters
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: gridDegrees
+          schema: { type: number, minimum: 0.25, maximum: 45, default: 8 }
+      responses:
+        "200": { description: Aggregate cluster centers for an authorized project }
+
+  /v1/admin/realtime:
+    get:
+      operationId: adminRealtimeWebSocket
+      description: Same-origin admin WebSocket upgrade using the HttpOnly session cookie.
+      security:
+        - adminCookie: []
+      parameters:
+        - in: query
+          name: projectId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: after
+          required: false
+          schema: { type: string, pattern: "^[0-9]+$" }
+      responses:
+        "101": { description: WebSocket protocol switched }
+        "401": { description: Admin session required }
+        "403": { description: Project access denied }
 
   /v1/admin/projects/{projectId}/keys:
     get:
@@ -383,6 +455,7 @@ components:
         historyRetentionDays: { type: integer, minimum: 1, maximum: 3650 }
         securityEventRetentionDays: { type: integer, minimum: 7, maximum: 3650 }
         metricsRetentionDays: { type: integer, minimum: 7, maximum: 3650 }
+        realtimeEventRetentionHours: { type: integer, minimum: 1, maximum: 720 }
 
     CreateApiKey:
       type: object
