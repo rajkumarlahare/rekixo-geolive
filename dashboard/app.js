@@ -2206,6 +2206,19 @@ function renderPlatformSupport() {
     identity.append(title, meta);
     row.appendChild(identity);
 
+    const open =
+      document.createElement("button");
+    open.type = "button";
+    open.className = "text-button";
+    open.textContent = "Open conversation";
+    open.addEventListener(
+      "click",
+      () => openPlatformSupportCase(
+        supportCase
+      )
+    );
+    row.appendChild(open);
+
     if (
       platformCan("superadmin","support")
     ) {
@@ -2289,6 +2302,79 @@ function renderPlatformSupport() {
 
     list.appendChild(row);
   }
+}
+
+async function openPlatformSupportCase(
+  supportCase
+) {
+  state.platform.selectedSupportCaseId =
+    supportCase.id;
+  setText(
+    "platformSupportThreadTitle",
+    `${supportCase.accountName || "Account"} · ${supportCase.subject}`
+  );
+  document.querySelector(
+    "#platformSupportThread"
+  ).hidden = false;
+  document.querySelector(
+    "#platformSupportReplyForm"
+  ).hidden =
+    !platformCan(
+      "superadmin",
+      "support"
+    );
+
+  await loadPlatformSupportMessages(
+    supportCase.id
+  );
+}
+
+async function loadPlatformSupportMessages(
+  caseId =
+    state.platform.selectedSupportCaseId
+) {
+  if (!caseId) return;
+
+  const list =
+    document.querySelector(
+      "#platformSupportMessages"
+    );
+  list.replaceChildren();
+
+  try {
+    const payload = await api(
+      `/v1/platform/support-cases/${caseId}/messages`
+    );
+    renderSupportMessages(
+      list,
+      payload.messages || [],
+      { showInternal: true }
+    );
+  } catch (error) {
+    const item =
+      document.createElement("div");
+    item.className = "key-empty";
+    item.textContent =
+      `Could not load conversation: ${error.code}`;
+    list.appendChild(item);
+  }
+}
+
+function nullableNumberValue(id) {
+  const value =
+    document.querySelector("#" + id)
+      .value.trim();
+  return value === ""
+    ? null
+    : Number(value);
+}
+
+function nullableBooleanValue(id) {
+  const value =
+    document.querySelector("#" + id)
+      .value;
+  if (value === "") return null;
+  return value === "true";
 }
 
 document.querySelector("#billingModalClose").addEventListener(
