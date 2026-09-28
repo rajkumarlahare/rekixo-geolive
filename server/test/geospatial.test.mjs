@@ -140,6 +140,36 @@ test("P4A memory history is project/user scoped and cursor paginated", async () 
     "2026-09-28T00:00:00.000Z"
   );
   assert.equal(second.nextCursor, null);
+
+  const malformedCursor =
+    Buffer.from(
+      JSON.stringify({
+        v: 1,
+        receivedAt:
+          "not-a-date",
+        id: "not-a-number"
+      })
+    ).toString("base64url");
+
+  await assert.rejects(
+    () =>
+      store.listMovementHistoryPage(
+        "project-a",
+        {
+          userId: "user-1",
+          from:
+            "2026-09-28T00:00:00.000Z",
+          to:
+            "2026-09-28T01:00:00.000Z",
+          cursor:
+            malformedCursor
+        }
+      ),
+    (error) =>
+      error.code ===
+        "invalid_cursor" &&
+      error.status === 400
+  );
 });
 
 test("P4A memory heatmap aggregates history without leaking projects", async () => {
