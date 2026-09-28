@@ -4,7 +4,8 @@ export const API_KEY_SCOPES = Object.freeze([
   "location:write",
   "users:read",
   "summary:read",
-  "events:read"
+  "events:read",
+  "tokens:issue"
 ]);
 
 const SCOPE_SET = new Set(API_KEY_SCOPES);
@@ -43,11 +44,23 @@ export function validateApiKeyScopes(scopes) {
     });
   }
 
-  const hasWrite = normalized.includes("location:write");
-  const hasRead = normalized.some((scope) => scope.endsWith(":read"));
-  if (hasWrite && hasRead) {
+  const hasWrite =
+    normalized.includes("location:write");
+  const hasRead =
+    normalized.some(
+      (scope) => scope.endsWith(":read")
+    );
+  const hasIssuer =
+    normalized.includes("tokens:issue");
+
+  if (
+    (hasWrite && hasRead) ||
+    (hasIssuer && normalized.length !== 1)
+  ) {
     throw Object.assign(
-      new Error("Ingest and read scopes must use separate API keys."),
+      new Error(
+        "Ingest, read and client-token issuer keys must stay separated."
+      ),
       {
         code: "mixed_key_scopes_not_allowed",
         status: 400
