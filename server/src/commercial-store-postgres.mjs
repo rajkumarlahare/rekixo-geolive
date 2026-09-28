@@ -1620,6 +1620,7 @@ export class PostgresCommercialStore {
       ),
       this.pool.query(
         `SELECT
+          currency,
           count(*)::bigint AS count,
           COALESCE(sum(total_minor) FILTER (
             WHERE status IN ('open','paid')
@@ -1627,7 +1628,9 @@ export class PostgresCommercialStore {
           COALESCE(sum(total_minor) FILTER (
             WHERE status = 'paid'
           ),0)::bigint AS paid_minor
-         FROM billing_invoices`
+         FROM billing_invoices
+         GROUP BY currency
+         ORDER BY currency`
       ),
       this.pool.query(
         `SELECT
@@ -1652,11 +1655,24 @@ export class PostgresCommercialStore {
           ])
         ),
       invoices: {
-        count: integer(invoices.rows[0]?.count),
-        billedMinor:
-          integer(invoices.rows[0]?.billed_minor),
-        paidMinor:
-          integer(invoices.rows[0]?.paid_minor)
+        count: invoices.rows.reduce(
+          (sum, row) =>
+            sum + integer(row.count),
+          0
+        ),
+        byCurrency:
+          Object.fromEntries(
+            invoices.rows.map((row) => [
+              row.currency,
+              {
+                count: integer(row.count),
+                billedMinor:
+                  integer(row.billed_minor),
+                paidMinor:
+                  integer(row.paid_minor)
+              }
+            ])
+          )
       },
       support: {
         open:
