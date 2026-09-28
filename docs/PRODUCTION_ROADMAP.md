@@ -23,8 +23,7 @@
 - database-backed revocable sessions
 - CSRF protection
 - account memberships
-- project create/select/edit/suspend/soft-delete
-- admin dashboard authorization
+- project lifecycle
 - audit log foundation
 
 ## Completed — P1C integration key lifecycle
@@ -36,34 +35,39 @@
 - exact allowed-origin restrictions
 - optional package restrictions
 - dashboard key management
-- last-used metadata and key audit events
-- transitional legacy-key compatibility
 
 ## Completed — P1D security and operations
 - PostgreSQL-distributed rate limits
 - admin-login rate limiting
 - daily ingest quota
-- live-user quota with concurrency-safe enforcement
+- concurrency-safe live-user quota
 - cursor pagination
 - project security-event monitoring
 - hourly API metrics
 - configurable retention policies
 - bounded retention worker
-- Security & Operations dashboard
 - legacy environment-key retirement procedure
 
-## Next — P1E production realtime
-- authenticated project rooms
-- WebSocket where justified
-- Redis fanout at multi-instance scale
-- reconnect/resume
-- backpressure
-- marker clustering
+## Completed — P1E production realtime
+- authenticated integration WebSocket
+- same-origin authenticated admin WebSocket
+- project rooms
+- durable ordered realtime event sequence
+- reconnect/resume replay
+- bounded replay with resync-required path
+- heartbeat and stale-client cleanup
+- backpressure with per-user coalescing
+- optional Redis multi-instance fanout
+- Redis-required readiness gate
+- server-side geographic marker clustering
+- dashboard live updates with polling fallback
+- realtime-event retention
 
-## P2 client security
+## Next — P2 client security
 - short-lived ingest tokens
 - Android app attestation option
 - replay/abuse protection
+- client token exchange
 
 ## P2 commercial layer
 - plans/limits
