@@ -1371,6 +1371,8 @@ function renderBilling(payload) {
   tags.replaceChildren();
   for (const key of [
     "realtime",
+    "movementHistory",
+    "heatmap",
     "clientTokens",
     "androidAttestation",
     "prioritySupport"
@@ -2062,6 +2064,16 @@ function renderPlatformAccountDetail(payload) {
     "realtime"
   );
   setOverrideControl(
+    "entitlementMovementHistory",
+    overrides,
+    "movementHistory"
+  );
+  setOverrideControl(
+    "entitlementHeatmap",
+    overrides,
+    "heatmap"
+  );
+  setOverrideControl(
     "entitlementClientTokens",
     overrides,
     "clientTokens"
@@ -2588,6 +2600,14 @@ document.querySelector("#platformEntitlementForm").addEventListener(
               nullableBooleanValue(
                 "entitlementRealtime"
               ),
+            movementHistory:
+              nullableBooleanValue(
+                "entitlementMovementHistory"
+              ),
+            heatmap:
+              nullableBooleanValue(
+                "entitlementHeatmap"
+              ),
             clientTokens:
               nullableBooleanValue(
                 "entitlementClientTokens"
@@ -2723,6 +2743,10 @@ document.querySelector("#platformPlanForm").addEventListener(
           features: {
             realtime:
               document.querySelector("#platformFeatureRealtime").checked,
+            movementHistory:
+              document.querySelector("#platformFeatureMovementHistory").checked,
+            heatmap:
+              document.querySelector("#platformFeatureHeatmap").checked,
             clientTokens:
               document.querySelector("#platformFeatureClientTokens").checked,
             androidAttestation:
