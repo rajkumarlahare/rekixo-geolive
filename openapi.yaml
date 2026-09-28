@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.7.0
-  description: Project-scoped live-location API with short-lived client tokens, request proof, optional Android attestation, durable realtime replay and account-scoped administration.
+  version: 0.8.0
+  description: Project-scoped live-location API with short-lived client security, commercial plans, entitlements, usage metering, invoices, support workflows and platform administration.
 servers:
   - url: https://geolive.example.com
 
@@ -462,6 +462,271 @@ paths:
       responses:
         "200": { description: Cursor-paginated project security events }
 
+
+  /v1/admin/accounts/{accountId}/commercial:
+    get:
+      operationId: adminAccountCommercialOverview
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200": { description: Account subscription, effective entitlements, current usage, invoices and support cases }
+        "404": { description: Account not found or inaccessible }
+
+  /v1/admin/accounts/{accountId}/invoices:
+    get:
+      operationId: adminAccountInvoices
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200": { description: Account invoices }
+
+  /v1/admin/accounts/{accountId}/support-cases:
+    get:
+      operationId: adminListSupportCases
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+      responses:
+        "200": { description: Account support cases }
+    post:
+      operationId: adminCreateSupportCase
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportCaseCreate"
+      responses:
+        "201": { description: Support case created }
+        "403": { description: Account write role required }
+
+  /v1/admin/support-cases/{caseId}/messages:
+    get:
+      operationId: adminSupportCaseMessages
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/SupportCaseId"
+      responses:
+        "200": { description: Tenant-visible support case messages }
+    post:
+      operationId: adminAddSupportMessage
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/SupportCaseId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportMessage"
+      responses:
+        "201": { description: Tenant support message added }
+
+  /v1/platform/overview:
+    get:
+      operationId: platformOverview
+      security:
+        - adminCookie: []
+      responses:
+        "200": { description: Cross-account commercial and support summary }
+        "403": { description: Platform role required }
+
+  /v1/platform/plans:
+    get:
+      operationId: platformListPlans
+      security:
+        - adminCookie: []
+      responses:
+        "200": { description: Commercial plan catalog }
+    post:
+      operationId: platformCreatePlan
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanInput"
+      responses:
+        "201": { description: Plan created }
+        "403": { description: Super-admin role required }
+
+  /v1/platform/plans/{planId}:
+    patch:
+      operationId: platformUpdatePlan
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/PlanId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlanInput"
+      responses:
+        "200": { description: Plan updated }
+        "403": { description: Super-admin role required }
+
+  /v1/platform/accounts:
+    get:
+      operationId: platformListAccounts
+      security:
+        - adminCookie: []
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        "200": { description: Accounts with subscription summary }
+
+  /v1/platform/accounts/{accountId}/subscription:
+    patch:
+      operationId: platformUpdateSubscription
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscriptionPatch"
+      responses:
+        "200": { description: Subscription updated }
+        "403": { description: Billing or super-admin role required }
+
+  /v1/platform/accounts/{accountId}/entitlements:
+    patch:
+      operationId: platformUpdateEntitlements
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EntitlementOverrides"
+      responses:
+        "200": { description: Effective entitlement overrides updated }
+        "403": { description: Super-admin role required }
+
+  /v1/platform/accounts/{accountId}/invoices/generate:
+    post:
+      operationId: platformGenerateInvoice
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AccountId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoiceGenerate"
+      responses:
+        "201": { description: Draft invoice generated from finalized usage }
+        "409": { description: Non-void invoice already exists for the period }
+
+  /v1/platform/invoices/{invoiceId}:
+    patch:
+      operationId: platformUpdateInvoice
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InvoiceId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvoicePatch"
+      responses:
+        "200": { description: Invoice status updated }
+
+  /v1/platform/support-cases:
+    get:
+      operationId: platformSupportQueue
+      security:
+        - adminCookie: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [open, pending_customer, pending_internal, resolved, closed]
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 100 }
+      responses:
+        "200": { description: Cross-account support queue }
+
+  /v1/platform/support-cases/{caseId}:
+    patch:
+      operationId: platformUpdateSupportCase
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/SupportCaseId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupportCasePatch"
+      responses:
+        "200": { description: Support case updated }
+
+  /v1/platform/support-cases/{caseId}/messages:
+    get:
+      operationId: platformSupportCaseMessages
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/SupportCaseId"
+      responses:
+        "200": { description: Support messages including internal notes }
+    post:
+      operationId: platformAddSupportMessage
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/SupportCaseId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSupportMessage"
+      responses:
+        "201": { description: Platform support reply or internal note added }
+
 components:
   securitySchemes:
     integrationBearer:
@@ -474,6 +739,26 @@ components:
       name: geolive_admin_session
 
   parameters:
+    AccountId:
+      in: path
+      name: accountId
+      required: true
+      schema: { type: string, format: uuid }
+    PlanId:
+      in: path
+      name: planId
+      required: true
+      schema: { type: string, format: uuid }
+    InvoiceId:
+      in: path
+      name: invoiceId
+      required: true
+      schema: { type: string, format: uuid }
+    SupportCaseId:
+      in: path
+      name: caseId
+      required: true
+      schema: { type: string, format: uuid }
     ProjectId:
       in: path
       name: projectId
@@ -515,6 +800,116 @@ components:
       schema: { type: string }
 
   schemas:
+    PlanInput:
+      type: object
+      additionalProperties: false
+      properties:
+        code: { type: string, minLength: 2, maxLength: 63 }
+        name: { type: string, minLength: 2, maxLength: 120 }
+        status: { type: string, enum: [active, archived] }
+        currency: { type: string, pattern: "^[A-Z]{3}$" }
+        monthlyPriceMinor: { type: integer, minimum: 0 }
+        includedIngest: { type: integer, minimum: 0 }
+        includedRead: { type: integer, minimum: 0 }
+        includedTrackedUsers: { type: integer, minimum: 0 }
+        maxProjects: { type: integer, minimum: 1, maximum: 1000000 }
+        overageIngestPer1000Minor: { type: integer, minimum: 0 }
+        overageReadPer1000Minor: { type: integer, minimum: 0 }
+        overageTrackedUserMinor: { type: integer, minimum: 0 }
+        features:
+          type: object
+          additionalProperties: { type: boolean }
+
+    SubscriptionPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        planId: { type: string, format: uuid }
+        status:
+          type: string
+          enum: [trialing, active, past_due, canceled]
+        provider: { type: string, maxLength: 240 }
+        providerCustomerRef: { type: [string, "null"], maxLength: 240 }
+        providerSubscriptionRef: { type: [string, "null"], maxLength: 240 }
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        cancelAtPeriodEnd: { type: boolean }
+
+    EntitlementOverrides:
+      type: object
+      additionalProperties: false
+      properties:
+        maxProjects: { type: integer, minimum: 1 }
+        includedIngest: { type: integer, minimum: 0 }
+        includedRead: { type: integer, minimum: 0 }
+        includedTrackedUsers: { type: integer, minimum: 0 }
+        realtime: { type: boolean }
+        clientTokens: { type: boolean }
+        androidAttestation: { type: boolean }
+        prioritySupport: { type: boolean }
+
+    SupportCaseCreate:
+      type: object
+      required: [subject, body]
+      additionalProperties: false
+      properties:
+        subject: { type: string, minLength: 3, maxLength: 180 }
+        body: { type: string, minLength: 3, maxLength: 10000 }
+        projectId: { type: [string, "null"], format: uuid }
+        category:
+          type: string
+          enum: [billing, technical, account, security, other]
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+
+    SupportCasePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [open, pending_customer, pending_internal, resolved, closed]
+        priority:
+          type: string
+          enum: [low, normal, high, urgent]
+        assignedPlatformUserId: { type: [string, "null"], format: uuid }
+
+    SupportMessage:
+      type: object
+      required: [body]
+      additionalProperties: false
+      properties:
+        body: { type: string, minLength: 1, maxLength: 10000 }
+
+    PlatformSupportMessage:
+      type: object
+      required: [body]
+      additionalProperties: false
+      properties:
+        body: { type: string, minLength: 1, maxLength: 10000 }
+        internal: { type: boolean, default: false }
+
+    InvoiceGenerate:
+      type: object
+      required: [periodStart, periodEnd]
+      additionalProperties: false
+      properties:
+        periodStart: { type: string, format: date }
+        periodEnd: { type: string, format: date }
+        dueAt: { type: [string, "null"], format: date-time }
+        taxMinor: { type: integer, minimum: 0 }
+        notes: { type: [string, "null"], maxLength: 2000 }
+
+    InvoicePatch:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [draft, open, paid, void, uncollectible]
+
     ClientTokenExchange:
       type: object
       required: [userId, platform, clientNonce, clientTimestampMs]
