@@ -464,8 +464,13 @@ export class PostgresCommercialStore {
   }
 
   async getEffectiveEntitlements(accountId) {
-    const { subscription, plan } =
-      await this.getSubscription(accountId);
+    const {
+      subscription,
+      plan,
+      effective
+    } = await this.getEffectiveEntitlements(
+      accountId
+    );
 
     const result = await this.pool.query(
       `SELECT entitlement_key, value
@@ -728,7 +733,11 @@ export class PostgresCommercialStore {
         period_end
       )
       DO UPDATE SET
-        metrics = EXCLUDED.metrics,
+        metrics = CASE
+          WHEN billing_usage_periods.finalized
+            THEN billing_usage_periods.metrics
+          ELSE EXCLUDED.metrics
+        END,
         finalized = (
           billing_usage_periods.finalized
           OR EXCLUDED.finalized
@@ -925,7 +934,7 @@ export class PostgresCommercialStore {
     const ingestOver = Math.max(
       0,
       metrics.ingestRequests -
-        plan.includedIngest
+        effective.includedIngest
     );
     if (
       ingestOver > 0 &&
@@ -949,7 +958,7 @@ export class PostgresCommercialStore {
     const readOver = Math.max(
       0,
       metrics.readRequests -
-        plan.includedRead
+        effective.includedRead
     );
     if (
       readOver > 0 &&
@@ -973,7 +982,7 @@ export class PostgresCommercialStore {
     const userOver = Math.max(
       0,
       metrics.trackedUsers -
-        plan.includedTrackedUsers
+        effective.includedTrackedUsers
     );
     if (
       userOver > 0 &&
