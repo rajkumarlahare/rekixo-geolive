@@ -45,6 +45,63 @@ export class MemoryGeoLiveStore {
       .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
   }
 
+  async clusterUsers(
+    projectId,
+    {
+      gridDegrees = 8,
+      status = "",
+      country = "",
+      state = "",
+      city = "",
+      thresholds
+    } = {}
+  ) {
+    const users = await this.listUsers(projectId, {
+      status,
+      country,
+      state,
+      city,
+      limit: 1000,
+      thresholds
+    });
+    const grid = Math.min(
+      Math.max(Number(gridDegrees) || 8, 0.25),
+      45
+    );
+    const cells = new Map();
+
+    for (const user of users) {
+      const lat =
+        Math.floor((user.latitude + 90) / grid) * grid -
+        90 +
+        grid / 2;
+      const lng =
+        Math.floor((user.longitude + 180) / grid) * grid -
+        180 +
+        grid / 2;
+      const key = `${lat}:${lng}`;
+      let cell = cells.get(key);
+      if (!cell) {
+        cell = {
+          latitude: lat,
+          longitude: lng,
+          count: 0,
+          online: 0,
+          recent: 0,
+          offline: 0,
+          inactive: 0
+        };
+        cells.set(key, cell);
+      }
+      cell.count += 1;
+      cell[user.status] += 1;
+    }
+
+    return [...cells.values()]
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5000);
+  }
+
   async summary(projectId, thresholds) {
     const users = await this.listUsers(projectId, { limit: 1000, thresholds });
     const counts = { total: users.length, online: 0, recent: 0, offline: 0, inactive: 0 };
