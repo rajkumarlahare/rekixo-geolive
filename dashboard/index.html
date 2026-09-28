@@ -18,6 +18,8 @@
       <button id="editProject" class="icon-button" title="Project settings" disabled>⚙</button>
       <button id="manageKeys" class="icon-button" title="API keys" disabled>⌘</button>
       <button id="manageOps" class="icon-button" title="Security & operations" disabled>◇</button>
+      <button id="manageBilling" class="icon-button" title="Billing & support" disabled>¤</button>
+      <button id="platformConsole" class="icon-button" title="Platform console" hidden>◆</button>
     </div>
 
     <div class="top-search"><span>⌕</span><input id="search" placeholder="Search User" disabled /></div>
@@ -279,6 +281,123 @@
         <button type="button" class="text-button" id="refreshOps">Refresh</button>
       </div>
       <div class="security-list" id="securityList"></div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="billingModal" hidden>
+    <section class="modal-card commercial-modal-card">
+      <div class="modal-title">
+        <div><small>ACCOUNT</small><h2>Billing & Support</h2></div>
+        <button type="button" class="close" id="billingModalClose">×</button>
+      </div>
+
+      <label>Account
+        <select id="billingAccount"></select>
+      </label>
+      <div class="form-error" id="billingError"></div>
+
+      <section class="commercial-summary">
+        <article><small>Plan</small><strong id="billingPlan">—</strong><span id="billingPlanPrice">—</span></article>
+        <article><small>Subscription</small><strong id="billingStatus">—</strong><span id="billingPeriod">—</span></article>
+        <article><small>Ingest this month</small><strong id="billingIngest">0</strong><span id="billingIngestLimit">—</span></article>
+        <article><small>Read this month</small><strong id="billingRead">0</strong><span id="billingReadLimit">—</span></article>
+        <article><small>Tracked users</small><strong id="billingTrackedUsers">0</strong><span id="billingTrackedLimit">—</span></article>
+        <article><small>Projects</small><strong id="billingProjects">0</strong><span id="billingProjectLimit">—</span></article>
+      </section>
+
+      <div class="key-list-head">
+        <h3>Entitlements</h3>
+      </div>
+      <div id="billingEntitlements" class="commercial-tags"></div>
+
+      <div class="key-list-head">
+        <h3>Invoices</h3>
+      </div>
+      <div id="billingInvoices" class="commercial-list"></div>
+
+      <div class="key-list-head">
+        <h3>Support cases</h3>
+      </div>
+      <div id="billingSupportCases" class="commercial-list"></div>
+
+      <form id="supportCaseForm" class="limits-form">
+        <h3>Create support case</h3>
+        <div class="key-form-grid">
+          <label>Category
+            <select id="supportCategory">
+              <option value="technical">Technical</option>
+              <option value="billing">Billing</option>
+              <option value="account">Account</option>
+              <option value="security">Security</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>Priority
+            <select id="supportPriority">
+              <option value="normal">Normal</option>
+              <option value="low">Low</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </label>
+        </div>
+        <label>Subject
+          <input id="supportSubject" maxlength="180" required />
+        </label>
+        <label>Message
+          <textarea id="supportBody" rows="4" maxlength="10000" required></textarea>
+        </label>
+        <button type="submit" class="primary-button" id="createSupportCase">Create case</button>
+      </form>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="platformModal" hidden>
+    <section class="modal-card platform-modal-card">
+      <div class="modal-title">
+        <div><small>PLATFORM</small><h2>Commercial Console</h2></div>
+        <button type="button" class="close" id="platformModalClose">×</button>
+      </div>
+      <div class="form-error" id="platformError"></div>
+
+      <section class="commercial-summary">
+        <article><small>Accounts</small><strong id="platformAccountsCount">0</strong></article>
+        <article><small>Active subscriptions</small><strong id="platformActiveSubs">0</strong></article>
+        <article><small>Billed</small><strong id="platformBilled">—</strong></article>
+        <article><small>Paid</small><strong id="platformPaid">—</strong></article>
+        <article><small>Open support</small><strong id="platformOpenSupport">0</strong></article>
+        <article><small>Urgent support</small><strong id="platformUrgentSupport">0</strong></article>
+      </section>
+
+      <form id="platformPlanForm" class="limits-form" hidden>
+        <div class="key-list-head"><h3>Create plan</h3></div>
+        <div class="key-form-grid">
+          <label>Code<input id="platformPlanCode" maxlength="63" required /></label>
+          <label>Name<input id="platformPlanName" maxlength="120" required /></label>
+          <label>Currency<input id="platformPlanCurrency" value="USD" maxlength="3" required /></label>
+          <label>Monthly price (minor units)<input id="platformPlanPrice" type="number" min="0" value="0" required /></label>
+          <label>Included ingest<input id="platformPlanIngest" type="number" min="0" value="0" required /></label>
+          <label>Included read<input id="platformPlanRead" type="number" min="0" value="0" required /></label>
+          <label>Included tracked users<input id="platformPlanUsers" type="number" min="0" value="0" required /></label>
+          <label>Max projects<input id="platformPlanProjects" type="number" min="1" value="1" required /></label>
+        </div>
+        <div class="commercial-tags">
+          <label class="checkbox-label"><input id="platformFeatureRealtime" type="checkbox" checked />Realtime</label>
+          <label class="checkbox-label"><input id="platformFeatureClientTokens" type="checkbox" checked />Client tokens</label>
+          <label class="checkbox-label"><input id="platformFeatureAttestation" type="checkbox" checked />Android attestation</label>
+          <label class="checkbox-label"><input id="platformFeaturePrioritySupport" type="checkbox" />Priority support</label>
+        </div>
+        <button type="submit" class="primary-button">Create plan</button>
+      </form>
+
+      <div class="key-list-head"><h3>Plans</h3><button type="button" class="text-button" id="refreshPlatform">Refresh</button></div>
+      <div id="platformPlans" class="commercial-list"></div>
+
+      <div class="key-list-head"><h3>Accounts & subscriptions</h3></div>
+      <div id="platformAccounts" class="commercial-list"></div>
+
+      <div class="key-list-head"><h3>Support queue</h3></div>
+      <div id="platformSupport" class="commercial-list"></div>
     </section>
   </div>
 
