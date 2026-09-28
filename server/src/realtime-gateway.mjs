@@ -28,6 +28,7 @@ function rejectUpgrade(socket, status, reason) {
   const labels = {
     400: "Bad Request",
     401: "Unauthorized",
+    402: "Payment Required",
     403: "Forbidden",
     429: "Too Many Requests",
     503: "Service Unavailable"
@@ -64,7 +65,8 @@ export function createRealtimeGateway({
   keyStore = null,
   adminStore = null,
   opsStore = null,
-  realtimeStore = null
+  realtimeStore = null,
+  commercialStore = null
 }) {
   const instanceId = crypto.randomUUID();
   const rooms = new Map();
@@ -505,6 +507,28 @@ export function createRealtimeGateway({
         });
         peer.close(1008, "package_not_allowed");
         return;
+      }
+
+      if (commercialStore) {
+        try {
+          await commercialStore.assertProjectFeature(
+            auth.key.projectId,
+            "realtime"
+          );
+        } catch (error) {
+          peer.sendJson({
+            type: "error",
+            error:
+              error.code ||
+              "feature_not_entitled"
+          });
+          peer.close(
+            1008,
+            error.code ||
+              "feature_not_entitled"
+          );
+          return;
+        }
       }
 
       const rate = await enforceRealtimeRead(
