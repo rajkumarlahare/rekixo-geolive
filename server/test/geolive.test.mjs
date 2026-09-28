@@ -60,6 +60,9 @@ test("production refuses to start without configured keys", () => {
 test("configured key origins are included in preflight allowlist", () => {
   const cfg = loadConfig({
     NODE_ENV: "production",
+    GEOLIVE_PERSISTENCE: "postgres",
+    DATABASE_URL: "postgresql://example.invalid/geolive",
+    DATABASE_SSL: "disable",
     GEOLIVE_KEYS_JSON: JSON.stringify([{
       id: "k1",
       projectId: "p1",
