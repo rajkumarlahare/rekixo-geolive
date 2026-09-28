@@ -1,0 +1,205 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { MemoryGeoLiveStore } from "../src/store-memory.mjs";
+import {
+  GeospatialInputError,
+  parseHeatmapQuery,
+  parseMovementHistoryQuery
+} from "../src/geospatial-validation.mjs";
+
+test("P4A geospatial query validation bounds history windows", () => {
+  const history = parseMovementHistoryQuery(
+    new URLSearchParams({
+      userId: "user-1",
+      from: "2026-09-27T00:00:00.000Z",
+      to: "2026-09-28T00:00:00.000Z",
+      limit: "500"
+    })
+  );
+  assert.equal(history.userId, "user-1");
+  assert.equal(history.limit, 500);
+
+  const heatmap = parseHeatmapQuery(
+    new URLSearchParams({
+      from: "2026-09-27T00:00:00.000Z",
+      to: "2026-09-28T00:00:00.000Z",
+      gridDegrees: "1.5"
+    })
+  );
+  assert.equal(heatmap.gridDegrees, 1.5);
+
+  assert.throws(
+    () =>
+      parseMovementHistoryQuery(
+        new URLSearchParams({
+          from: "2026-09-27T00:00:00.000Z",
+          to: "2026-09-28T00:00:00.000Z"
+        })
+      ),
+    (error) =>
+      error instanceof GeospatialInputError &&
+      error.code === "user_id_required"
+  );
+
+  assert.throws(
+    () =>
+      parseHeatmapQuery(
+        new URLSearchParams({
+          from: "2026-07-01T00:00:00.000Z",
+          to: "2026-09-28T00:00:00.000Z"
+        })
+      ),
+    (error) =>
+      error instanceof GeospatialInputError &&
+      error.code === "history_window_too_large"
+  );
+});
+
+test("P4A memory history is project/user scoped and cursor paginated", async () => {
+  const store = new MemoryGeoLiveStore();
+  const base = {
+    userId: "user-1",
+    accuracyM: 5,
+    device: { platform: "test" }
+  };
+
+  for (const [receivedAt, latitude, longitude] of [
+    ["2026-09-28T00:00:00.000Z", 21.25, 81.62],
+    ["2026-09-28T00:01:00.000Z", 21.26, 81.63],
+    ["2026-09-28T00:02:00.000Z", 21.27, 81.64]
+  ]) {
+    await store.upsertLocation(
+      "project-a",
+      {
+        ...base,
+        latitude,
+        longitude,
+        receivedAt,
+        capturedAt: receivedAt
+      }
+    );
+  }
+
+  await store.upsertLocation(
+    "project-a",
+    {
+      ...base,
+      userId: "other-user",
+      latitude: 30,
+      longitude: 70,
+      receivedAt:
+        "2026-09-28T00:01:30.000Z"
+    }
+  );
+  await store.upsertLocation(
+    "project-b",
+    {
+      ...base,
+      latitude: 40,
+      longitude: 50,
+      receivedAt:
+        "2026-09-28T00:01:30.000Z"
+    }
+  );
+
+  const first =
+    await store.listMovementHistoryPage(
+      "project-a",
+      {
+        userId: "user-1",
+        from: "2026-09-28T00:00:00.000Z",
+        to: "2026-09-28T01:00:00.000Z",
+        limit: 2
+      }
+    );
+
+  assert.equal(first.points.length, 2);
+  assert.equal(
+    first.points[0].receivedAt,
+    "2026-09-28T00:02:00.000Z"
+  );
+  assert.ok(first.nextCursor);
+
+  const second =
+    await store.listMovementHistoryPage(
+      "project-a",
+      {
+        userId: "user-1",
+        from: "2026-09-28T00:00:00.000Z",
+        to: "2026-09-28T01:00:00.000Z",
+        limit: 2,
+        cursor: first.nextCursor
+      }
+    );
+
+  assert.equal(second.points.length, 1);
+  assert.equal(
+    second.points[0].receivedAt,
+    "2026-09-28T00:00:00.000Z"
+  );
+  assert.equal(second.nextCursor, null);
+});
+
+test("P4A memory heatmap aggregates history without leaking projects", async () => {
+  const store = new MemoryGeoLiveStore();
+
+  for (const [userId, latitude, longitude] of [
+    ["u1", 21.25, 81.62],
+    ["u2", 21.27, 81.64],
+    ["u1", 21.26, 81.63]
+  ]) {
+    await store.upsertLocation(
+      "project-a",
+      {
+        userId,
+        latitude,
+        longitude,
+        receivedAt:
+          "2026-09-28T00:10:00.000Z"
+      }
+    );
+  }
+
+  await store.upsertLocation(
+    "project-b",
+    {
+      userId: "u3",
+      latitude: 21.26,
+      longitude: 81.63,
+      receivedAt:
+        "2026-09-28T00:10:00.000Z"
+    }
+  );
+
+  const cells =
+    await store.heatmapHistory(
+      "project-a",
+      {
+        from:
+          "2026-09-28T00:00:00.000Z",
+        to:
+          "2026-09-28T01:00:00.000Z",
+        gridDegrees: 2
+      }
+    );
+
+  assert.equal(
+    cells.reduce(
+      (sum, cell) =>
+        sum + cell.count,
+      0
+    ),
+    3
+  );
+  assert.equal(
+    cells.reduce(
+      (max, cell) =>
+        Math.max(
+          max,
+          cell.uniqueUsers
+        ),
+      0
+    ),
+    2
+  );
+});
