@@ -738,12 +738,16 @@ export class PostgresGeoLiveStore {
         params.length - 1;
       const idParam =
         params.length;
+      const timePlaceholder =
+        "$" + timeParam;
+      const idPlaceholder =
+        "$" + idParam;
       where.push(
         `(
-          received_at < ${timeParam}::timestamptz
+          received_at < ${timePlaceholder}::timestamptz
           OR (
-            received_at = ${timeParam}::timestamptz
-            AND id < ${idParam}::bigint
+            received_at = ${timePlaceholder}::timestamptz
+            AND id < ${idPlaceholder}::bigint
           )
         )`
       );
@@ -752,6 +756,8 @@ export class PostgresGeoLiveStore {
     params.push(pageSize + 1);
     const limitParam =
       params.length;
+    const limitPlaceholder =
+      "$" + limitParam;
 
     const result =
       await this.pool.query(
@@ -777,7 +783,7 @@ export class PostgresGeoLiveStore {
         ORDER BY
           received_at DESC,
           id DESC
-        LIMIT ${limitParam}`,
+        LIMIT ${limitPlaceholder}`,
         params
       );
 
@@ -841,8 +847,10 @@ export class PostgresGeoLiveStore {
       params.push(
         String(userId)
       );
+      const userPlaceholder =
+        "$" + params.length;
       where.push(
-        `external_user_id = ${params.length}`
+        `external_user_id = ${userPlaceholder}`
       );
     }
 
