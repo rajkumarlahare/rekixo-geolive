@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.8.0
-  description: Project-scoped live-location API with short-lived client security, commercial plans, entitlements, usage metering, invoices, support workflows and platform administration.
+  version: 0.9.0
+  description: Project-scoped live-location API with short-lived client security, commercial plans, movement history, historical heatmaps, usage metering, invoices, support workflows and platform administration.
 servers:
   - url: https://geolive.example.com
 
@@ -81,6 +81,68 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Cursor-paginated project-scoped latest users }
+        "429": { description: Project read rate limit exceeded }
+
+  /v1/history:
+    get:
+      operationId: movementHistory
+      description: |
+        Cursor-paginated project/user movement history. Requires history:read.
+        The requested time window must be no more than 31 days and returned
+        data is bounded by the project's configured history retention.
+      security:
+        - integrationBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PackageHeader"
+        - in: query
+          name: userId
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 160 }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 250 }
+        - in: query
+          name: cursor
+          schema: { type: string, maxLength: 1024 }
+      responses:
+        "200": { description: Project/user-scoped historical location points and next cursor }
+        "400": { description: Invalid user, cursor or history window }
+        "402": { description: Movement-history feature not entitled }
+        "429": { description: Project read rate limit exceeded }
+
+  /v1/heatmap:
+    get:
+      operationId: historicalHeatmap
+      description: |
+        Aggregates retained project location history into geographic cells.
+        Requires history:read and a maximum 31-day query window.
+      security:
+        - integrationBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PackageHeader"
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: gridDegrees
+          schema: { type: number, minimum: 0.25, maximum: 45, default: 2 }
+        - in: query
+          name: userId
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "200": { description: Project-scoped historical heatmap cells }
+        "400": { description: Invalid grid or history window }
+        "402": { description: Heatmap feature not entitled }
         "429": { description: Project read rate limit exceeded }
 
   /v1/clusters:
@@ -251,6 +313,59 @@ paths:
         - $ref: "#/components/parameters/ProjectId"
       responses:
         "200": { description: Latest users for an authorized project }
+
+  /v1/admin/projects/{projectId}/history:
+    get:
+      operationId: adminProjectMovementHistory
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: userId
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 160 }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 250 }
+        - in: query
+          name: cursor
+          schema: { type: string, maxLength: 1024 }
+      responses:
+        "200": { description: Authorized project/user movement history }
+        "400": { description: Invalid history query }
+        "402": { description: Movement-history feature not entitled }
+
+  /v1/admin/projects/{projectId}/heatmap:
+    get:
+      operationId: adminProjectHistoricalHeatmap
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: gridDegrees
+          schema: { type: number, minimum: 0.25, maximum: 45, default: 2 }
+        - in: query
+          name: userId
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "200": { description: Authorized project historical heatmap cells }
+        "400": { description: Invalid heatmap query }
+        "402": { description: Heatmap feature not entitled }
 
   /v1/admin/projects/{projectId}/summary:
     get:
@@ -869,6 +984,8 @@ components:
             - { type: integer, minimum: 0 }
             - { type: "null" }
         realtime: { type: [boolean, "null"] }
+        movementHistory: { type: [boolean, "null"] }
+        heatmap: { type: [boolean, "null"] }
         clientTokens: { type: [boolean, "null"] }
         androidAttestation: { type: [boolean, "null"] }
         prioritySupport: { type: [boolean, "null"] }
@@ -999,7 +1116,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [location:write, users:read, summary:read, events:read, tokens:issue]
+            enum: [location:write, users:read, history:read, summary:read, events:read, tokens:issue]
         allowedOrigins:
           type: array
           maxItems: 50
