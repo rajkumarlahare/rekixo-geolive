@@ -1,5 +1,6 @@
 import { presenceStatus } from "./status.mjs";
 import {
+  CursorError,
   decodeCursor,
   encodeCursor
 } from "./cursor.mjs";
@@ -86,12 +87,28 @@ export class MemoryGeoLiveStore {
       new Date(from).getTime();
     const toMs =
       new Date(to).getTime();
-    const cursorMs = decoded
+    const cursorDate = decoded
       ? new Date(decoded.receivedAt)
-          .getTime()
+      : null;
+    const cursorIdText = decoded
+      ? String(decoded.id)
+      : "";
+    if (
+      decoded &&
+      (
+        Number.isNaN(
+          cursorDate.getTime()
+        ) ||
+        !/^\d+$/.test(cursorIdText)
+      )
+    ) {
+      throw new CursorError();
+    }
+    const cursorMs = cursorDate
+      ? cursorDate.getTime()
       : null;
     const cursorId = decoded
-      ? BigInt(String(decoded.id))
+      ? BigInt(cursorIdText)
       : null;
 
     const rows = project.history
