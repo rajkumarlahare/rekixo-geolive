@@ -59,4 +59,5 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run migrate
       - run: npm run test:postgres
+      - run: node --test server/test/realtime-redis.test.mjs
       - run: npm run retention
