@@ -1371,6 +1371,30 @@ export class PostgresCommercialStore {
       [caseId]
     );
 
+    await this.pool.query(
+      `INSERT INTO audit_log (
+        admin_user_id,
+        account_id,
+        action,
+        details
+      ) VALUES (
+        $1,$2,'support.message_add',$3::jsonb
+      )`,
+      [
+        actorUserId,
+        exists.rows[0].account_id,
+        JSON.stringify({
+          caseId,
+          messageId:
+            String(result.rows[0].id),
+          authorType:
+            platform ? "platform" : "tenant",
+          internal:
+            platform ? Boolean(internal) : false
+        })
+      ]
+    );
+
     return {
       id: String(result.rows[0].id),
       createdAt: iso(result.rows[0].created_at)
@@ -1406,7 +1430,11 @@ export class PostgresCommercialStore {
       const role = await this.getPlatformRole(
         next.assignedPlatformUserId
       );
-      if (!role) {
+      if (
+        !["superadmin","support"].includes(
+          role
+        )
+      ) {
         throw new CommercialStoreError(
           "invalid_assignee",
           400
