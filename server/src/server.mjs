@@ -1287,6 +1287,13 @@ export function createGeoLiveServer({
         const auth = await authorizePublic(req, "events:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
 
+        if (commercialStore) {
+          await commercialStore.assertProjectFeature(
+            auth.key.projectId,
+            "realtime"
+          );
+        }
+
         const restrictions = validateClientRestrictions(
           req,
           origin,
@@ -1436,7 +1443,8 @@ async function start() {
     keyStore,
     adminStore,
     opsStore,
-    realtimeStore
+    realtimeStore,
+    commercialStore
   });
 
   const server = createGeoLiveServer({
