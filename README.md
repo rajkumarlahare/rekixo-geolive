@@ -6,7 +6,7 @@
 
 ## Current implementation
 
-P0 + P1A + P1B + P1C + P1D + P1E + P2 now provide:
+P0 through P3 now provide:
 
 - project-scoped live-location ingestion
 - PostgreSQL/PostGIS latest-state and append-only history
@@ -17,14 +17,16 @@ P0 + P1A + P1B + P1C + P1D + P1E + P2 now provide:
 - authenticated WebSocket rooms with durable replay/resume
 - optional Redis multi-instance fanout
 - server-side live-map clustering
-- **dedicated `tokens:issue` issuer keys**
-- **short-lived `rgl_client_...` location-write tokens**
-- **project/user/package/platform token binding**
-- **P-256 proof-of-possession and one-time request nonces**
-- **optional/required Android Google Play Integrity verification**
-- **issuer revocation propagation to already-issued client tokens**
-- dashboard controls for client token TTL, proof and attestation policy
-- JavaScript / Android / Flutter adapters for rotating tokens and request proof
+- dedicated `tokens:issue` issuer keys
+- short-lived `rgl_client_...` location-write tokens
+- P-256 proof-of-possession and replay protection
+- optional/required Android Google Play Integrity verification
+- **commercial plans and account subscriptions**
+- **effective account entitlements and project-count enforcement**
+- **billable usage snapshots and provider-neutral invoice ledger**
+- **tenant support cases plus platform support workflow**
+- **separate superadmin / billing / support / viewer platform roles**
+- **billing/support and commercial platform dashboard controls**
 
 Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
@@ -46,12 +48,22 @@ npm ci
 npm run migrate
 ```
 
-Create the first owner:
+Create the first account owner:
 
 ```bash
 GEOLIVE_BOOTSTRAP_PASSWORD="your-strong-password" \
 npm run admin:bootstrap -- admin@example.com "Admin Name" "Rekixo"
 ```
+
+All existing and newly-created accounts are assigned the backward-compatible `legacy` commercial plan until a platform administrator deliberately changes the subscription.
+
+To give an existing admin user a platform role:
+
+```bash
+npm run platform:grant -- admin@example.com superadmin
+```
+
+Supported platform roles are `superadmin`, `billing`, `support` and `viewer`.
 
 ## P2 short-lived client tokens
 
@@ -71,58 +83,59 @@ Configure a signing key ring in deployment secrets:
 GEOLIVE_CLIENT_TOKEN_KEYS_JSON=[{"kid":"2026-09","secret":"<base64url-secret-at-least-32-bytes>"}]
 ```
 
-The first key signs new client tokens and every listed key can verify tokens, which allows safe key rotation.
+A trusted product backend exchanges the issuer key at `POST /v1/client-tokens/exchange`. GeoLive returns a short-lived `rgl_client_...` token. Project policy can configure a 60–3600 second lifetime.
 
-A trusted product backend exchanges the issuer key:
+Projects may require P-256 proof-of-possession and Android Google Play Integrity. See the P2 guide for canonical request signing and attestation details.
 
-```http
-POST /v1/client-tokens/exchange
-Authorization: Bearer rgl_live_...
-Content-Type: application/json
+## P3 commercial layer
 
-{
-  "userId": "user_123",
-  "platform": "android",
-  "packageId": "com.example.app",
-  "clientNonce": "<one-time-url-safe-nonce>",
-  "clientTimestampMs": 1790553600000,
-  "proofPublicKey": "<base64url-P256-SPKI>"
-}
+Commercial data is account-scoped.
+
+A plan defines:
+
+- monthly price in currency minor units
+- included ingest requests
+- included read requests
+- included tracked users
+- maximum projects
+- optional ingest/read/user overage prices
+- feature flags such as realtime, client tokens, Android attestation and priority support
+
+Account-specific entitlement overrides can change limits/features without mutating the shared plan.
+
+Project creation is checked against the account's effective `maxProjects`. P2 client-token exchange and Android attestation are checked against their feature entitlements.
+
+### Usage metering
+
+GeoLive builds calendar-period snapshots from the operational/location data already stored by the platform.
+
+Run current-month rollup:
+
+```bash
+npm run billing:rollup -- current
 ```
 
-GeoLive returns a short-lived `rgl_client_...` bearer token. Default lifetime is 5 minutes; project policy can configure 60–3600 seconds.
+Finalize the previous month:
 
-## Proof-bound location writes
-
-Short-lived client tokens always use a timestamp and one-time request nonce. Projects default to requiring P-256 proof-of-possession.
-
-The client signs a canonical string containing the exact raw JSON-body SHA-256 and sends:
-
-```text
-Authorization: Bearer rgl_client_...
-X-GeoLive-Package: com.example.app
-X-GeoLive-Request-Timestamp: <epoch-ms>
-X-GeoLive-Request-Nonce: <one-time-nonce>
-X-GeoLive-Request-Signature: <base64url-ECDSA-signature>
+```bash
+npm run billing:rollup -- previous
 ```
 
-Replay nonces are stored only as hashes and are consumed atomically.
+A finalized usage period is frozen so a later cleanup or source-data change does not silently rewrite previously billed usage.
 
-## Android Play Integrity
+### Invoices
 
-Per project, Android attestation can be:
+P3 contains a **provider-neutral invoice ledger**. It calculates draft invoice line items from plan price, finalized usage and overages.
 
-- `off`
-- `optional`
-- `required`
+It does **not** collect card/bank payments or call Stripe/Razorpay/another payment processor. Provider references are reserved for a future payment adapter.
 
-GeoLive supports Google Play Integrity standard tokens. The client uses a GeoLive-derived requestHash that binds project, user, package, nonce, timestamp and proof public key. GeoLive decodes the token server-side and checks the configured app/device/licensing verdict policy.
+Invoice status workflow supports `draft`, `open`, `paid`, `void` and `uncollectible`.
 
-The Play Integrity service-account private key must live only in deployment secrets:
+### Support and platform console
 
-```text
-GEOLIVE_PLAY_INTEGRITY_APPS_JSON=[{"packageName":"com.example.app","serviceAccount":{"client_email":"...","private_key":"<secret>"},"requiredDeviceVerdicts":["MEETS_DEVICE_INTEGRITY"]}]
-```
+Tenant account users can view billing status/invoices and create support cases from the dashboard.
+
+Platform-role users get a separate commercial console for plans, subscriptions, invoice generation and support queue operations. Internal support notes are never returned through tenant message APIs.
 
 ## Production realtime
 
@@ -132,19 +145,7 @@ Integration readers connect to:
 wss://<host>/v1/realtime
 ```
 
-After the socket opens, send a read key with `events:read` in the authenticate message. Do not put API keys in the URL.
-
-GeoLive provides durable sequence replay, reconnect/resume, heartbeat, bounded backpressure and optional Redis fanout.
-
-## Large-map clustering
-
-Projects with large user sets can use:
-
-```text
-GET /v1/clusters?gridDegrees=8
-```
-
-The admin dashboard automatically changes clustering resolution with globe zoom.
+Authenticate after open with a read key containing `events:read`. Do not put API keys in the URL.
 
 ## Retention
 
@@ -154,13 +155,15 @@ Run bounded cleanup from trusted scheduling infrastructure:
 npm run retention
 ```
 
-This cleans location history, realtime replay events, operational data, expired sessions and expired P2 replay-nonce records according to configured policies.
+This cleans location history, realtime replay events, operational data, expired sessions and P2 replay nonce records according to configured policies.
 
 ## Compatibility
 
-Existing database-backed `location:write` keys continue to work for trusted/controlled integrations. P2 is additive and is the preferred ingest path for untrusted clients.
+Existing trusted database-backed `location:write` integrations continue to work. P2 and P3 are additive.
 
-The legacy `GEOLIVE_KEYS_JSON` bridge remains migration-only.
+The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
+
+The legacy `GEOLIVE_KEYS_JSON` credential bridge remains migration-only.
 
 ## Verification
 
@@ -168,7 +171,7 @@ The legacy `GEOLIVE_KEYS_JSON` bridge remains migration-only.
 npm run check
 ```
 
-CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, rate limits/quotas, realtime replay, Redis fanout, short-lived client tokens, P-256 request proof, replay guards and Play Integrity verification logic.
+CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 plans/entitlements/metering/invoices/support and the billing rollup worker.
 
 See:
 
@@ -176,6 +179,7 @@ See:
 - [Security](SECURITY.md)
 - [Integration guide](docs/INTEGRATION.md)
 - [P2 client security](docs/P2-CLIENT-SECURITY.md)
+- [P3 commercial layer](docs/P3-COMMERCIAL-LAYER.md)
 - [P1E production realtime](docs/P1E-PRODUCTION-REALTIME.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)
