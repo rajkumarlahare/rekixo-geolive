@@ -53,6 +53,20 @@
       <label>State<select id="state"><option value="">All States</option></select></label>
       <label>City<select id="city"><option value="">All Cities</option></select></label>
       <button id="reset">↻ Reset Filters</button>
+
+      <h3>HISTORY ANALYTICS</h3>
+      <label>Window
+        <select id="geoRange">
+          <option value="1">Last 1 hour</option>
+          <option value="6">Last 6 hours</option>
+          <option value="24" selected>Last 24 hours</option>
+          <option value="168">Last 7 days</option>
+          <option value="720">Last 30 days</option>
+        </select>
+      </label>
+      <button id="loadHeatmap" class="analytics-button">◌ Historical Heatmap</button>
+      <button id="clearGeo" class="analytics-button" disabled>× Clear Analytics</button>
+      <small id="geoStatus" class="analytics-status">Select a project to explore history.</small>
     </aside>
 
     <section class="workspace">
@@ -103,6 +117,13 @@
         <div><h3>Integration</h3><span>Project isolated</span></div>
         <code>rgl_live_••••••••••••</code>
         <small>Keys are scoped, revocable and stored only as hashes.</small>
+      </section>
+      <section>
+        <div class="key-list-head">
+          <h3>Movement History</h3>
+          <button type="button" class="text-button" id="loadTrail" disabled>Load trail</button>
+        </div>
+        <small id="trailStatus">Select a user marker, then load its movement trail.</small>
       </section>
       <section>
         <h3>Recent Activity</h3>
@@ -179,7 +200,7 @@
           <label>Key type
             <select id="keyType">
               <option value="ingest">Ingest · location:write</option>
-              <option value="read">Read · users/summary/events</option>
+              <option value="read">Read · users/history/summary/events</option>
               <option value="issuer">Client token issuer · tokens:issue</option>
             </select>
           </label>
@@ -400,6 +421,8 @@
         </div>
         <div class="commercial-tags">
           <label class="checkbox-label"><input id="platformFeatureRealtime" type="checkbox" checked />Realtime</label>
+          <label class="checkbox-label"><input id="platformFeatureMovementHistory" type="checkbox" checked />Movement history</label>
+          <label class="checkbox-label"><input id="platformFeatureHeatmap" type="checkbox" checked />Heatmap</label>
           <label class="checkbox-label"><input id="platformFeatureClientTokens" type="checkbox" checked />Client tokens</label>
           <label class="checkbox-label"><input id="platformFeatureAttestation" type="checkbox" checked />Android attestation</label>
           <label class="checkbox-label"><input id="platformFeaturePrioritySupport" type="checkbox" />Priority support</label>
@@ -434,6 +457,20 @@
             <label>Included tracked users<input id="entitlementUsers" type="number" min="0" placeholder="Inherit" /></label>
             <label>Realtime
               <select id="entitlementRealtime">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Movement history
+              <select id="entitlementMovementHistory">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Heatmap
+              <select id="entitlementHeatmap">
                 <option value="">Inherit</option>
                 <option value="true">Enabled</option>
                 <option value="false">Disabled</option>
