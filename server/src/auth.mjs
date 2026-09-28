@@ -28,19 +28,73 @@ export function authenticate(req, keys, requiredScope) {
 
 export async function authenticateRequest(req, {
   keyStore = null,
-  environmentKeys = []
+  environmentKeys = [],
+  clientTokenService = null
 } = {}, requiredScope) {
   const presented = extractCredential(req);
-  if (!presented) return { ok: false, status: 401, error: "missing_credential" };
+  if (!presented) {
+    return {
+      ok: false,
+      status: 401,
+      error: "missing_credential"
+    };
+  }
 
-  if (keyStore && presented.startsWith("rgl_live_")) {
-    const result = await keyStore.authenticateSecret(presented, requiredScope);
-    if (result.ok || result.error !== "invalid_credential") {
+  if (
+    clientTokenService &&
+    presented.startsWith("rgl_client_")
+  ) {
+    const result = clientTokenService.verify(
+      presented,
+      requiredScope
+    );
+    if (!result.ok) return result;
+
+    if (
+      keyStore &&
+      result.key?.issuerKeyId
+    ) {
+      const issuerActive =
+        await keyStore.isKeyActive(
+          result.key.issuerKeyId,
+          result.key.projectId,
+          "tokens:issue"
+        );
+      if (!issuerActive) {
+        return {
+          ok: false,
+          status: 401,
+          error:
+            "client_token_issuer_inactive"
+        };
+      }
+    }
+
+    return result;
+  }
+
+  if (
+    keyStore &&
+    presented.startsWith("rgl_live_")
+  ) {
+    const result =
+      await keyStore.authenticateSecret(
+        presented,
+        requiredScope
+      );
+    if (
+      result.ok ||
+      result.error !== "invalid_credential"
+    ) {
       return result;
     }
   }
 
-  return authenticate(req, environmentKeys, requiredScope);
+  return authenticate(
+    req,
+    environmentKeys,
+    requiredScope
+  );
 }
 
 export function originAllowed(origin, key, globalAllowed = []) {
