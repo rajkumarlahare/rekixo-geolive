@@ -198,7 +198,7 @@ export function loadConfig(env = process.env) {
         id: "dev-read",
         projectId,
         hash: sha256(env.GEOLIVE_DEV_ADMIN_KEY),
-        scopes: ["users:read", "summary:read", "events:read"],
+        scopes: ["users:read", "history:read", "summary:read", "events:read"],
         allowedOrigins: csv(env.GEOLIVE_ALLOWED_ORIGINS),
         allowedPackages: []
       }));
