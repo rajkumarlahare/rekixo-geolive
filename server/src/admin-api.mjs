@@ -943,6 +943,11 @@ export async function handleAdminApi({
         }
 
         if (req.method === "POST") {
+          await adminStore.authorizeAccount(
+            session.user.id,
+            accountId,
+            { write: true }
+          );
           requireCsrf(req, session);
           const input =
             validateSupportMessage(
