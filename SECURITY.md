@@ -12,7 +12,7 @@ GeoLive has three integration credential classes:
 
 Full database API-key secrets are returned only on create/rotate. PostgreSQL stores their visible prefix and SHA-256 secret hash.
 
-A `tokens:issue` key cannot be mixed with ingest or read scopes. The legacy environment-key bridge cannot mint client tokens.
+A `tokens:issue` key cannot be mixed with ingest or read scopes. Historical location reads require the dedicated `history:read` scope. The legacy environment-key bridge cannot mint client tokens.
 
 ## Short-lived client tokens
 
@@ -78,6 +78,18 @@ Tenant support APIs verify account membership.
 
 Messages marked `internal=true` are available only through platform support APIs and are excluded from tenant message responses.
 
+## Historical location privacy
+
+Movement history is more sensitive than a latest-location snapshot, so P4A does not reuse `users:read` as implicit permission. Public movement-history and heatmap endpoints require `history:read`.
+
+The authenticated integration key determines the project. Public clients cannot pass an arbitrary project ID to cross tenant boundaries. Admin historical routes separately verify the signed-in user's project membership.
+
+Historical queries are bounded to a maximum 31-day requested window. This bounds accidental large scans, but it does not extend retention: records removed by the configured location-history retention policy are no longer available through P4A.
+
+Movement-history and heatmap APIs fail closed when the account subscription is not active/trialing or the corresponding commercial feature entitlement is disabled.
+
+Heatmap responses aggregate location points into cells and expose counts plus distinct-user totals. They do not add user identity lists to aggregate cells.
+
 ## Rate limits, events and secrets
 
 Public authenticated traffic uses PostgreSQL-backed distributed limits.
@@ -90,7 +102,7 @@ Location history, realtime replay events, P2 replay nonces, security events and 
 
 ## Compatibility
 
-Existing trusted `location:write` integrations continue to work. P2/P3 are additive, and the legacy plan preserves pre-commercial accounts.
+Existing trusted `location:write` integrations continue to work. P2/P3/P4A are additive, and the legacy plan preserves pre-commercial accounts while enabling movement history and heatmap.
 
 
 ### Entitlement override reset

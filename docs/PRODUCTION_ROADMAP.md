@@ -99,12 +99,26 @@
 - idempotent billing usage rollup worker
 - PostgreSQL commercial integration tests
 
-## Next — Advanced geospatial
-- movement history
-- heatmap
-- geofence
-- alerts
-- webhooks
+## Completed — P4A advanced geospatial reads
+- dedicated `history:read` integration scope
+- bounded 31-day historical query windows
+- cursor-paginated project/user movement history
+- PostgreSQL history indexes for project/time and project/user/time reads
+- server-side historical heatmap aggregation
+- optional heatmap user filter
+- movement-history and heatmap commercial feature entitlements
+- legacy-plan compatibility for both geospatial features
+- authenticated tenant-admin history/heatmap routes
+- dashboard movement-trail overlay
+- dashboard historical-heatmap overlay
+- memory and PostgreSQL isolation/pagination coverage
+
+## Next — P4B geofence automation
+- geofence definitions and project policy
+- enter / exit / dwell event evaluation
+- alert rules and delivery state
+- signed outbound webhooks
+- webhook retry/idempotency/dead-letter handling
 
 ## Later — Product administration
 - team/invite management

@@ -1,6 +1,6 @@
 # Rekixo GeoLive Architecture Contract
 
-Status: **P3 COMMERCIAL FOUNDATION**
+Status: **P4A ADVANCED GEOSPATIAL READ FOUNDATION**
 
 ## Product boundary
 
@@ -26,6 +26,8 @@ Account
       -> Users
       -> live_user_state
       -> location_history
+          -> movement-history reads
+          -> historical heatmap aggregation
       -> realtime_events
       -> usage/security operational data
 
@@ -58,10 +60,24 @@ P3 currently enforces:
 
 - maximum active/non-deleted projects at project creation;
 - `realtime` for public integration SSE/WebSocket readers;
+- `movementHistory` for retained movement-history reads;
+- `heatmap` for retained historical heatmap aggregation;
 - `clientTokens` before P2 short-lived token exchange;
 - `androidAttestation` when Android attestation is supplied.
 
 Existing trusted long-lived location ingestion remains compatible. Subscription rollout does not silently disable existing legacy integrations.
+
+## P4A historical read model
+
+P4A reads from the same project-scoped append-only `location_history` written by normal ingestion. It does not introduce a cross-product analytics database or a second indefinite raw-location archive.
+
+Movement-history queries require one external user ID and a bounded time window. PostgreSQL orders by `received_at DESC, id DESC` and uses an opaque cursor containing those stable ordering fields. The query always includes `project_id`, so the same external user ID in another project remains isolated.
+
+Historical heatmaps aggregate `location_history` server-side into latitude/longitude grid cells. Cells expose counts and distinct-user totals rather than expanding represented identities.
+
+Public historical reads use the dedicated `history:read` API-key scope. Admin historical reads use the existing authenticated admin session and project membership. Both paths apply the account's P4A feature entitlements.
+
+The API limits a single historical query window to 31 days. Actual available history may be shorter because P1D location-history retention remains authoritative.
 
 ## Metering and invoice boundary
 
@@ -106,6 +122,6 @@ P1E realtime and Redis fanout remain independent from the commercial data model.
 
 ## Next boundary
 
-The next major product layer is advanced geospatial capability: movement history, heatmaps, geofences, alerts and webhooks.
+P4B extends geospatial reads into event automation: geofence definitions, enter/exit/dwell evaluation, alert rules and signed/retriable outbound webhooks.
 
 External payment collection, tax calculation, refunds/credits and customer checkout are deliberately left for a future payment-provider layer.

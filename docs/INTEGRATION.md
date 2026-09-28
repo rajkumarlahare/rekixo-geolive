@@ -19,7 +19,7 @@ Never put a `tokens:issue` key in an APK, Flutter bundle or browser JavaScript.
 From the GeoLive dashboard, create separate credentials:
 
 - ingest key: `location:write` for trusted/legacy ingest;
-- read key: `users:read`, `summary:read`, `events:read`;
+- read key: `users:read`, `history:read`, `summary:read`, `events:read`;
 - client-token issuer: `tokens:issue` only.
 
 The full `rgl_live_...` secret is displayed once.
@@ -232,3 +232,39 @@ Do not treat `402` as an authentication failure. The product backend should surf
 Existing trusted `location:write` calls are not automatically blocked by the P3 rollout; the `legacy` plan preserves compatibility.
 
 Billing usage is computed server-side. Client applications should not calculate authoritative invoice totals.
+
+
+## 14. Movement history
+
+Historical location reads use a dedicated `history:read` scope so a key that only reads current users does not automatically receive retained movement data.
+
+```http
+GET /v1/history?userId=user_123&from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&limit=250
+Authorization: Bearer rgl_live_<read-key>
+```
+
+Rules:
+
+- the project comes from the authenticated key;
+- `userId` is required and is scoped inside that project;
+- default window is the previous 24 hours ending now;
+- the maximum requested window is 31 days;
+- page size is 1–1,000 and the response may contain `nextCursor`;
+- returned data cannot outlive the project's configured history retention.
+
+The dashboard uses the equivalent authenticated admin route under `/v1/admin/projects/:projectId/history`.
+
+## 15. Historical heatmap
+
+```http
+GET /v1/heatmap?from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&gridDegrees=2
+Authorization: Bearer rgl_live_<read-key>
+```
+
+`gridDegrees` accepts 0.25–45 degrees. An optional `userId` narrows the aggregation to one project user.
+
+Each cell returns a center coordinate, historical location-point count, distinct-user count, first-seen timestamp and last-seen timestamp. The heatmap API aggregates server-side rather than returning every identity represented in a cell.
+
+Movement history and heatmap are commercial feature entitlements. A denied feature returns HTTP `402` with `feature_not_entitled` or `subscription_not_active`.
+
+P4A intentionally stops at historical reads. Geofences, alerts and outbound webhooks are a separate P4B boundary.

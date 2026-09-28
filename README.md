@@ -6,7 +6,7 @@
 
 ## Current implementation
 
-P0 through P3 now provide:
+P0 through P4A now provide:
 
 - project-scoped live-location ingestion
 - PostgreSQL/PostGIS latest-state and append-only history
@@ -27,6 +27,9 @@ P0 through P3 now provide:
 - **tenant support cases plus platform support workflow**
 - **separate superadmin / billing / support / viewer platform roles**
 - **billing/support and commercial platform dashboard controls**
+- **cursor-paginated project/user movement history**
+- **project-scoped historical heatmap aggregation**
+- **dashboard movement trails and historical heatmap overlays**
 
 Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
@@ -99,7 +102,7 @@ A plan defines:
 - included tracked users
 - maximum projects
 - optional ingest/read/user overage prices
-- feature flags such as realtime, client tokens, Android attestation and priority support
+- feature flags such as realtime, movement history, heatmap, client tokens, Android attestation and priority support
 
 Account-specific entitlement overrides can change limits/features without mutating the shared plan.
 
@@ -139,6 +142,45 @@ Platform-role users get a separate commercial console for plans, subscriptions, 
 
 An entitlement override can be reset to **Inherit**, which deletes the account override and resumes the shared plan value. Billing-role users can manage subscriptions/invoices but do not receive support-case metadata through commercial account detail.
 
+## P4A advanced geospatial reads
+
+P4A turns the existing retained `location_history` into bounded, project-scoped historical read APIs.
+
+Create a read key with:
+
+```text
+users:read
+history:read
+summary:read
+events:read
+```
+
+Movement history:
+
+```http
+GET /v1/history?userId=user_123&from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&limit=250
+Authorization: Bearer rgl_live_<read-key>
+```
+
+The response is newest-first and cursor paginated. Query windows are limited to 31 days.
+
+Historical heatmap:
+
+```http
+GET /v1/heatmap?from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&gridDegrees=2
+Authorization: Bearer rgl_live_<read-key>
+```
+
+Heatmap cells contain aggregate point counts and distinct-user counts. They do not return additional user identities.
+
+Both public APIs derive the project from the authenticated integration key; clients cannot select another project in the query. Tenant dashboard equivalents use the authenticated admin session and account membership.
+
+Movement-history and heatmap access are independent commercial feature entitlements. The compatibility `legacy` plan enables both so upgrading to P4A does not remove existing access.
+
+Historical visibility is still bounded by the project's location-history retention. P4A does not create a second indefinite copy of raw location history.
+
+See [P4A advanced geospatial](docs/P4A-ADVANCED-GEOSPATIAL.md).
+
 ## Production realtime
 
 Integration readers connect to:
@@ -161,7 +203,7 @@ This cleans location history, realtime replay events, operational data, expired 
 
 ## Compatibility
 
-Existing trusted database-backed `location:write` integrations continue to work. P2 and P3 are additive.
+Existing trusted database-backed `location:write` integrations continue to work. P2, P3 and P4A are additive.
 
 The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
 
@@ -173,7 +215,7 @@ The legacy `GEOLIVE_KEYS_JSON` credential bridge remains migration-only.
 npm run check
 ```
 
-CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 plans/entitlements/metering/invoices/support and the billing rollup worker.
+CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 commercial controls, P4A geospatial validation/history/heatmap isolation and the billing rollup worker.
 
 See:
 
@@ -182,6 +224,7 @@ See:
 - [Integration guide](docs/INTEGRATION.md)
 - [P2 client security](docs/P2-CLIENT-SECURITY.md)
 - [P3 commercial layer](docs/P3-COMMERCIAL-LAYER.md)
+- [P4A advanced geospatial](docs/P4A-ADVANCED-GEOSPATIAL.md)
 - [P1E production realtime](docs/P1E-PRODUCTION-REALTIME.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)
