@@ -679,9 +679,12 @@ document.querySelector("#logout").addEventListener("click", async () => {
 projectSelect.addEventListener("change", () => {
   stopRealtime({ resetSequence: true });
   state.projectId = projectSelect.value;
+  clearGeoAnalytics();
+  showDetail({});
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#loadHeatmap").disabled = !state.projectId;
   document.querySelector("#manageBilling").disabled =
     state.accounts.length === 0;
   loadProject()
@@ -2817,6 +2820,227 @@ document.querySelector("#clientSecurityForm").addEventListener("submit", async (
   }
 });
 
+function geospatialWindow() {
+  const hours =
+    Number(
+      document.querySelector(
+        "#geoRange"
+      ).value || 24
+    );
+  const to = new Date();
+  const from = new Date(
+    to.getTime() -
+      hours * 60 * 60 * 1000
+  );
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    hours
+  };
+}
+
+function clearGeoAnalytics() {
+  state.historyPoints = [];
+  state.heatmapCells = [];
+  state.geospatialMode = "";
+  document.querySelector(
+    "#clearGeo"
+  ).disabled = true;
+
+  if (state.projectId) {
+    setText(
+      "geoStatus",
+      "History overlay cleared."
+    );
+  }
+  if (state.selectedUserId) {
+    setText(
+      "trailStatus",
+      "Movement trail cleared."
+    );
+  }
+}
+
+function geospatialErrorText(
+  error,
+  feature
+) {
+  if (
+    error.code ===
+      "feature_not_entitled" ||
+    error.code ===
+      "subscription_not_active"
+  ) {
+    return `${feature} is not enabled for this account plan.`;
+  }
+  if (
+    error.code ===
+    "history_window_too_large"
+  ) {
+    return "Choose a window of 31 days or less.";
+  }
+  return `${feature} failed: ${error.code}`;
+}
+
+async function loadHistoricalHeatmap() {
+  const project = projectById();
+  if (!project) return;
+
+  const button =
+    document.querySelector(
+      "#loadHeatmap"
+    );
+  button.disabled = true;
+
+  const window =
+    geospatialWindow();
+  const gridDegrees =
+    Math.max(
+      0.25,
+      clusterGridDegrees() / 2
+    );
+
+  setText(
+    "geoStatus",
+    "Loading historical heatmap…"
+  );
+
+  try {
+    const params =
+      new URLSearchParams({
+        from: window.from,
+        to: window.to,
+        gridDegrees:
+          String(gridDegrees)
+      });
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/heatmap?${params.toString()}`
+    );
+
+    state.heatmapCells =
+      payload.cells || [];
+    state.historyPoints = [];
+    state.geospatialMode =
+      "heatmap";
+    document.querySelector(
+      "#clearGeo"
+    ).disabled = false;
+
+    setText(
+      "geoStatus",
+      state.heatmapCells.length
+        ? `Heatmap: ${state.heatmapCells.length} cells · last ${window.hours}h`
+        : `No history in the last ${window.hours}h.`
+    );
+  } catch (error) {
+    state.heatmapCells = [];
+    state.geospatialMode = "";
+    setText(
+      "geoStatus",
+      geospatialErrorText(
+        error,
+        "Heatmap"
+      )
+    );
+  } finally {
+    button.disabled =
+      !state.projectId;
+  }
+}
+
+async function loadMovementTrail() {
+  const project = projectById();
+  if (
+    !project ||
+    !state.selectedUserId
+  ) {
+    return;
+  }
+
+  const button =
+    document.querySelector(
+      "#loadTrail"
+    );
+  button.disabled = true;
+
+  const window =
+    geospatialWindow();
+  setText(
+    "trailStatus",
+    "Loading movement history…"
+  );
+
+  try {
+    const params =
+      new URLSearchParams({
+        userId:
+          state.selectedUserId,
+        from: window.from,
+        to: window.to,
+        limit: "1000"
+      });
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/history?${params.toString()}`
+    );
+
+    state.historyPoints =
+      payload.points || [];
+    state.heatmapCells = [];
+    state.geospatialMode =
+      "trail";
+    document.querySelector(
+      "#clearGeo"
+    ).disabled = false;
+
+    const clipped =
+      Boolean(payload.nextCursor);
+    setText(
+      "trailStatus",
+      state.historyPoints.length
+        ? `${state.historyPoints.length} points · last ${window.hours}h${clipped ? " · newest 1,000 shown" : ""}`
+        : `No movement history in the last ${window.hours}h.`
+    );
+    setText(
+      "geoStatus",
+      `Movement trail · ${state.selectedUserId}`
+    );
+  } catch (error) {
+    state.historyPoints = [];
+    state.geospatialMode = "";
+    setText(
+      "trailStatus",
+      geospatialErrorText(
+        error,
+        "Movement history"
+      )
+    );
+  } finally {
+    button.disabled =
+      !state.selectedUserId;
+  }
+}
+
+document.querySelector(
+  "#loadHeatmap"
+).addEventListener(
+  "click",
+  loadHistoricalHeatmap
+);
+
+document.querySelector(
+  "#clearGeo"
+).addEventListener(
+  "click",
+  clearGeoAnalytics
+);
+
+document.querySelector(
+  "#loadTrail"
+).addEventListener(
+  "click",
+  loadMovementTrail
+);
+
 document.querySelectorAll(".status-filter").forEach((button) => {
   button.addEventListener("click", () => {
     document.querySelectorAll(".status-filter").forEach((item) => item.classList.remove("active"));
@@ -3185,6 +3409,14 @@ canvas.addEventListener("click", (event) => {
 });
 
 function showClusterDetail(cluster) {
+  state.selectedUserId = "";
+  document.querySelector(
+    "#loadTrail"
+  ).disabled = true;
+  setText(
+    "trailStatus",
+    "Select a user marker, then load its movement trail."
+  );
   setText(
     "detailName",
     `${cluster.count || 0} users in cluster`
@@ -3221,6 +3453,19 @@ function showClusterDetail(cluster) {
 }
 
 function showDetail(user) {
+  state.selectedUserId =
+    user.userId || "";
+  document.querySelector(
+    "#loadTrail"
+  ).disabled =
+    !state.selectedUserId;
+  setText(
+    "trailStatus",
+    state.selectedUserId
+      ? `Ready to load history for ${state.selectedUserId}.`
+      : "Select a user marker, then load its movement trail."
+  );
+
   setText("detailName", user.name || user.userId || "Select a user");
   setText("detailEmail", user.email || user.userId || "Click a marker on the globe.");
   setText("detailStatus", user.status || "—");
