@@ -1,6 +1,9 @@
+-- geolive:nontransactional
 -- P4A advanced geospatial read foundation.
+-- Every split statement is idempotent because this migration runs
+-- outside a transaction to build large history indexes concurrently.
 
-CREATE INDEX IF NOT EXISTS
+CREATE INDEX CONCURRENTLY IF NOT EXISTS
   location_history_project_time_id_idx
 ON location_history (
   project_id,
@@ -8,7 +11,8 @@ ON location_history (
   id DESC
 );
 
-CREATE INDEX IF NOT EXISTS
+-- geolive:split
+CREATE INDEX CONCURRENTLY IF NOT EXISTS
   location_history_project_user_time_id_idx
 ON location_history (
   project_id,
@@ -17,6 +21,7 @@ ON location_history (
   id DESC
 );
 
+-- geolive:split
 UPDATE commercial_plans
 SET features =
   COALESCE(features, '{}'::jsonb) ||
