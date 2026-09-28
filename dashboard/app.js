@@ -600,11 +600,15 @@ function showLogin(message = "") {
   state.accounts = [];
   state.billingAccountId = "";
   state.commercial = null;
+  state.tenantSupportCaseId = "";
   state.platform = {
     plans: [],
     accounts: [],
     supportCases: [],
-    overview: null
+    overview: null,
+    selectedAccountId: "",
+    accountCommercial: null,
+    selectedSupportCaseId: ""
   };
   state.projectId = "";
   populateProjectSelect();
