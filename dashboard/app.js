@@ -2960,6 +2960,126 @@ function draw() {
     ctx.stroke();
   }
 
+  if (state.heatmapCells.length) {
+    const maxCount = Math.max(
+      1,
+      ...state.heatmapCells.map(
+        (cell) => Number(cell.count || 0)
+      )
+    );
+
+    for (const cell of state.heatmapCells) {
+      const point = projectPoint(
+        Number(cell.latitude),
+        Number(cell.longitude),
+        cx,
+        cy,
+        radius
+      );
+      if (point.z <= 0) continue;
+
+      const intensity =
+        Math.max(
+          0.18,
+          Math.min(
+            0.72,
+            Number(cell.count || 0) /
+              maxCount
+          )
+        );
+      const size =
+        Math.min(
+          30,
+          5 +
+            Math.log2(
+              Number(cell.count || 0) + 1
+            ) *
+              4
+        );
+
+      ctx.beginPath();
+      ctx.arc(
+        point.x,
+        point.y,
+        size,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle =
+        `rgba(0,214,255,${intensity})`;
+      ctx.shadowColor =
+        "rgba(0,214,255,.65)";
+      ctx.shadowBlur = 18;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+  }
+
+  if (state.historyPoints.length > 1) {
+    const ordered =
+      [...state.historyPoints].reverse();
+
+    ctx.beginPath();
+    ctx.strokeStyle =
+      "rgba(116,222,255,.95)";
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor =
+      "rgba(45,156,255,.75)";
+    ctx.shadowBlur = 10;
+
+    let started = false;
+    for (const item of ordered) {
+      const point = projectPoint(
+        Number(item.latitude),
+        Number(item.longitude),
+        cx,
+        cy,
+        radius
+      );
+      if (point.z <= 0) {
+        started = false;
+        continue;
+      }
+      if (!started) {
+        ctx.moveTo(
+          point.x,
+          point.y
+        );
+        started = true;
+      } else {
+        ctx.lineTo(
+          point.x,
+          point.y
+        );
+      }
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    const latest =
+      state.historyPoints[0];
+    const latestPoint =
+      projectPoint(
+        Number(latest.latitude),
+        Number(latest.longitude),
+        cx,
+        cy,
+        radius
+      );
+    if (latestPoint.z > 0) {
+      ctx.beginPath();
+      ctx.arc(
+        latestPoint.x,
+        latestPoint.y,
+        6,
+        0,
+        Math.PI * 2
+      );
+      ctx.fillStyle = "#7ae6ff";
+      ctx.fill();
+    }
+  }
+
   const markers = state.useClusters
     ? state.clusters
     : state.filtered;
