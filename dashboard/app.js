@@ -8,8 +8,17 @@ const projectModal = document.querySelector("#projectModal");
 const state = {
   csrf: "",
   user: null,
+  platformRole: null,
   accounts: [],
   projects: [],
+  billingAccountId: "",
+  commercial: null,
+  platform: {
+    plans: [],
+    accounts: [],
+    supportCases: [],
+    overview: null
+  },
   projectId: "",
   users: [],
   filtered: [],
@@ -88,6 +97,33 @@ function canWriteProject(project = projectById()) {
   return Boolean(project && ["owner", "admin"].includes(project.role));
 }
 
+function accountById(id) {
+  return state.accounts.find(
+    (account) => account.id === id
+  ) || null;
+}
+
+function activeAccountId() {
+  const project = projectById();
+  if (project?.accountId) {
+    return project.accountId;
+  }
+  if (
+    state.billingAccountId &&
+    accountById(state.billingAccountId)
+  ) {
+    return state.billingAccountId;
+  }
+  return state.accounts[0]?.id || "";
+}
+
+function canWriteAccount(account = accountById(activeAccountId())) {
+  return Boolean(
+    account &&
+    ["owner", "admin"].includes(account.role)
+  );
+}
+
 function populateProjectSelect() {
   projectSelect.innerHTML = "";
   if (!state.projects.length) {
@@ -123,6 +159,10 @@ function populateProjectSelect() {
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#manageBilling").disabled =
+    state.accounts.length === 0;
+  document.querySelector("#platformConsole").hidden =
+    !state.platformRole;
 }
 
 function applyIdentity() {
@@ -526,6 +566,7 @@ function startPolling() {
 
 function hydrateSession(payload) {
   state.user = payload.user;
+  state.platformRole = payload.platformRole || null;
   state.accounts = payload.accounts || [];
   state.projects = payload.projects || [];
   state.csrf = payload.csrfToken || "";
@@ -549,9 +590,18 @@ function showLogin(message = "") {
   clearInterval(state.pollTimer);
   stopRealtime({ resetSequence: true });
   state.user = null;
+  state.platformRole = null;
   state.csrf = "";
   state.projects = [];
   state.accounts = [];
+  state.billingAccountId = "";
+  state.commercial = null;
+  state.platform = {
+    plans: [],
+    accounts: [],
+    supportCases: [],
+    overview: null
+  };
   state.projectId = "";
   populateProjectSelect();
   applyIdentity();
@@ -605,6 +655,8 @@ projectSelect.addEventListener("change", () => {
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#manageBilling").disabled =
+    state.accounts.length === 0;
   loadProject()
     .then(() => startRealtime())
     .catch(() => {});
@@ -615,6 +667,8 @@ document.querySelector("#newProject").addEventListener("click", () => openProjec
 document.querySelector("#editProject").addEventListener("click", () => openProjectModal("edit"));
 document.querySelector("#manageKeys").addEventListener("click", openKeyModal);
 document.querySelector("#manageOps").addEventListener("click", openOpsModal);
+document.querySelector("#manageBilling").addEventListener("click", openBillingModal);
+document.querySelector("#platformConsole").addEventListener("click", openPlatformModal);
 document.querySelector("#projectModalClose").addEventListener("click", closeProjectModal);
 document.querySelector("#opsModalClose").addEventListener("click", closeOpsModal);
 document.querySelector("#refreshOps").addEventListener("click", loadOperations);
@@ -1108,6 +1162,784 @@ async function loadOperations() {
     setText("opsError", `Could not load operations: ${error.code}`);
   }
 }
+
+
+function formatMoney(minor, currency = "USD") {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2
+    }).format(Number(minor || 0) / 100);
+  } catch {
+    return `${currency} ${(Number(minor || 0) / 100).toFixed(2)}`;
+  }
+}
+
+function compactNumber(value) {
+  return new Intl.NumberFormat().format(
+    Number(value || 0)
+  );
+}
+
+function buildTag(textValue) {
+  const span = document.createElement("span");
+  span.className = "scope-chip";
+  span.textContent = textValue;
+  return span;
+}
+
+function previousMonthPeriod() {
+  const now = new Date();
+  const start = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth() - 1,
+    1
+  ));
+  const end = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    1
+  ));
+  return {
+    periodStart:
+      start.toISOString().slice(0, 10),
+    periodEnd:
+      end.toISOString().slice(0, 10)
+  };
+}
+
+function fillBillingAccounts() {
+  const select =
+    document.querySelector("#billingAccount");
+  select.replaceChildren();
+
+  for (const account of state.accounts) {
+    const option =
+      document.createElement("option");
+    option.value = account.id;
+    option.textContent =
+      `${account.name} · ${account.role}`;
+    select.appendChild(option);
+  }
+
+  const preferred = activeAccountId();
+  state.billingAccountId =
+    accountById(preferred)
+      ? preferred
+      : state.accounts[0]?.id || "";
+  select.value = state.billingAccountId;
+}
+
+async function openBillingModal() {
+  if (!state.accounts.length) return;
+  fillBillingAccounts();
+  document.querySelector("#billingModal").hidden =
+    false;
+  await loadBilling();
+}
+
+function closeBillingModal() {
+  document.querySelector("#billingModal").hidden =
+    true;
+}
+
+async function loadBilling() {
+  const accountId =
+    state.billingAccountId ||
+    document.querySelector("#billingAccount").value;
+  if (!accountId) return;
+
+  state.billingAccountId = accountId;
+  setText("billingError", "");
+
+  try {
+    const payload = await api(
+      `/v1/admin/accounts/${accountId}/commercial`
+    );
+    state.commercial = payload;
+    renderBilling(payload);
+  } catch (error) {
+    setText(
+      "billingError",
+      `Could not load billing: ${error.code}`
+    );
+  }
+}
+
+function renderBilling(payload) {
+  const plan = payload.plan || {};
+  const subscription =
+    payload.subscription || {};
+  const effective =
+    payload.effective || {};
+  const usage =
+    payload.usage?.metrics || {};
+  const currency = plan.currency || "USD";
+
+  setText("billingPlan", plan.name || "—");
+  setText(
+    "billingPlanPrice",
+    formatMoney(
+      plan.monthlyPriceMinor || 0,
+      currency
+    ) + " / month"
+  );
+  setText(
+    "billingStatus",
+    subscription.status || "—"
+  );
+  setText(
+    "billingPeriod",
+    subscription.periodStart &&
+    subscription.periodEnd
+      ? `${subscription.periodStart} → ${subscription.periodEnd}`
+      : "—"
+  );
+
+  setText(
+    "billingIngest",
+    compactNumber(usage.ingestRequests)
+  );
+  setText(
+    "billingIngestLimit",
+    `Included: ${compactNumber(effective.includedIngest)}`
+  );
+  setText(
+    "billingRead",
+    compactNumber(usage.readRequests)
+  );
+  setText(
+    "billingReadLimit",
+    `Included: ${compactNumber(effective.includedRead)}`
+  );
+  setText(
+    "billingTrackedUsers",
+    compactNumber(usage.trackedUsers)
+  );
+  setText(
+    "billingTrackedLimit",
+    `Included: ${compactNumber(effective.includedTrackedUsers)}`
+  );
+  const accountId = payload.account?.id ||
+    state.billingAccountId;
+  const projects = state.projects.filter(
+    (project) =>
+      project.accountId === accountId
+  ).length;
+  setText(
+    "billingProjects",
+    compactNumber(projects)
+  );
+  setText(
+    "billingProjectLimit",
+    `Limit: ${compactNumber(effective.maxProjects)}`
+  );
+
+  const tags =
+    document.querySelector("#billingEntitlements");
+  tags.replaceChildren();
+  for (const key of [
+    "realtime",
+    "clientTokens",
+    "androidAttestation",
+    "prioritySupport"
+  ]) {
+    tags.appendChild(
+      buildTag(
+        `${key}: ${effective[key] ? "enabled" : "disabled"}`
+      )
+    );
+  }
+
+  const invoices =
+    document.querySelector("#billingInvoices");
+  invoices.replaceChildren();
+  const invoiceRows = payload.invoices || [];
+  if (!invoiceRows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No invoices for this account.";
+    invoices.appendChild(empty);
+  } else {
+    for (const invoice of invoiceRows) {
+      const row =
+        document.createElement("div");
+      row.className = "commercial-row";
+      const left =
+        document.createElement("div");
+      const title =
+        document.createElement("strong");
+      title.textContent =
+        invoice.invoiceNumber;
+      const meta =
+        document.createElement("small");
+      meta.textContent =
+        `${invoice.periodStart} → ${invoice.periodEnd} · ${invoice.status}`;
+      left.append(title, meta);
+      const amount =
+        document.createElement("strong");
+      amount.textContent =
+        formatMoney(
+          invoice.totalMinor,
+          invoice.currency
+        );
+      row.append(left, amount);
+      invoices.appendChild(row);
+    }
+  }
+
+  const cases =
+    document.querySelector("#billingSupportCases");
+  cases.replaceChildren();
+  const caseRows = payload.supportCases || [];
+  if (!caseRows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No support cases.";
+    cases.appendChild(empty);
+  } else {
+    for (const supportCase of caseRows) {
+      const row =
+        document.createElement("div");
+      row.className = "commercial-row";
+      const left =
+        document.createElement("div");
+      const title =
+        document.createElement("strong");
+      title.textContent =
+        supportCase.subject;
+      const meta =
+        document.createElement("small");
+      meta.textContent =
+        `${supportCase.category} · ${supportCase.priority} · ${supportCase.status}`;
+      left.append(title, meta);
+      const when =
+        document.createElement("small");
+      when.textContent =
+        new Date(
+          supportCase.updatedAt
+        ).toLocaleString();
+      row.append(left, when);
+      cases.appendChild(row);
+    }
+  }
+
+  const account =
+    accountById(state.billingAccountId);
+  document.querySelector("#supportCaseForm").hidden =
+    !account ||
+    !["owner","admin"].includes(account.role);
+}
+
+async function openPlatformModal() {
+  if (!state.platformRole) return;
+  document.querySelector("#platformModal").hidden =
+    false;
+  await loadPlatform();
+}
+
+function closePlatformModal() {
+  document.querySelector("#platformModal").hidden =
+    true;
+}
+
+function platformCan(...roles) {
+  return roles.includes(state.platformRole);
+}
+
+function platformMoneySummary(byCurrency, key) {
+  const entries =
+    Object.entries(byCurrency || {});
+  if (!entries.length) return "—";
+  return entries
+    .map(([currency, data]) =>
+      formatMoney(data[key] || 0, currency)
+    )
+    .join(" · ");
+}
+
+async function loadPlatform() {
+  setText("platformError", "");
+  try {
+    const [
+      overviewPayload,
+      plansPayload,
+      accountsPayload,
+      supportPayload
+    ] = await Promise.all([
+      api("/v1/platform/overview"),
+      api("/v1/platform/plans"),
+      api("/v1/platform/accounts?limit=200"),
+      api("/v1/platform/support-cases?limit=100")
+    ]);
+
+    state.platform = {
+      overview: overviewPayload.overview,
+      plans: plansPayload.plans || [],
+      accounts: accountsPayload.accounts || [],
+      supportCases:
+        supportPayload.supportCases || []
+    };
+    renderPlatform();
+  } catch (error) {
+    setText(
+      "platformError",
+      `Could not load platform console: ${error.code}`
+    );
+  }
+}
+
+function renderPlatform() {
+  const overview = state.platform.overview || {};
+  setText(
+    "platformAccountsCount",
+    compactNumber(overview.accounts)
+  );
+  setText(
+    "platformActiveSubs",
+    compactNumber(
+      overview.subscriptions?.active || 0
+    )
+  );
+  setText(
+    "platformBilled",
+    platformMoneySummary(
+      overview.invoices?.byCurrency,
+      "billedMinor"
+    )
+  );
+  setText(
+    "platformPaid",
+    platformMoneySummary(
+      overview.invoices?.byCurrency,
+      "paidMinor"
+    )
+  );
+  setText(
+    "platformOpenSupport",
+    compactNumber(overview.support?.open || 0)
+  );
+  setText(
+    "platformUrgentSupport",
+    compactNumber(
+      overview.support?.urgent || 0
+    )
+  );
+
+  document.querySelector("#platformPlanForm").hidden =
+    !platformCan("superadmin");
+
+  const plans =
+    document.querySelector("#platformPlans");
+  plans.replaceChildren();
+  for (const plan of state.platform.plans) {
+    const row =
+      document.createElement("div");
+    row.className = "commercial-row";
+    const left =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent =
+      `${plan.name} · ${plan.code}`;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${plan.status} · ${formatMoney(plan.monthlyPriceMinor, plan.currency)} / month · max ${plan.maxProjects} projects`;
+    left.append(title, meta);
+    const usage =
+      document.createElement("small");
+    usage.textContent =
+      `Ingest ${compactNumber(plan.includedIngest)} · Read ${compactNumber(plan.includedRead)} · Users ${compactNumber(plan.includedTrackedUsers)}`;
+    row.append(left, usage);
+    plans.appendChild(row);
+  }
+
+  renderPlatformAccounts();
+  renderPlatformSupport();
+}
+
+function renderPlatformAccounts() {
+  const list =
+    document.querySelector("#platformAccounts");
+  list.replaceChildren();
+
+  for (const account of state.platform.accounts) {
+    const row =
+      document.createElement("div");
+    row.className =
+      "commercial-row commercial-row-stack";
+
+    const identity =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent = account.name;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${account.projectCount} projects · ${account.plan?.name || "No plan"} · ${account.subscriptionStatus || "unassigned"}`;
+    identity.append(title, meta);
+    row.appendChild(identity);
+
+    if (
+      platformCan("superadmin","billing")
+    ) {
+      const controls =
+        document.createElement("div");
+      controls.className =
+        "commercial-controls";
+
+      const planSelect =
+        document.createElement("select");
+      for (const plan of state.platform.plans) {
+        if (plan.status !== "active") continue;
+        const option =
+          document.createElement("option");
+        option.value = plan.id;
+        option.textContent = plan.name;
+        if (plan.id === account.plan?.id) {
+          option.selected = true;
+        }
+        planSelect.appendChild(option);
+      }
+
+      const statusSelect =
+        document.createElement("select");
+      for (const status of [
+        "trialing",
+        "active",
+        "past_due",
+        "canceled"
+      ]) {
+        const option =
+          document.createElement("option");
+        option.value = status;
+        option.textContent = status;
+        option.selected =
+          status ===
+          (account.subscriptionStatus || "active");
+        statusSelect.appendChild(option);
+      }
+
+      const save =
+        document.createElement("button");
+      save.type = "button";
+      save.className = "text-button";
+      save.textContent = "Save";
+      save.addEventListener(
+        "click",
+        async () => {
+          try {
+            await api(
+              `/v1/platform/accounts/${account.id}/subscription`,
+              {
+                method: "PATCH",
+                mutate: true,
+                body: JSON.stringify({
+                  planId: planSelect.value,
+                  status: statusSelect.value
+                })
+              }
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Subscription update failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      const invoice =
+        document.createElement("button");
+      invoice.type = "button";
+      invoice.className = "text-button";
+      invoice.textContent =
+        "Invoice previous month";
+      invoice.addEventListener(
+        "click",
+        async () => {
+          const period =
+            previousMonthPeriod();
+          try {
+            await api(
+              `/v1/platform/accounts/${account.id}/invoices/generate`,
+              {
+                method: "POST",
+                mutate: true,
+                body: JSON.stringify(period)
+              }
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Invoice generation failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      controls.append(
+        planSelect,
+        statusSelect,
+        save,
+        invoice
+      );
+      row.appendChild(controls);
+    }
+
+    list.appendChild(row);
+  }
+}
+
+function renderPlatformSupport() {
+  const list =
+    document.querySelector("#platformSupport");
+  list.replaceChildren();
+
+  const rows = state.platform.supportCases || [];
+  if (!rows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "Support queue is empty.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const supportCase of rows) {
+    const row =
+      document.createElement("div");
+    row.className =
+      "commercial-row commercial-row-stack";
+
+    const identity =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent =
+      `${supportCase.accountName || "Account"} · ${supportCase.subject}`;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${supportCase.category} · ${supportCase.priority} · ${supportCase.status}`;
+    identity.append(title, meta);
+    row.appendChild(identity);
+
+    if (
+      platformCan("superadmin","support")
+    ) {
+      const controls =
+        document.createElement("div");
+      controls.className =
+        "commercial-controls";
+
+      const status =
+        document.createElement("select");
+      for (const value of [
+        "open",
+        "pending_customer",
+        "pending_internal",
+        "resolved",
+        "closed"
+      ]) {
+        const option =
+          document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        option.selected =
+          value === supportCase.status;
+        status.appendChild(option);
+      }
+
+      const priority =
+        document.createElement("select");
+      for (const value of [
+        "low",
+        "normal",
+        "high",
+        "urgent"
+      ]) {
+        const option =
+          document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        option.selected =
+          value === supportCase.priority;
+        priority.appendChild(option);
+      }
+
+      const save =
+        document.createElement("button");
+      save.type = "button";
+      save.className = "text-button";
+      save.textContent = "Update";
+      save.addEventListener(
+        "click",
+        async () => {
+          try {
+            await api(
+              `/v1/platform/support-cases/${supportCase.id}`,
+              {
+                method: "PATCH",
+                mutate: true,
+                body: JSON.stringify({
+                  status: status.value,
+                  priority: priority.value
+                })
+              }
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Support update failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      controls.append(
+        status,
+        priority,
+        save
+      );
+      row.appendChild(controls);
+    }
+
+    list.appendChild(row);
+  }
+}
+
+document.querySelector("#billingModalClose").addEventListener(
+  "click",
+  closeBillingModal
+);
+document.querySelector("#billingAccount").addEventListener(
+  "change",
+  async (event) => {
+    state.billingAccountId = event.target.value;
+    await loadBilling();
+  }
+);
+document.querySelector("#supportCaseForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    const accountId = state.billingAccountId;
+    if (!accountId || !canWriteAccount(accountById(accountId))) {
+      return;
+    }
+
+    const button =
+      document.querySelector("#createSupportCase");
+    button.disabled = true;
+    setText("billingError", "");
+
+    try {
+      const project = projectById();
+      await api(
+        `/v1/admin/accounts/${accountId}/support-cases`,
+        {
+          method: "POST",
+          mutate: true,
+          body: JSON.stringify({
+            category:
+              document.querySelector("#supportCategory").value,
+            priority:
+              document.querySelector("#supportPriority").value,
+            subject:
+              document.querySelector("#supportSubject").value.trim(),
+            body:
+              document.querySelector("#supportBody").value.trim(),
+            projectId:
+              project?.accountId === accountId
+                ? project.id
+                : null
+          })
+        }
+      );
+      document.querySelector("#supportSubject").value = "";
+      document.querySelector("#supportBody").value = "";
+      await loadBilling();
+    } catch (error) {
+      setText(
+        "billingError",
+        `Could not create support case: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+document.querySelector("#platformModalClose").addEventListener(
+  "click",
+  closePlatformModal
+);
+document.querySelector("#refreshPlatform").addEventListener(
+  "click",
+  loadPlatform
+);
+document.querySelector("#platformPlanForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (!platformCan("superadmin")) return;
+
+    try {
+      await api("/v1/platform/plans", {
+        method: "POST",
+        mutate: true,
+        body: JSON.stringify({
+          code:
+            document.querySelector("#platformPlanCode").value.trim(),
+          name:
+            document.querySelector("#platformPlanName").value.trim(),
+          currency:
+            document.querySelector("#platformPlanCurrency").value.trim().toUpperCase(),
+          monthlyPriceMinor:
+            Number(document.querySelector("#platformPlanPrice").value),
+          includedIngest:
+            Number(document.querySelector("#platformPlanIngest").value),
+          includedRead:
+            Number(document.querySelector("#platformPlanRead").value),
+          includedTrackedUsers:
+            Number(document.querySelector("#platformPlanUsers").value),
+          maxProjects:
+            Number(document.querySelector("#platformPlanProjects").value),
+          features: {
+            realtime:
+              document.querySelector("#platformFeatureRealtime").checked,
+            clientTokens:
+              document.querySelector("#platformFeatureClientTokens").checked,
+            androidAttestation:
+              document.querySelector("#platformFeatureAttestation").checked,
+            prioritySupport:
+              document.querySelector("#platformFeaturePrioritySupport").checked
+          }
+        })
+      });
+      document.querySelector("#platformPlanCode").value = "";
+      document.querySelector("#platformPlanName").value = "";
+      await loadPlatform();
+    } catch (error) {
+      setText(
+        "platformError",
+        `Could not create plan: ${error.code}`
+      );
+    }
+  }
+);
 
 document.querySelector("#limitsForm").addEventListener("submit", async (event) => {
   event.preventDefault();
