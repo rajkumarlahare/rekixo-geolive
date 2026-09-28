@@ -39,6 +39,25 @@ try {
     [user.rows[0].id, role]
   );
 
+  await pool.query(
+    `INSERT INTO audit_log (
+      admin_user_id,
+      action,
+      details
+    ) VALUES (
+      $1,'platform.role_bootstrap',$2::jsonb
+    )`,
+    [
+      user.rows[0].id,
+      JSON.stringify({
+        targetUserId: user.rows[0].id,
+        email: user.rows[0].email,
+        role,
+        via: "platform-grant-cli"
+      })
+    ]
+  );
+
   console.log(JSON.stringify({
     updated: true,
     userId: user.rows[0].id,
