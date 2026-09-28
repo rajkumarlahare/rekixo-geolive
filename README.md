@@ -103,7 +103,7 @@ A plan defines:
 
 Account-specific entitlement overrides can change limits/features without mutating the shared plan.
 
-Project creation is checked against the account's effective `maxProjects`. P2 client-token exchange and Android attestation are checked against their feature entitlements.
+Project creation is checked against the account's effective `maxProjects`. Public integration realtime, P2 client-token exchange and Android attestation are checked against their feature entitlements.
 
 ### Usage metering
 
