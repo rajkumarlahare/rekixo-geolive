@@ -411,6 +411,33 @@ FROM accounts a
 JOIN commercial_plans p ON p.code = 'legacy'
 ON CONFLICT (account_id) DO NOTHING;
 
+CREATE OR REPLACE FUNCTION geolive_assign_legacy_subscription()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $
+BEGIN
+  INSERT INTO account_subscriptions (
+    account_id,
+    plan_id,
+    status
+  )
+  SELECT
+    NEW.id,
+    p.id,
+    'active'
+  FROM commercial_plans p
+  WHERE p.code = 'legacy'
+  ON CONFLICT (account_id) DO NOTHING;
+
+  RETURN NEW;
+END;
+$;
+
+CREATE TRIGGER accounts_assign_legacy_subscription
+AFTER INSERT ON accounts
+FOR EACH ROW
+EXECUTE FUNCTION geolive_assign_legacy_subscription();
+
 CREATE TABLE account_entitlement_overrides (
   account_id uuid NOT NULL
     REFERENCES accounts(id) ON DELETE CASCADE,
