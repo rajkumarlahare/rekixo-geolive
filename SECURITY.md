@@ -58,7 +58,7 @@ Sensitive plan, entitlement, subscription, invoice and support mutations are aud
 
 Existing/new accounts default to the backward-compatible `legacy` subscription until deliberately reassigned.
 
-Effective entitlements come from plan defaults plus explicit account overrides. Project creation and selected P2 features fail closed when the active/trialing subscription does not permit them.
+Effective entitlements come from plan defaults plus explicit account overrides. Project creation, public integration realtime and selected P2 features fail closed when the active/trialing subscription does not permit them.
 
 Finalized `billing_usage_periods` do not overwrite their metrics on later rollups. This prevents retention/source-data changes from silently rewriting an already-finalized billing basis.
 
