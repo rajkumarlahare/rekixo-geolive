@@ -586,6 +586,31 @@ export async function handleAdminApi({
         return true;
       }
 
+      const platformAccountCommercial =
+        url.pathname.match(
+          /^\/v1\/platform\/accounts\/([0-9a-f-]{36})\/commercial$/
+        );
+      if (
+        platformAccountCommercial &&
+        req.method === "GET"
+      ) {
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          anyPlatformRole
+        );
+        const commercial =
+          await commercialStore
+            .accountCommercialOverview(
+              platformAccountCommercial[1]
+            );
+        sendJson(res, 200, {
+          accountId:
+            platformAccountCommercial[1],
+          ...commercial
+        });
+        return true;
+      }
+
       const platformSubscription =
         url.pathname.match(
           /^\/v1\/platform\/accounts\/([0-9a-f-]{36})\/subscription$/
