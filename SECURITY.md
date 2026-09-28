@@ -1,6 +1,6 @@
 # Rekixo GeoLive Security Rules
 
-Location data is sensitive. GeoLive defaults to least privilege, explicit consent, project isolation, short credential lifetimes for untrusted clients and bounded operational access.
+Location and billing data are sensitive. GeoLive defaults to least privilege, explicit tenant isolation, short credential lifetimes for untrusted clients and role-separated commercial administration.
 
 ## Credential classes
 
@@ -12,117 +12,82 @@ GeoLive has three integration credential classes:
 
 Full database API-key secrets are returned only on create/rotate. PostgreSQL stores their visible prefix and SHA-256 secret hash.
 
-A `tokens:issue` key cannot be mixed with ingest or read scopes. The exchange endpoint also requires that issuer to be database-backed; the legacy environment-key bridge cannot mint client tokens.
+A `tokens:issue` key cannot be mixed with ingest or read scopes. The legacy environment-key bridge cannot mint client tokens.
 
 ## Short-lived client tokens
 
-A client token is signed by the GeoLive client-token signing key ring and is bounded to:
+A client token is bound to one project, one external user ID, `location:write`, the database issuer key, optional package ID, platform, optional P-256 proof public key and a short expiry.
 
-- one project;
-- one external user ID;
-- `location:write` only;
-- the issuing database API-key ID;
-- optional package ID;
-- client platform;
-- optional P-256 proof public key;
-- short expiry, default 5 minutes and never more than 1 hour.
-
-Revoking, expiring or otherwise deactivating the issuer API key causes already-issued child tokens to fail authentication.
-
-Signing-key rotation is supported by a key ring: the first configured key signs new tokens while all configured keys may verify existing tokens. Retire an old signing key only after its maximum child-token lifetime has elapsed.
-
-## Token exchange
-
-`POST /v1/client-tokens/exchange` requires a trusted backend credential with only `tokens:issue`.
-
-The exchange request includes a user ID, platform, one-time client nonce, client timestamp, optional package ID, optional P-256 public key and optional attestation token.
-
-Exchange nonces are SHA-256 hashed before storage and may be consumed only once per project.
-
-The issuer key can restrict allowed package IDs. Browser origins remain subject to the issuer key/global origin rules.
-
-Do not embed a `tokens:issue` key inside an APK, browser bundle or other untrusted client.
+Revoking or expiring the issuer invalidates its child tokens. Signing-key rotation uses a key ring.
 
 ## Request proof and replay protection
 
-For `rgl_client_...` location writes, GeoLive always requires:
+For `rgl_client_...` location writes, timestamp and one-time nonce headers are required. Proof-bound requests sign the exact raw JSON body hash using P-256 SHA256withECDSA.
 
-- `X-GeoLive-Request-Timestamp`
-- `X-GeoLive-Request-Nonce`
-
-The timestamp must fall within the project's configured freshness window. The nonce is consumed once for the client token's `jti` and stored only as a hash.
-
-Projects default to requiring proof-of-possession. A proof-bound token contains a P-256 public key. The location request must include `X-GeoLive-Request-Signature`, a SHA256withECDSA signature over:
-
-```text
-RGL-PROOF-V1
-POST
-/v1/locations
-<TIMESTAMP>
-<NONCE>
-<BASE64URL-SHA256-OF-EXACT-RAW-JSON-BODY>
-```
-
-The signature is checked before normal ingest quota is consumed. Replayed requests fail before location state is written.
+Replay nonces are stored only as hashes.
 
 ## Android Google Play Integrity
 
-Android attestation is configurable per project as `off`, `optional` or `required`.
+Android attestation may be `off`, `optional` or `required` per project. GeoLive verifies the configured package, requestHash, freshness, app/device verdicts and optional licensing verdict server-side.
 
-When supplied, GeoLive verifies a Google Play Integrity standard token server-side. The decoded verdict must match the configured package and a server-recomputed `requestHash` built from:
+Service-account private keys live only in deployment secrets.
 
-```text
-RGL-TOKEN-EXCHANGE-V1
-<PROJECT_ID>
-<USER_ID>
-<PACKAGE_ID>
-<CLIENT_NONCE>
-<CLIENT_TIMESTAMP_MS>
-<P-256-PROOF-PUBLIC-KEY>
-```
+## Admin and platform authorization
 
-GeoLive validates freshness, the configured app-recognition verdict, required device-integrity verdicts and optional licensing verdict.
+The tenant admin plane uses:
 
-Service-account private keys belong only in deployment secrets. They are not returned through the dashboard or API.
+- Scrypt password hashes with random salts;
+- opaque hashed server-side sessions;
+- HttpOnly + SameSite=Strict cookies, Secure in production;
+- CSRF checks for mutations;
+- login lock/rate limits;
+- account owner/admin/viewer authorization.
 
-## WebSocket authentication
+P3 adds a separate `platform_roles` authorization plane. Tenant account membership does not grant cross-account commercial access.
 
-The production integration WebSocket is `/v1/realtime`.
+Platform roles are:
 
-Do not put API keys into the URL/query string. The client opens the socket first and sends the read key in the initial authenticate message over TLS.
+- `superadmin`
+- `billing`
+- `support`
+- `viewer`
 
-The key must include `events:read`. Origin and package restrictions are re-applied.
+Sensitive plan, entitlement, subscription, invoice and support mutations are audited.
 
-Admin dashboard realtime uses the existing HttpOnly admin session cookie and account/project authorization.
+## Commercial integrity
 
-## Admin control plane
+Existing/new accounts default to the backward-compatible `legacy` subscription until deliberately reassigned.
 
-- Scrypt password hashes with random salts.
-- Opaque high-entropy session tokens; only hashes stored.
-- HttpOnly + SameSite=Strict cookies; Secure in production.
-- CSRF protection on state changes.
-- Failed-login lock plus distributed login rate limiting.
-- Owner/admin mutation roles; viewer is read-only.
-- Project/API-key/limit/client-security changes are audited.
+Effective entitlements come from plan defaults plus explicit account overrides. Project creation, public integration realtime and selected P2 features fail closed when the active/trialing subscription does not permit them.
 
-## Rate limits and quotas
+Finalized `billing_usage_periods` do not overwrite their metrics on later rollups. This prevents retention/source-data changes from silently rewriting an already-finalized billing basis.
 
-Public authenticated traffic uses atomic PostgreSQL counters shared across application instances.
+Invoice generation uses server-computed usage and server-stored price/entitlement data. Clients cannot submit their own calculated subtotal.
 
-Client-token exchange has a separate per-project requests-per-minute policy in addition to normal ingest/read controls.
+## Payment-data boundary
 
-## Security events and secrets
+P3 is a provider-neutral billing/invoice ledger.
 
-GeoLive does not copy raw API secrets, short-lived client tokens, Play Integrity tokens, passwords, admin session tokens, CSRF tokens or exact location payloads into security/metrics tables.
+GeoLive does not store payment-card numbers, CVV, bank credentials or payment-provider secret keys in commercial tables.
 
-Attestation failures and client replay/proof failures are recorded as bounded security-event metadata.
+Optional provider customer/subscription/invoice references are opaque external identifiers only. Actual payment collection and provider webhooks require a future dedicated payment adapter.
+
+## Support privacy
+
+Tenant support APIs verify account membership.
+
+Messages marked `internal=true` are available only through platform support APIs and are excluded from tenant message responses.
+
+## Rate limits, events and secrets
+
+Public authenticated traffic uses PostgreSQL-backed distributed limits.
+
+GeoLive does not copy raw API secrets, client tokens, Play Integrity tokens, passwords, admin sessions, CSRF tokens, payment secrets or exact location payloads into security/metrics tables.
 
 ## Retention
 
-Location history, realtime replay events, client replay nonces, security events and operational metrics have bounded cleanup. The retention worker runs only when invoked by trusted scheduling infrastructure.
+Location history, realtime replay events, P2 replay nonces, security events and operational metrics have bounded cleanup. Commercial invoice/support records are not deleted by the generic retention worker because they represent business records and require an explicit retention policy before automatic deletion.
 
 ## Compatibility
 
-Existing trusted integrations using database-backed `location:write` keys continue to work. The short-lived client-token path is additive and is the preferred path for untrusted mobile/client producers.
-
-The legacy `GEOLIVE_KEYS_JSON` bridge remains migration-only.
+Existing trusted `location:write` integrations continue to work. P2/P3 are additive, and the legacy plan preserves pre-commercial accounts.

@@ -80,18 +80,35 @@
 - JavaScript, Android and Flutter token/proof adapter support
 - bounded retention for replay nonce tables
 
-## Next — Commercial layer
-- plans and entitlements
-- billable usage metering
-- billing/invoices
-- support/admin workflows
-- super-admin controls
+## Completed — P3 commercial layer
+- commercial plan catalog
+- account subscriptions with backward-compatible legacy plan
+- account-level entitlement overrides
+- project-count plus realtime/client-security feature entitlement enforcement
+- calendar-period billable usage snapshots
+- frozen finalized usage periods
+- provider-neutral invoice ledger and line items
+- base-price and usage-overage invoice calculation
+- currency-safe platform revenue summaries
+- account billing/support dashboard
+- tenant support cases and replies
+- internal platform support notes
+- platform roles: superadmin / billing / support / viewer
+- platform plan/account/subscription/invoice/support APIs
+- super-admin commercial dashboard controls
+- idempotent billing usage rollup worker
+- PostgreSQL commercial integration tests
 
-## Later — Advanced geospatial
+## Next — Advanced geospatial
 - movement history
 - heatmap
 - geofence
 - alerts
 - webhooks
+
+## Later — Product administration
 - team/invite management
 - white-label dashboard
+- external payment-provider adapter and webhooks
+- tax engine / credit notes / refunds
+- customer self-service checkout portal

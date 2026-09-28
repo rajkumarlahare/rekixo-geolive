@@ -302,6 +302,63 @@ export class PostgresAdminStore {
     }));
   }
 
+  async authorizeAccount(
+    userId,
+    accountId,
+    { write = false, ownerOnly = false } = {}
+  ) {
+    const result = await this.pool.query(
+      `SELECT
+        a.id,
+        a.name,
+        a.created_at,
+        m.role
+      FROM accounts a
+      JOIN account_memberships m
+        ON m.account_id = a.id
+       AND m.admin_user_id = $1
+      WHERE a.id = $2
+      LIMIT 1`,
+      [userId, accountId]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new AdminStoreError(
+        "account_not_found",
+        404
+      );
+    }
+    if (
+      ownerOnly &&
+      row.role !== "owner"
+    ) {
+      throw new AdminStoreError(
+        "account_owner_required",
+        403
+      );
+    }
+    if (
+      write &&
+      !["owner","admin"].includes(
+        row.role
+      )
+    ) {
+      throw new AdminStoreError(
+        "account_write_forbidden",
+        403
+      );
+    }
+    return {
+      id: row.id,
+      name: row.name,
+      role: row.role,
+      createdAt:
+        row.created_at instanceof Date
+          ? row.created_at.toISOString()
+          : row.created_at
+    };
+  }
+
   async listProjects(userId) {
     const result = await this.pool.query(
       `SELECT p.id, p.account_id, a.name AS account_name,

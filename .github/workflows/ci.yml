@@ -61,3 +61,4 @@ jobs:
       - run: npm run test:postgres
       - run: node --test server/test/realtime-redis.test.mjs
       - run: npm run retention
+      - run: npm run billing:rollup -- current

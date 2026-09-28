@@ -18,6 +18,16 @@ import {
   safeKeyName,
   validateApiKeyScopes
 } from "./integration-keys.mjs";
+import {
+  validatePlanInput,
+  validateSubscriptionPatch,
+  validateEntitlementOverrides,
+  validateSupportCase,
+  validateSupportPatch,
+  validateSupportMessage,
+  validateInvoiceGenerate,
+  validateInvoicePatch
+} from "./commercial-validation.mjs";
 
 const COOKIE_NAME = "geolive_admin_session";
 
@@ -211,15 +221,26 @@ function validateKeyInput(body, { partial = false } = {}) {
   return out;
 }
 
-async function sessionPayload(adminStore, session) {
-  const [accounts, projects] = await Promise.all([
-    adminStore.listAccounts(session.user.id),
-    adminStore.listProjects(session.user.id)
-  ]);
+async function sessionPayload(
+  adminStore,
+  session,
+  commercialStore = null
+) {
+  const [accounts, projects, platformRole] =
+    await Promise.all([
+      adminStore.listAccounts(session.user.id),
+      adminStore.listProjects(session.user.id),
+      commercialStore
+        ? commercialStore.getPlatformRole(
+            session.user.id
+          )
+        : null
+    ]);
   return {
     user: session.user,
     accounts,
-    projects
+    projects,
+    platformRole
   };
 }
 
@@ -232,9 +253,16 @@ export async function handleAdminApi({
   keyStore,
   opsStore,
   clientSecurityStore,
+  commercialStore,
   geoStore
 }) {
-  if (!url.pathname.startsWith("/v1/admin/")) return false;
+  const adminRequest =
+    url.pathname.startsWith("/v1/admin/");
+  const platformRequest =
+    url.pathname.startsWith("/v1/platform/");
+  if (!adminRequest && !platformRequest) {
+    return false;
+  }
 
   if (!adminStore) {
     sendJson(res, 503, { error: "admin_requires_postgres" });
@@ -351,7 +379,11 @@ export async function handleAdminApi({
           displayName: user.display_name
         }
       };
-      const payload = await sessionPayload(adminStore, session);
+      const payload = await sessionPayload(
+        adminStore,
+        session,
+        commercialStore
+      );
 
       sendJson(
         res,
@@ -376,7 +408,11 @@ export async function handleAdminApi({
         session.sessionId,
         sha256Secret(rawCsrf)
       );
-      const payload = await sessionPayload(adminStore, session);
+      const payload = await sessionPayload(
+        adminStore,
+        session,
+        commercialStore
+      );
       sendJson(res, 200, {
         ...payload,
         csrfToken: rawCsrf,
@@ -416,6 +452,16 @@ export async function handleAdminApi({
       if (!accountId) {
         throw new AdminStoreError("account_required", 400);
       }
+      await adminStore.authorizeAccount(
+        session.user.id,
+        accountId,
+        { write: true }
+      );
+      if (commercialStore) {
+        await commercialStore.assertProjectCreateAllowed(
+          accountId
+        );
+      }
       const input = validateProjectInput(body);
       const project = await adminStore.createProject(
         session.user.id,
@@ -426,6 +472,528 @@ export async function handleAdminApi({
       );
       sendJson(res, 201, { project });
       return true;
+    }
+
+    if (platformRequest) {
+      if (!commercialStore) {
+        sendJson(res, 503, {
+          error: "commercial_requires_postgres"
+        });
+        return true;
+      }
+
+      const anyPlatformRole = [
+        "superadmin",
+        "billing",
+        "support",
+        "viewer"
+      ];
+
+      if (
+        req.method === "GET" &&
+        url.pathname === "/v1/platform/overview"
+      ) {
+        const role =
+          await commercialStore.requirePlatformRole(
+            session.user.id,
+            anyPlatformRole
+          );
+        const overview =
+          await commercialStore.platformOverview();
+        sendJson(res, 200, {
+          role,
+          overview
+        });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        url.pathname === "/v1/platform/plans"
+      ) {
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          anyPlatformRole
+        );
+        const plans =
+          await commercialStore.listPlans({
+            includeArchived: true
+          });
+        sendJson(res, 200, { plans });
+        return true;
+      }
+
+      if (
+        req.method === "POST" &&
+        url.pathname === "/v1/platform/plans"
+      ) {
+        requireCsrf(req, session);
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          ["superadmin"]
+        );
+        const plan =
+          await commercialStore.createPlan(
+            session.user.id,
+            validatePlanInput(
+              await readJson(req)
+            )
+          );
+        sendJson(res, 201, { plan });
+        return true;
+      }
+
+      const planMatch = url.pathname.match(
+        /^\/v1\/platform\/plans\/([0-9a-f-]{36})$/
+      );
+      if (
+        planMatch &&
+        req.method === "PATCH"
+      ) {
+        requireCsrf(req, session);
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          ["superadmin"]
+        );
+        const plan =
+          await commercialStore.updatePlan(
+            session.user.id,
+            planMatch[1],
+            validatePlanInput(
+              await readJson(req),
+              { partial: true }
+            )
+          );
+        sendJson(res, 200, { plan });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        url.pathname === "/v1/platform/accounts"
+      ) {
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          anyPlatformRole
+        );
+        const accounts =
+          await commercialStore.listPlatformAccounts({
+            limit:
+              url.searchParams.get("limit") ||
+              100
+          });
+        sendJson(res, 200, { accounts });
+        return true;
+      }
+
+      const platformAccountCommercial =
+        url.pathname.match(
+          /^\/v1\/platform\/accounts\/([0-9a-f-]{36})\/commercial$/
+        );
+      if (
+        platformAccountCommercial &&
+        req.method === "GET"
+      ) {
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          anyPlatformRole
+        );
+        const commercial =
+          await commercialStore
+            .accountCommercialOverview(
+              platformAccountCommercial[1]
+            );
+        sendJson(res, 200, {
+          accountId:
+            platformAccountCommercial[1],
+          ...commercial
+        });
+        return true;
+      }
+
+      const platformSubscription =
+        url.pathname.match(
+          /^\/v1\/platform\/accounts\/([0-9a-f-]{36})\/subscription$/
+        );
+      if (
+        platformSubscription &&
+        req.method === "PATCH"
+      ) {
+        requireCsrf(req, session);
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          ["superadmin","billing"]
+        );
+        const commercial =
+          await commercialStore.setSubscription({
+            accountId:
+              platformSubscription[1],
+            actorUserId:
+              session.user.id,
+            patch:
+              validateSubscriptionPatch(
+                await readJson(req)
+              )
+          });
+        sendJson(res, 200, commercial);
+        return true;
+      }
+
+      const platformEntitlements =
+        url.pathname.match(
+          /^\/v1\/platform\/accounts\/([0-9a-f-]{36})\/entitlements$/
+        );
+      if (
+        platformEntitlements &&
+        req.method === "PATCH"
+      ) {
+        requireCsrf(req, session);
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          ["superadmin"]
+        );
+        const entitlements =
+          await commercialStore
+            .setEntitlementOverrides({
+              accountId:
+                platformEntitlements[1],
+              actorUserId:
+                session.user.id,
+              overrides:
+                validateEntitlementOverrides(
+                  await readJson(req)
+                )
+            });
+        sendJson(res, 200, entitlements);
+        return true;
+      }
+
+      const invoiceGenerate =
+        url.pathname.match(
+          /^\/v1\/platform\/accounts\/([0-9a-f-]{36})\/invoices\/generate$/
+        );
+      if (
+        invoiceGenerate &&
+        req.method === "POST"
+      ) {
+        requireCsrf(req, session);
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          ["superadmin","billing"]
+        );
+        const input =
+          validateInvoiceGenerate(
+            await readJson(req)
+          );
+        const invoice =
+          await commercialStore
+            .generateInvoice({
+              accountId:
+                invoiceGenerate[1],
+              actorUserId:
+                session.user.id,
+              ...input
+            });
+        sendJson(res, 201, invoice);
+        return true;
+      }
+
+      const platformInvoice =
+        url.pathname.match(
+          /^\/v1\/platform\/invoices\/([0-9a-f-]{36})$/
+        );
+      if (
+        platformInvoice &&
+        req.method === "PATCH"
+      ) {
+        requireCsrf(req, session);
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          ["superadmin","billing"]
+        );
+        const input =
+          validateInvoicePatch(
+            await readJson(req)
+          );
+        const invoice =
+          await commercialStore.updateInvoice({
+            invoiceId:
+              platformInvoice[1],
+            actorUserId:
+              session.user.id,
+            status: input.status
+          });
+        sendJson(res, 200, { invoice });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        url.pathname ===
+          "/v1/platform/support-cases"
+      ) {
+        await commercialStore.requirePlatformRole(
+          session.user.id,
+          ["superadmin","support","viewer"]
+        );
+        const cases =
+          await commercialStore
+            .listPlatformSupportCases({
+              status:
+                url.searchParams.get("status") ||
+                "",
+              limit:
+                url.searchParams.get("limit") ||
+                100
+            });
+        sendJson(res, 200, {
+          supportCases: cases
+        });
+        return true;
+      }
+
+      const platformCase = url.pathname.match(
+        /^\/v1\/platform\/support-cases\/([0-9a-f-]{36})(?:\/(messages))?$/
+      );
+      if (platformCase) {
+        const caseId = platformCase[1];
+        const resource =
+          platformCase[2] || "";
+
+        if (
+          req.method === "GET" &&
+          resource === "messages"
+        ) {
+          await commercialStore
+            .requirePlatformRole(
+              session.user.id,
+              ["superadmin","support","viewer"]
+            );
+          const messages =
+            await commercialStore
+              .listCaseMessages(
+                caseId,
+                { includeInternal: true }
+              );
+          sendJson(res, 200, {
+            caseId,
+            messages
+          });
+          return true;
+        }
+
+        if (
+          req.method === "PATCH" &&
+          resource === ""
+        ) {
+          requireCsrf(req, session);
+          await commercialStore
+            .requirePlatformRole(
+              session.user.id,
+              ["superadmin","support"]
+            );
+          const supportCase =
+            await commercialStore
+              .updateSupportCase({
+                caseId,
+                actorUserId:
+                  session.user.id,
+                patch:
+                  validateSupportPatch(
+                    await readJson(req)
+                  )
+              });
+          sendJson(res, 200, {
+            supportCase
+          });
+          return true;
+        }
+
+        if (
+          req.method === "POST" &&
+          resource === "messages"
+        ) {
+          requireCsrf(req, session);
+          await commercialStore
+            .requirePlatformRole(
+              session.user.id,
+              ["superadmin","support"]
+            );
+          const input =
+            validateSupportMessage(
+              await readJson(req),
+              { platform: true }
+            );
+          const message =
+            await commercialStore
+              .addSupportMessage({
+                caseId,
+                actorUserId:
+                  session.user.id,
+                platform: true,
+                ...input
+              });
+          sendJson(res, 201, {
+            caseId,
+            message
+          });
+          return true;
+        }
+      }
+
+      sendJson(res, 404, {
+        error: "not_found"
+      });
+      return true;
+    }
+
+    if (adminRequest && commercialStore) {
+      const accountCommercial =
+        url.pathname.match(
+          /^\/v1\/admin\/accounts\/([0-9a-f-]{36})\/(commercial|invoices|support-cases)$/
+        );
+
+      if (accountCommercial) {
+        const accountId =
+          accountCommercial[1];
+        const resource =
+          accountCommercial[2];
+
+        const account =
+          await adminStore.authorizeAccount(
+            session.user.id,
+            accountId,
+            {
+              write:
+                req.method === "POST"
+            }
+          );
+
+        if (
+          resource === "commercial" &&
+          req.method === "GET"
+        ) {
+          const commercial =
+            await commercialStore
+              .accountCommercialOverview(
+                accountId
+              );
+          sendJson(res, 200, {
+            account,
+            ...commercial
+          });
+          return true;
+        }
+
+        if (
+          resource === "invoices" &&
+          req.method === "GET"
+        ) {
+          const invoices =
+            await commercialStore.listInvoices(
+              accountId
+            );
+          sendJson(res, 200, {
+            accountId,
+            invoices
+          });
+          return true;
+        }
+
+        if (
+          resource === "support-cases" &&
+          req.method === "GET"
+        ) {
+          const supportCases =
+            await commercialStore
+              .listSupportCases(accountId);
+          sendJson(res, 200, {
+            accountId,
+            supportCases
+          });
+          return true;
+        }
+
+        if (
+          resource === "support-cases" &&
+          req.method === "POST"
+        ) {
+          requireCsrf(req, session);
+          const input =
+            validateSupportCase(
+              await readJson(req)
+            );
+          const supportCase =
+            await commercialStore
+              .createSupportCase({
+                accountId,
+                actorUserId:
+                  session.user.id,
+                ...input
+              });
+          sendJson(res, 201, {
+            supportCase
+          });
+          return true;
+        }
+      }
+
+      const tenantCase = url.pathname.match(
+        /^\/v1\/admin\/support-cases\/([0-9a-f-]{36})\/messages$/
+      );
+      if (tenantCase) {
+        const caseId = tenantCase[1];
+        const accountId =
+          await commercialStore
+            .accountHasCaseAccess(
+              session.user.id,
+              caseId
+            );
+        if (!accountId) {
+          throw new AdminStoreError(
+            "support_case_not_found",
+            404
+          );
+        }
+
+        if (req.method === "GET") {
+          const messages =
+            await commercialStore
+              .listCaseMessages(caseId);
+          sendJson(res, 200, {
+            caseId,
+            messages
+          });
+          return true;
+        }
+
+        if (req.method === "POST") {
+          await adminStore.authorizeAccount(
+            session.user.id,
+            accountId,
+            { write: true }
+          );
+          requireCsrf(req, session);
+          const input =
+            validateSupportMessage(
+              await readJson(req)
+            );
+          const message =
+            await commercialStore
+              .addSupportMessage({
+                caseId,
+                actorUserId:
+                  session.user.id,
+                platform: false,
+                ...input
+              });
+          sendJson(res, 201, {
+            caseId,
+            message
+          });
+          return true;
+        }
+      }
     }
 
     const keyRoute = url.pathname.match(

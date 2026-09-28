@@ -8,8 +8,21 @@ const projectModal = document.querySelector("#projectModal");
 const state = {
   csrf: "",
   user: null,
+  platformRole: null,
   accounts: [],
   projects: [],
+  billingAccountId: "",
+  commercial: null,
+  tenantSupportCaseId: "",
+  platform: {
+    plans: [],
+    accounts: [],
+    supportCases: [],
+    overview: null,
+    selectedAccountId: "",
+    accountCommercial: null,
+    selectedSupportCaseId: ""
+  },
   projectId: "",
   users: [],
   filtered: [],
@@ -88,6 +101,33 @@ function canWriteProject(project = projectById()) {
   return Boolean(project && ["owner", "admin"].includes(project.role));
 }
 
+function accountById(id) {
+  return state.accounts.find(
+    (account) => account.id === id
+  ) || null;
+}
+
+function activeAccountId() {
+  const project = projectById();
+  if (project?.accountId) {
+    return project.accountId;
+  }
+  if (
+    state.billingAccountId &&
+    accountById(state.billingAccountId)
+  ) {
+    return state.billingAccountId;
+  }
+  return state.accounts[0]?.id || "";
+}
+
+function canWriteAccount(account = accountById(activeAccountId())) {
+  return Boolean(
+    account &&
+    ["owner", "admin"].includes(account.role)
+  );
+}
+
 function populateProjectSelect() {
   projectSelect.innerHTML = "";
   if (!state.projects.length) {
@@ -123,6 +163,10 @@ function populateProjectSelect() {
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#manageBilling").disabled =
+    state.accounts.length === 0;
+  document.querySelector("#platformConsole").hidden =
+    !state.platformRole;
 }
 
 function applyIdentity() {
@@ -526,6 +570,7 @@ function startPolling() {
 
 function hydrateSession(payload) {
   state.user = payload.user;
+  state.platformRole = payload.platformRole || null;
   state.accounts = payload.accounts || [];
   state.projects = payload.projects || [];
   state.csrf = payload.csrfToken || "";
@@ -549,9 +594,22 @@ function showLogin(message = "") {
   clearInterval(state.pollTimer);
   stopRealtime({ resetSequence: true });
   state.user = null;
+  state.platformRole = null;
   state.csrf = "";
   state.projects = [];
   state.accounts = [];
+  state.billingAccountId = "";
+  state.commercial = null;
+  state.tenantSupportCaseId = "";
+  state.platform = {
+    plans: [],
+    accounts: [],
+    supportCases: [],
+    overview: null,
+    selectedAccountId: "",
+    accountCommercial: null,
+    selectedSupportCaseId: ""
+  };
   state.projectId = "";
   populateProjectSelect();
   applyIdentity();
@@ -605,6 +663,8 @@ projectSelect.addEventListener("change", () => {
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#manageBilling").disabled =
+    state.accounts.length === 0;
   loadProject()
     .then(() => startRealtime())
     .catch(() => {});
@@ -615,6 +675,8 @@ document.querySelector("#newProject").addEventListener("click", () => openProjec
 document.querySelector("#editProject").addEventListener("click", () => openProjectModal("edit"));
 document.querySelector("#manageKeys").addEventListener("click", openKeyModal);
 document.querySelector("#manageOps").addEventListener("click", openOpsModal);
+document.querySelector("#manageBilling").addEventListener("click", openBillingModal);
+document.querySelector("#platformConsole").addEventListener("click", openPlatformModal);
 document.querySelector("#projectModalClose").addEventListener("click", closeProjectModal);
 document.querySelector("#opsModalClose").addEventListener("click", closeOpsModal);
 document.querySelector("#refreshOps").addEventListener("click", loadOperations);
@@ -1108,6 +1170,1557 @@ async function loadOperations() {
     setText("opsError", `Could not load operations: ${error.code}`);
   }
 }
+
+
+function formatMoney(minor, currency = "USD") {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2
+    }).format(Number(minor || 0) / 100);
+  } catch {
+    return `${currency} ${(Number(minor || 0) / 100).toFixed(2)}`;
+  }
+}
+
+function compactNumber(value) {
+  return new Intl.NumberFormat().format(
+    Number(value || 0)
+  );
+}
+
+function buildTag(textValue) {
+  const span = document.createElement("span");
+  span.className = "scope-chip";
+  span.textContent = textValue;
+  return span;
+}
+
+function previousMonthPeriod() {
+  const now = new Date();
+  const start = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth() - 1,
+    1
+  ));
+  const end = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    1
+  ));
+  return {
+    periodStart:
+      start.toISOString().slice(0, 10),
+    periodEnd:
+      end.toISOString().slice(0, 10)
+  };
+}
+
+function fillBillingAccounts() {
+  const select =
+    document.querySelector("#billingAccount");
+  select.replaceChildren();
+
+  for (const account of state.accounts) {
+    const option =
+      document.createElement("option");
+    option.value = account.id;
+    option.textContent =
+      `${account.name} · ${account.role}`;
+    select.appendChild(option);
+  }
+
+  const preferred = activeAccountId();
+  state.billingAccountId =
+    accountById(preferred)
+      ? preferred
+      : state.accounts[0]?.id || "";
+  select.value = state.billingAccountId;
+}
+
+async function openBillingModal() {
+  if (!state.accounts.length) return;
+  fillBillingAccounts();
+  document.querySelector("#billingModal").hidden =
+    false;
+  await loadBilling();
+}
+
+function closeBillingModal() {
+  document.querySelector("#billingModal").hidden =
+    true;
+}
+
+async function loadBilling() {
+  const accountId =
+    state.billingAccountId ||
+    document.querySelector("#billingAccount").value;
+  if (!accountId) return;
+
+  state.billingAccountId = accountId;
+  setText("billingError", "");
+
+  try {
+    const payload = await api(
+      `/v1/admin/accounts/${accountId}/commercial`
+    );
+    state.commercial = payload;
+    renderBilling(payload);
+  } catch (error) {
+    setText(
+      "billingError",
+      `Could not load billing: ${error.code}`
+    );
+  }
+}
+
+function renderBilling(payload) {
+  const plan = payload.plan || {};
+  const subscription =
+    payload.subscription || {};
+  const effective =
+    payload.effective || {};
+  const usage =
+    payload.usage?.metrics || {};
+  const currency = plan.currency || "USD";
+
+  setText("billingPlan", plan.name || "—");
+  setText(
+    "billingPlanPrice",
+    formatMoney(
+      plan.monthlyPriceMinor || 0,
+      currency
+    ) + " / month"
+  );
+  setText(
+    "billingStatus",
+    subscription.status || "—"
+  );
+  setText(
+    "billingPeriod",
+    subscription.periodStart &&
+    subscription.periodEnd
+      ? `${subscription.periodStart} → ${subscription.periodEnd}`
+      : "—"
+  );
+
+  setText(
+    "billingIngest",
+    compactNumber(usage.ingestRequests)
+  );
+  setText(
+    "billingIngestLimit",
+    `Included: ${compactNumber(effective.includedIngest)}`
+  );
+  setText(
+    "billingRead",
+    compactNumber(usage.readRequests)
+  );
+  setText(
+    "billingReadLimit",
+    `Included: ${compactNumber(effective.includedRead)}`
+  );
+  setText(
+    "billingTrackedUsers",
+    compactNumber(usage.trackedUsers)
+  );
+  setText(
+    "billingTrackedLimit",
+    `Included: ${compactNumber(effective.includedTrackedUsers)}`
+  );
+  const accountId = payload.account?.id ||
+    state.billingAccountId;
+  const projects = state.projects.filter(
+    (project) =>
+      project.accountId === accountId
+  ).length;
+  setText(
+    "billingProjects",
+    compactNumber(projects)
+  );
+  setText(
+    "billingProjectLimit",
+    `Limit: ${compactNumber(effective.maxProjects)}`
+  );
+
+  const tags =
+    document.querySelector("#billingEntitlements");
+  tags.replaceChildren();
+  for (const key of [
+    "realtime",
+    "clientTokens",
+    "androidAttestation",
+    "prioritySupport"
+  ]) {
+    tags.appendChild(
+      buildTag(
+        `${key}: ${effective[key] ? "enabled" : "disabled"}`
+      )
+    );
+  }
+
+  const invoices =
+    document.querySelector("#billingInvoices");
+  invoices.replaceChildren();
+  const invoiceRows = payload.invoices || [];
+  if (!invoiceRows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No invoices for this account.";
+    invoices.appendChild(empty);
+  } else {
+    for (const invoice of invoiceRows) {
+      const row =
+        document.createElement("div");
+      row.className = "commercial-row";
+      const left =
+        document.createElement("div");
+      const title =
+        document.createElement("strong");
+      title.textContent =
+        invoice.invoiceNumber;
+      const meta =
+        document.createElement("small");
+      meta.textContent =
+        `${invoice.periodStart} → ${invoice.periodEnd} · ${invoice.status}`;
+      left.append(title, meta);
+      const amount =
+        document.createElement("strong");
+      amount.textContent =
+        formatMoney(
+          invoice.totalMinor,
+          invoice.currency
+        );
+      row.append(left, amount);
+      invoices.appendChild(row);
+    }
+  }
+
+  const cases =
+    document.querySelector("#billingSupportCases");
+  cases.replaceChildren();
+  const caseRows = payload.supportCases || [];
+  if (!caseRows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No support cases.";
+    cases.appendChild(empty);
+  } else {
+    for (const supportCase of caseRows) {
+      const row =
+        document.createElement("div");
+      row.className = "commercial-row";
+      const left =
+        document.createElement("div");
+      const title =
+        document.createElement("strong");
+      title.textContent =
+        supportCase.subject;
+      const meta =
+        document.createElement("small");
+      meta.textContent =
+        `${supportCase.category} · ${supportCase.priority} · ${supportCase.status}`;
+      left.append(title, meta);
+      const when =
+        document.createElement("small");
+      when.textContent =
+        new Date(
+          supportCase.updatedAt
+        ).toLocaleString();
+
+      const actions =
+        document.createElement("div");
+      actions.className =
+        "commercial-inline-actions";
+      const open =
+        document.createElement("button");
+      open.type = "button";
+      open.className = "text-button";
+      open.textContent = "Open";
+      open.addEventListener(
+        "click",
+        () => openTenantSupportCase(
+          supportCase
+        )
+      );
+      actions.append(when, open);
+      row.append(left, actions);
+      cases.appendChild(row);
+    }
+  }
+
+  const account =
+    accountById(state.billingAccountId);
+  document.querySelector("#supportCaseForm").hidden =
+    !account ||
+    !["owner","admin"].includes(account.role);
+}
+
+async function openTenantSupportCase(
+  supportCase
+) {
+  state.tenantSupportCaseId =
+    supportCase.id;
+  setText(
+    "tenantSupportThreadTitle",
+    supportCase.subject
+  );
+  document.querySelector(
+    "#tenantSupportThread"
+  ).hidden = false;
+
+  const account =
+    accountById(state.billingAccountId);
+  document.querySelector(
+    "#tenantSupportReplyForm"
+  ).hidden =
+    !account ||
+    !["owner", "admin"].includes(
+      account.role
+    );
+
+  await loadTenantSupportMessages();
+}
+
+async function loadTenantSupportMessages() {
+  if (!state.tenantSupportCaseId) return;
+  const list =
+    document.querySelector(
+      "#tenantSupportMessages"
+    );
+  list.replaceChildren();
+
+  try {
+    const payload = await api(
+      `/v1/admin/support-cases/${state.tenantSupportCaseId}/messages`
+    );
+    renderSupportMessages(
+      list,
+      payload.messages || [],
+      { showInternal: false }
+    );
+  } catch (error) {
+    const item =
+      document.createElement("div");
+    item.className = "key-empty";
+    item.textContent =
+      `Could not load conversation: ${error.code}`;
+    list.appendChild(item);
+  }
+}
+
+function renderSupportMessages(
+  target,
+  messages,
+  { showInternal = false } = {}
+) {
+  target.replaceChildren();
+  if (!messages.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No messages yet.";
+    target.appendChild(empty);
+    return;
+  }
+
+  for (const message of messages) {
+    if (
+      !showInternal &&
+      message.internal
+    ) {
+      continue;
+    }
+
+    const row =
+      document.createElement("article");
+    row.className = "support-message";
+
+    const head =
+      document.createElement("div");
+    head.className =
+      "support-message-head";
+    const author =
+      document.createElement("strong");
+    author.textContent =
+      message.authorEmail ||
+      message.authorType ||
+      "GeoLive";
+    const time =
+      document.createElement("small");
+    time.textContent =
+      new Date(
+        message.createdAt
+      ).toLocaleString();
+    head.append(author, time);
+
+    const body =
+      document.createElement("p");
+    body.textContent = message.body;
+
+    row.append(head, body);
+
+    if (
+      showInternal &&
+      message.internal
+    ) {
+      const badge =
+        document.createElement("small");
+      badge.className =
+        "internal-note-badge";
+      badge.textContent =
+        "Internal note";
+      row.appendChild(badge);
+    }
+
+    target.appendChild(row);
+  }
+}
+
+async function openPlatformModal() {
+  if (!state.platformRole) return;
+  document.querySelector("#platformModal").hidden =
+    false;
+  await loadPlatform();
+}
+
+function closePlatformModal() {
+  document.querySelector("#platformModal").hidden =
+    true;
+}
+
+function platformCan(...roles) {
+  return roles.includes(state.platformRole);
+}
+
+function platformMoneySummary(byCurrency, key) {
+  const entries =
+    Object.entries(byCurrency || {});
+  if (!entries.length) return "—";
+  return entries
+    .map(([currency, data]) =>
+      formatMoney(data[key] || 0, currency)
+    )
+    .join(" · ");
+}
+
+async function loadPlatform() {
+  setText("platformError", "");
+  try {
+    const canReadSupport =
+      platformCan("superadmin", "support", "viewer");
+    const [
+      overviewPayload,
+      plansPayload,
+      accountsPayload,
+      supportPayload
+    ] = await Promise.all([
+      api("/v1/platform/overview"),
+      api("/v1/platform/plans"),
+      api("/v1/platform/accounts?limit=200"),
+      canReadSupport
+        ? api("/v1/platform/support-cases?limit=100")
+        : Promise.resolve({ supportCases: [] })
+    ]);
+
+    const selectedAccountId =
+      state.platform.selectedAccountId || "";
+    const selectedSupportCaseId =
+      state.platform.selectedSupportCaseId || "";
+
+    state.platform = {
+      overview: overviewPayload.overview,
+      plans: plansPayload.plans || [],
+      accounts: accountsPayload.accounts || [],
+      supportCases:
+        supportPayload.supportCases || [],
+      selectedAccountId,
+      accountCommercial:
+        state.platform.accountCommercial || null,
+      selectedSupportCaseId
+    };
+    renderPlatform();
+
+    if (
+      selectedAccountId &&
+      state.platform.accounts.some(
+        (account) => account.id === selectedAccountId
+      )
+    ) {
+      await loadPlatformAccount(selectedAccountId);
+    }
+    if (
+      selectedSupportCaseId &&
+      state.platform.supportCases.some(
+        (supportCase) =>
+          supportCase.id === selectedSupportCaseId
+      )
+    ) {
+      await loadPlatformSupportMessages(
+        selectedSupportCaseId
+      );
+    }
+  } catch (error) {
+    setText(
+      "platformError",
+      `Could not load platform console: ${error.code}`
+    );
+  }
+}
+
+function renderPlatform() {
+  const overview = state.platform.overview || {};
+  setText(
+    "platformAccountsCount",
+    compactNumber(overview.accounts)
+  );
+  setText(
+    "platformActiveSubs",
+    compactNumber(
+      overview.subscriptions?.active || 0
+    )
+  );
+  setText(
+    "platformBilled",
+    platformMoneySummary(
+      overview.invoices?.byCurrency,
+      "billedMinor"
+    )
+  );
+  setText(
+    "platformPaid",
+    platformMoneySummary(
+      overview.invoices?.byCurrency,
+      "paidMinor"
+    )
+  );
+  setText(
+    "platformOpenSupport",
+    compactNumber(overview.support?.open || 0)
+  );
+  setText(
+    "platformUrgentSupport",
+    compactNumber(
+      overview.support?.urgent || 0
+    )
+  );
+
+  document.querySelector("#platformPlanForm").hidden =
+    !platformCan("superadmin");
+
+  const plans =
+    document.querySelector("#platformPlans");
+  plans.replaceChildren();
+  for (const plan of state.platform.plans) {
+    const row =
+      document.createElement("div");
+    row.className = "commercial-row";
+    const left =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent =
+      `${plan.name} · ${plan.code}`;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${plan.status} · ${formatMoney(plan.monthlyPriceMinor, plan.currency)} / month · max ${plan.maxProjects} projects`;
+    left.append(title, meta);
+    const usage =
+      document.createElement("small");
+    usage.textContent =
+      `Ingest ${compactNumber(plan.includedIngest)} · Read ${compactNumber(plan.includedRead)} · Users ${compactNumber(plan.includedTrackedUsers)} · Overage I/R/U ${formatMoney(plan.overageIngestPer1000Minor, plan.currency)} / ${formatMoney(plan.overageReadPer1000Minor, plan.currency)} / ${formatMoney(plan.overageTrackedUserMinor, plan.currency)}`;
+    row.append(left, usage);
+    plans.appendChild(row);
+  }
+
+  renderPlatformAccounts();
+  renderPlatformSupport();
+}
+
+function renderPlatformAccounts() {
+  const list =
+    document.querySelector("#platformAccounts");
+  list.replaceChildren();
+
+  for (const account of state.platform.accounts) {
+    const row =
+      document.createElement("div");
+    row.className =
+      "commercial-row commercial-row-stack";
+
+    const identity =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent = account.name;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${account.projectCount} projects · ${account.plan?.name || "No plan"} · ${account.subscriptionStatus || "unassigned"}`;
+    identity.append(title, meta);
+    row.appendChild(identity);
+
+    const details =
+      document.createElement("button");
+    details.type = "button";
+    details.className = "text-button";
+    details.textContent = "Commercial details";
+    details.addEventListener(
+      "click",
+      () => loadPlatformAccount(account.id)
+    );
+    row.appendChild(details);
+
+    if (
+      platformCan("superadmin","billing")
+    ) {
+      const controls =
+        document.createElement("div");
+      controls.className =
+        "commercial-controls";
+
+      const planSelect =
+        document.createElement("select");
+      for (const plan of state.platform.plans) {
+        if (plan.status !== "active") continue;
+        const option =
+          document.createElement("option");
+        option.value = plan.id;
+        option.textContent = plan.name;
+        if (plan.id === account.plan?.id) {
+          option.selected = true;
+        }
+        planSelect.appendChild(option);
+      }
+
+      const statusSelect =
+        document.createElement("select");
+      for (const status of [
+        "trialing",
+        "active",
+        "past_due",
+        "canceled"
+      ]) {
+        const option =
+          document.createElement("option");
+        option.value = status;
+        option.textContent = status;
+        option.selected =
+          status ===
+          (account.subscriptionStatus || "active");
+        statusSelect.appendChild(option);
+      }
+
+      const save =
+        document.createElement("button");
+      save.type = "button";
+      save.className = "text-button";
+      save.textContent = "Save";
+      save.addEventListener(
+        "click",
+        async () => {
+          try {
+            await api(
+              `/v1/platform/accounts/${account.id}/subscription`,
+              {
+                method: "PATCH",
+                mutate: true,
+                body: JSON.stringify({
+                  planId: planSelect.value,
+                  status: statusSelect.value
+                })
+              }
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Subscription update failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      const invoice =
+        document.createElement("button");
+      invoice.type = "button";
+      invoice.className = "text-button";
+      invoice.textContent =
+        "Invoice previous month";
+      invoice.addEventListener(
+        "click",
+        async () => {
+          const period =
+            previousMonthPeriod();
+          try {
+            await api(
+              `/v1/platform/accounts/${account.id}/invoices/generate`,
+              {
+                method: "POST",
+                mutate: true,
+                body: JSON.stringify(period)
+              }
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Invoice generation failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      controls.append(
+        planSelect,
+        statusSelect,
+        save,
+        invoice
+      );
+      row.appendChild(controls);
+    }
+
+    list.appendChild(row);
+  }
+}
+
+async function loadPlatformAccount(
+  accountId
+) {
+  state.platform.selectedAccountId =
+    accountId;
+  setText("platformError", "");
+
+  try {
+    const payload = await api(
+      `/v1/platform/accounts/${accountId}/commercial`
+    );
+    state.platform.accountCommercial =
+      payload;
+    renderPlatformAccountDetail(
+      payload
+    );
+  } catch (error) {
+    setText(
+      "platformError",
+      `Could not load account commercial detail: ${error.code}`
+    );
+  }
+}
+
+function setOverrideControl(
+  id,
+  overrides,
+  key
+) {
+  const element =
+    document.querySelector("#" + id);
+  const has = Object.prototype
+    .hasOwnProperty.call(
+      overrides || {},
+      key
+    );
+  element.value =
+    has
+      ? String(overrides[key])
+      : "";
+}
+
+function invoiceTransitions(status) {
+  const map = {
+    draft: ["draft", "open", "void"],
+    open: [
+      "open",
+      "paid",
+      "void",
+      "uncollectible"
+    ],
+    uncollectible: [
+      "uncollectible",
+      "paid",
+      "void"
+    ],
+    paid: ["paid"],
+    void: ["void"]
+  };
+  return map[status] || [status];
+}
+
+function renderPlatformAccountDetail(payload) {
+  const panel =
+    document.querySelector(
+      "#platformAccountDetail"
+    );
+  panel.hidden = false;
+
+  const account =
+    state.platform.accounts.find(
+      (item) =>
+        item.id ===
+        state.platform.selectedAccountId
+    );
+  const plan = payload.plan || {};
+  const subscription =
+    payload.subscription || {};
+  const usage =
+    payload.usage?.metrics || {};
+  const overrides =
+    payload.overrides || {};
+
+  setText(
+    "platformAccountDetailTitle",
+    account
+      ? `${account.name} · Commercial detail`
+      : "Account commercial detail"
+  );
+  setText(
+    "platformAccountPlan",
+    plan.name || "—"
+  );
+  setText(
+    "platformAccountPlanPrice",
+    formatMoney(
+      plan.monthlyPriceMinor || 0,
+      plan.currency || "USD"
+    ) + " / month"
+  );
+  setText(
+    "platformAccountSubscription",
+    subscription.status || "—"
+  );
+  setText(
+    "platformAccountPeriod",
+    subscription.periodStart &&
+      subscription.periodEnd
+      ? `${subscription.periodStart} → ${subscription.periodEnd}`
+      : "—"
+  );
+  setText(
+    "platformAccountUsage",
+    `${compactNumber(usage.ingestRequests)} · ${compactNumber(usage.readRequests)} · ${compactNumber(usage.trackedUsers)}`
+  );
+
+  const entitlementForm =
+    document.querySelector(
+      "#platformEntitlementForm"
+    );
+  entitlementForm.hidden =
+    !platformCan("superadmin");
+
+  setOverrideControl(
+    "entitlementMaxProjects",
+    overrides,
+    "maxProjects"
+  );
+  setOverrideControl(
+    "entitlementIngest",
+    overrides,
+    "includedIngest"
+  );
+  setOverrideControl(
+    "entitlementRead",
+    overrides,
+    "includedRead"
+  );
+  setOverrideControl(
+    "entitlementUsers",
+    overrides,
+    "includedTrackedUsers"
+  );
+  setOverrideControl(
+    "entitlementRealtime",
+    overrides,
+    "realtime"
+  );
+  setOverrideControl(
+    "entitlementClientTokens",
+    overrides,
+    "clientTokens"
+  );
+  setOverrideControl(
+    "entitlementAttestation",
+    overrides,
+    "androidAttestation"
+  );
+  setOverrideControl(
+    "entitlementPrioritySupport",
+    overrides,
+    "prioritySupport"
+  );
+
+  const invoices =
+    document.querySelector(
+      "#platformAccountInvoices"
+    );
+  invoices.replaceChildren();
+
+  const rows = payload.invoices || [];
+  if (!rows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "No invoices for this account.";
+    invoices.appendChild(empty);
+    return;
+  }
+
+  for (const invoice of rows) {
+    const row =
+      document.createElement("div");
+    row.className =
+      "commercial-row commercial-row-stack";
+
+    const identity =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent =
+      `${invoice.invoiceNumber} · ${formatMoney(invoice.totalMinor, invoice.currency)}`;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${invoice.periodStart} → ${invoice.periodEnd} · ${invoice.status}`;
+    identity.append(title, meta);
+    row.appendChild(identity);
+
+    if (
+      platformCan(
+        "superadmin",
+        "billing"
+      )
+    ) {
+      const controls =
+        document.createElement("div");
+      controls.className =
+        "commercial-inline-actions";
+
+      const select =
+        document.createElement("select");
+      for (
+        const status of
+        invoiceTransitions(
+          invoice.status
+        )
+      ) {
+        const option =
+          document.createElement(
+            "option"
+          );
+        option.value = status;
+        option.textContent = status;
+        option.selected =
+          status === invoice.status;
+        select.appendChild(option);
+      }
+
+      const save =
+        document.createElement("button");
+      save.type = "button";
+      save.className =
+        "text-button";
+      save.textContent =
+        "Update status";
+      save.disabled =
+        ["paid", "void"].includes(
+          invoice.status
+        );
+      save.addEventListener(
+        "click",
+        async () => {
+          try {
+            await api(
+              `/v1/platform/invoices/${invoice.id}`,
+              {
+                method: "PATCH",
+                mutate: true,
+                body: JSON.stringify({
+                  status: select.value
+                })
+              }
+            );
+            await loadPlatformAccount(
+              state.platform
+                .selectedAccountId
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Invoice update failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      controls.append(
+        select,
+        save
+      );
+      row.appendChild(controls);
+    }
+
+    invoices.appendChild(row);
+  }
+}
+
+function renderPlatformSupport() {
+  const list =
+    document.querySelector("#platformSupport");
+  list.replaceChildren();
+
+  const rows = state.platform.supportCases || [];
+  if (!rows.length) {
+    const empty =
+      document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent =
+      "Support queue is empty.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const supportCase of rows) {
+    const row =
+      document.createElement("div");
+    row.className =
+      "commercial-row commercial-row-stack";
+
+    const identity =
+      document.createElement("div");
+    const title =
+      document.createElement("strong");
+    title.textContent =
+      `${supportCase.accountName || "Account"} · ${supportCase.subject}`;
+    const meta =
+      document.createElement("small");
+    meta.textContent =
+      `${supportCase.category} · ${supportCase.priority} · ${supportCase.status}`;
+    identity.append(title, meta);
+    row.appendChild(identity);
+
+    const open =
+      document.createElement("button");
+    open.type = "button";
+    open.className = "text-button";
+    open.textContent = "Open conversation";
+    open.addEventListener(
+      "click",
+      () => openPlatformSupportCase(
+        supportCase
+      )
+    );
+    row.appendChild(open);
+
+    if (
+      platformCan("superadmin","support")
+    ) {
+      const controls =
+        document.createElement("div");
+      controls.className =
+        "commercial-controls";
+
+      const status =
+        document.createElement("select");
+      for (const value of [
+        "open",
+        "pending_customer",
+        "pending_internal",
+        "resolved",
+        "closed"
+      ]) {
+        const option =
+          document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        option.selected =
+          value === supportCase.status;
+        status.appendChild(option);
+      }
+
+      const priority =
+        document.createElement("select");
+      for (const value of [
+        "low",
+        "normal",
+        "high",
+        "urgent"
+      ]) {
+        const option =
+          document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        option.selected =
+          value === supportCase.priority;
+        priority.appendChild(option);
+      }
+
+      const save =
+        document.createElement("button");
+      save.type = "button";
+      save.className = "text-button";
+      save.textContent = "Update";
+      save.addEventListener(
+        "click",
+        async () => {
+          try {
+            await api(
+              `/v1/platform/support-cases/${supportCase.id}`,
+              {
+                method: "PATCH",
+                mutate: true,
+                body: JSON.stringify({
+                  status: status.value,
+                  priority: priority.value
+                })
+              }
+            );
+            await loadPlatform();
+          } catch (error) {
+            setText(
+              "platformError",
+              `Support update failed: ${error.code}`
+            );
+          }
+        }
+      );
+
+      controls.append(
+        status,
+        priority,
+        save
+      );
+      row.appendChild(controls);
+    }
+
+    list.appendChild(row);
+  }
+}
+
+async function openPlatformSupportCase(
+  supportCase
+) {
+  state.platform.selectedSupportCaseId =
+    supportCase.id;
+  setText(
+    "platformSupportThreadTitle",
+    `${supportCase.accountName || "Account"} · ${supportCase.subject}`
+  );
+  document.querySelector(
+    "#platformSupportThread"
+  ).hidden = false;
+  document.querySelector(
+    "#platformSupportReplyForm"
+  ).hidden =
+    !platformCan(
+      "superadmin",
+      "support"
+    );
+
+  await loadPlatformSupportMessages(
+    supportCase.id
+  );
+}
+
+async function loadPlatformSupportMessages(
+  caseId =
+    state.platform.selectedSupportCaseId
+) {
+  if (!caseId) return;
+
+  const list =
+    document.querySelector(
+      "#platformSupportMessages"
+    );
+  list.replaceChildren();
+
+  try {
+    const payload = await api(
+      `/v1/platform/support-cases/${caseId}/messages`
+    );
+    renderSupportMessages(
+      list,
+      payload.messages || [],
+      { showInternal: true }
+    );
+  } catch (error) {
+    const item =
+      document.createElement("div");
+    item.className = "key-empty";
+    item.textContent =
+      `Could not load conversation: ${error.code}`;
+    list.appendChild(item);
+  }
+}
+
+function nullableNumberValue(id) {
+  const value =
+    document.querySelector("#" + id)
+      .value.trim();
+  return value === ""
+    ? null
+    : Number(value);
+}
+
+function nullableBooleanValue(id) {
+  const value =
+    document.querySelector("#" + id)
+      .value;
+  if (value === "") return null;
+  return value === "true";
+}
+
+document.querySelector("#billingModalClose").addEventListener(
+  "click",
+  closeBillingModal
+);
+document.querySelector("#billingAccount").addEventListener(
+  "change",
+  async (event) => {
+    state.billingAccountId = event.target.value;
+    await loadBilling();
+  }
+);
+document.querySelector("#tenantSupportThreadClose").addEventListener(
+  "click",
+  () => {
+    state.tenantSupportCaseId = "";
+    document.querySelector(
+      "#tenantSupportThread"
+    ).hidden = true;
+  }
+);
+
+document.querySelector("#tenantSupportReplyForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (!state.tenantSupportCaseId) return;
+
+    const account =
+      accountById(state.billingAccountId);
+    if (
+      !account ||
+      !["owner", "admin"].includes(
+        account.role
+      )
+    ) {
+      return;
+    }
+
+    const button =
+      document.querySelector(
+        "#tenantSupportReplyButton"
+      );
+    button.disabled = true;
+
+    try {
+      await api(
+        `/v1/admin/support-cases/${state.tenantSupportCaseId}/messages`,
+        {
+          method: "POST",
+          mutate: true,
+          body: JSON.stringify({
+            body:
+              document.querySelector(
+                "#tenantSupportReplyBody"
+              ).value.trim()
+          })
+        }
+      );
+      document.querySelector(
+        "#tenantSupportReplyBody"
+      ).value = "";
+      await loadTenantSupportMessages();
+      await loadBilling();
+    } catch (error) {
+      setText(
+        "billingError",
+        `Could not send reply: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+document.querySelector("#supportCaseForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    const accountId = state.billingAccountId;
+    if (!accountId || !canWriteAccount(accountById(accountId))) {
+      return;
+    }
+
+    const button =
+      document.querySelector("#createSupportCase");
+    button.disabled = true;
+    setText("billingError", "");
+
+    try {
+      const project = projectById();
+      await api(
+        `/v1/admin/accounts/${accountId}/support-cases`,
+        {
+          method: "POST",
+          mutate: true,
+          body: JSON.stringify({
+            category:
+              document.querySelector("#supportCategory").value,
+            priority:
+              document.querySelector("#supportPriority").value,
+            subject:
+              document.querySelector("#supportSubject").value.trim(),
+            body:
+              document.querySelector("#supportBody").value.trim(),
+            projectId:
+              project?.accountId === accountId
+                ? project.id
+                : null
+          })
+        }
+      );
+      document.querySelector("#supportSubject").value = "";
+      document.querySelector("#supportBody").value = "";
+      await loadBilling();
+    } catch (error) {
+      setText(
+        "billingError",
+        `Could not create support case: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+document.querySelector("#platformModalClose").addEventListener(
+  "click",
+  closePlatformModal
+);
+document.querySelector("#refreshPlatform").addEventListener(
+  "click",
+  loadPlatform
+);
+document.querySelector("#platformAccountDetailClose").addEventListener(
+  "click",
+  () => {
+    state.platform.selectedAccountId = "";
+    state.platform.accountCommercial = null;
+    document.querySelector(
+      "#platformAccountDetail"
+    ).hidden = true;
+  }
+);
+
+document.querySelector("#platformEntitlementForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (
+      !platformCan("superadmin") ||
+      !state.platform.selectedAccountId
+    ) {
+      return;
+    }
+
+    const button =
+      document.querySelector(
+        "#saveEntitlements"
+      );
+    button.disabled = true;
+    setText("platformError", "");
+
+    try {
+      await api(
+        `/v1/platform/accounts/${state.platform.selectedAccountId}/entitlements`,
+        {
+          method: "PATCH",
+          mutate: true,
+          body: JSON.stringify({
+            maxProjects:
+              nullableNumberValue(
+                "entitlementMaxProjects"
+              ),
+            includedIngest:
+              nullableNumberValue(
+                "entitlementIngest"
+              ),
+            includedRead:
+              nullableNumberValue(
+                "entitlementRead"
+              ),
+            includedTrackedUsers:
+              nullableNumberValue(
+                "entitlementUsers"
+              ),
+            realtime:
+              nullableBooleanValue(
+                "entitlementRealtime"
+              ),
+            clientTokens:
+              nullableBooleanValue(
+                "entitlementClientTokens"
+              ),
+            androidAttestation:
+              nullableBooleanValue(
+                "entitlementAttestation"
+              ),
+            prioritySupport:
+              nullableBooleanValue(
+                "entitlementPrioritySupport"
+              )
+          })
+        }
+      );
+      await loadPlatformAccount(
+        state.platform.selectedAccountId
+      );
+      await loadPlatform();
+    } catch (error) {
+      setText(
+        "platformError",
+        `Could not save entitlement overrides: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+document.querySelector("#platformSupportThreadClose").addEventListener(
+  "click",
+  () => {
+    state.platform.selectedSupportCaseId = "";
+    document.querySelector(
+      "#platformSupportThread"
+    ).hidden = true;
+  }
+);
+
+document.querySelector("#platformSupportReplyForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (
+      !platformCan(
+        "superadmin",
+        "support"
+      ) ||
+      !state.platform.selectedSupportCaseId
+    ) {
+      return;
+    }
+
+    const button =
+      document.querySelector(
+        "#platformSupportReplyButton"
+      );
+    button.disabled = true;
+    setText("platformError", "");
+
+    try {
+      await api(
+        `/v1/platform/support-cases/${state.platform.selectedSupportCaseId}/messages`,
+        {
+          method: "POST",
+          mutate: true,
+          body: JSON.stringify({
+            body:
+              document.querySelector(
+                "#platformSupportReplyBody"
+              ).value.trim(),
+            internal:
+              document.querySelector(
+                "#platformSupportInternal"
+              ).checked
+          })
+        }
+      );
+      document.querySelector(
+        "#platformSupportReplyBody"
+      ).value = "";
+      document.querySelector(
+        "#platformSupportInternal"
+      ).checked = false;
+      await loadPlatformSupportMessages();
+      await loadPlatform();
+    } catch (error) {
+      setText(
+        "platformError",
+        `Could not send support message: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+
+document.querySelector("#platformPlanForm").addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    if (!platformCan("superadmin")) return;
+
+    try {
+      await api("/v1/platform/plans", {
+        method: "POST",
+        mutate: true,
+        body: JSON.stringify({
+          code:
+            document.querySelector("#platformPlanCode").value.trim(),
+          name:
+            document.querySelector("#platformPlanName").value.trim(),
+          currency:
+            document.querySelector("#platformPlanCurrency").value.trim().toUpperCase(),
+          monthlyPriceMinor:
+            Number(document.querySelector("#platformPlanPrice").value),
+          includedIngest:
+            Number(document.querySelector("#platformPlanIngest").value),
+          includedRead:
+            Number(document.querySelector("#platformPlanRead").value),
+          includedTrackedUsers:
+            Number(document.querySelector("#platformPlanUsers").value),
+          maxProjects:
+            Number(document.querySelector("#platformPlanProjects").value),
+          overageIngestPer1000Minor:
+            Number(document.querySelector("#platformPlanIngestOverage").value),
+          overageReadPer1000Minor:
+            Number(document.querySelector("#platformPlanReadOverage").value),
+          overageTrackedUserMinor:
+            Number(document.querySelector("#platformPlanUserOverage").value),
+          features: {
+            realtime:
+              document.querySelector("#platformFeatureRealtime").checked,
+            clientTokens:
+              document.querySelector("#platformFeatureClientTokens").checked,
+            androidAttestation:
+              document.querySelector("#platformFeatureAttestation").checked,
+            prioritySupport:
+              document.querySelector("#platformFeaturePrioritySupport").checked
+          }
+        })
+      });
+      document.querySelector("#platformPlanCode").value = "";
+      document.querySelector("#platformPlanName").value = "";
+      await loadPlatform();
+    } catch (error) {
+      setText(
+        "platformError",
+        `Could not create plan: ${error.code}`
+      );
+    }
+  }
+);
 
 document.querySelector("#limitsForm").addEventListener("submit", async (event) => {
   event.preventDefault();

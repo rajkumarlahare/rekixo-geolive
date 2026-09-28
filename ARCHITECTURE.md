@@ -1,6 +1,6 @@
 # Rekixo GeoLive Architecture Contract
 
-Status: **P2 CLIENT SECURITY FOUNDATION**
+Status: **P3 COMMERCIAL FOUNDATION**
 
 ## Product boundary
 
@@ -13,111 +13,99 @@ No sibling repository must share a database, deployment, secret or source tree w
 ```text
 Account
   -> Membership (owner/admin/viewer)
+  -> Subscription -> Commercial Plan
+  -> Entitlement Overrides
+  -> Billing Usage Periods
+  -> Invoices -> Invoice Items
+  -> Support Cases -> Messages
   -> Project
       -> Integration API Keys
           -> tokens:issue issuer key
       -> Client Security Policy
-      -> client exchange nonces
-      -> client request nonces
+      -> client exchange/request nonces
       -> Users
       -> live_user_state
       -> location_history
       -> realtime_events
       -> usage/security operational data
+
+Admin User
+  -> optional Platform Role
+     superadmin | billing | support | viewer
 ```
 
-## P2 trust split
+Tenant account roles and GeoLive platform roles are separate authorization planes.
+
+## P2 client trust split
 
 Long-lived secrets stay on trusted infrastructure.
 
-```text
-User/App
-   -> product backend authenticates its own user
-   -> product backend calls GeoLive token exchange
-        Authorization: trusted tokens:issue key
+A product backend authenticates its own user, exchanges a database-backed `tokens:issue` key for a short-lived `rgl_client_...` token, and the client signs location writes with its proof key when required.
 
-GeoLive
-   -> verifies package/origin/policy
-   -> optionally verifies Play Integrity
-   -> issues short-lived rgl_client_ token
-      bound to project + user + package + platform + proof key
+GeoLive does not need direct access to the product's user database.
 
-User/App
-   -> signs each location request with P-256 proof key
-   -> POST /v1/locations
-        Bearer rgl_client_...
-        timestamp + nonce + signature
-```
+## P3 commercial model
 
-GeoLive never needs direct access to the product's user database. The product backend decides which authenticated product user may request a GeoLive client token.
+Commercial state is owned by the GeoLive account, not by individual projects.
 
-## Client token signing
+A commercial plan contains reusable price/allowance/feature defaults. `account_subscriptions` selects the plan and period/status. `account_entitlement_overrides` changes only explicitly overridden effective values.
 
-Client tokens use a server-side signing key ring.
+Existing accounts migrate onto a generous `legacy` plan. A database trigger also assigns that plan to newly-created accounts, avoiding accidental breakage before commercial onboarding.
 
-- first configured key signs;
-- all configured keys verify;
-- `kid` selects the verification key;
-- each token has an opaque UUID `jti`;
-- token lifetime is capped at one hour.
+### Entitlement enforcement
 
-The token records the database issuer API-key ID. Authentication rechecks that issuer in PostgreSQL, so issuer revocation propagates to active short-lived tokens.
+P3 currently enforces:
 
-## Proof-of-possession
+- maximum active/non-deleted projects at project creation;
+- `realtime` for public integration SSE/WebSocket readers;
+- `clientTokens` before P2 short-lived token exchange;
+- `androidAttestation` when Android attestation is supplied.
 
-A short-lived token may be bound to an EC P-256 SubjectPublicKeyInfo public key.
+Existing trusted long-lived location ingestion remains compatible. Subscription rollout does not silently disable existing legacy integrations.
 
-The exact raw location JSON is SHA-256 hashed into the request canonical string. The server verifies the ECDSA signature and then atomically consumes a per-token request nonce.
+## Metering and invoice boundary
 
-Timestamp freshness plus nonce uniqueness prevents accepted requests from being replayed inside or outside the ordinary request path.
+Operational usage remains the source of truth. P3 snapshots account usage into `billing_usage_periods` for a calendar period.
 
-## Android attestation
+The authoritative billable metering model currently includes:
 
-Android Play Integrity is a project policy, not a global forced dependency.
+- ingest requests from the long-retained daily usage counter;
+- read requests from the long-retained daily usage counter;
+- distinct tracked users from a dedicated daily billing meter.
 
-The client obtains a standard Integrity token using a requestHash supplied by the GeoLive exchange binding. A trusted backend forwards that token to the GeoLive exchange endpoint.
+Tracked-user membership is written transactionally by a PostgreSQL trigger when location history is inserted, so normal location-history/realtime retention does not erase the billing basis. The migration backfills the current calendar month on rollout.
 
-GeoLive uses a Google service account to decode the token, then checks package, requestHash, timestamp, app recognition, configured device verdicts and optional licensing verdict.
+Finalized usage snapshots are immutable from later rollups.
 
-Projects can migrate gradually:
+Invoice generation uses the effective entitlement allowances plus the plan's prices. The invoice ledger is provider-neutral; no external card/bank charge is performed by P3.
 
-```text
-off -> optional -> required
-```
+Revenue summaries are grouped by currency. GeoLive does not add USD, INR or other currencies into a single meaningless total.
+
+## Platform control plane
+
+The existing secure admin session is reused, but cross-account access requires a separate row in `platform_roles`.
+
+- `superadmin`: plans, entitlements, subscriptions, invoices, support.
+- `billing`: subscription and invoice operations plus read access.
+- `support`: support queue/update/replies plus read access.
+- `viewer`: cross-account read-only commercial/support views.
+
+Platform role assignment is an explicit CLI/bootstrap operation.
+
+## Support isolation
+
+Tenant support routes first resolve account membership. Tenant message reads exclude `internal=true` messages.
+
+Platform support roles can read internal notes and update status/priority/assignment.
 
 ## Durable location write path
 
-After client authentication/proof succeeds, the existing P1D ingest controls run. For PostgreSQL persistence, an accepted update transaction writes:
+After client authentication/proof and applicable feature entitlement checks succeed, the existing ingest controls run. PostgreSQL writes user identity, latest live state, append-only location history and durable realtime event.
 
-1. user identity/upsert;
-2. latest live state;
-3. append-only location history;
-4. durable realtime event.
-
-The P1E realtime and Redis fanout model remains unchanged.
-
-## Client-security persistence
-
-PostgreSQL stores only policy and replay-control state:
-
-- `project_client_security`
-- hashed `client_exchange_nonces`
-- hashed `client_request_nonces`
-
-Expired nonce records are removed by the bounded retention worker.
-
-## SDK boundary
-
-GeoLive SDK adapters accept either legacy/static ingest credentials or a token provider. Request proof is supplied through platform-specific proof callbacks/helpers, so client apps can keep private-key operations in their platform keystore/security layer.
-
-Android includes the exact GeoLive requestHash/canonical helpers needed to bind Play Integrity and request proof without making Play libraries mandatory for every project.
-
-## Compatibility
-
-Database-backed long-lived keys remain available for trusted integrations. Client-token security is additive.
-
-SSE and P1E WebSocket read paths remain independent of the P2 ingest-token flow.
+P1E realtime and Redis fanout remain independent from the commercial data model.
 
 ## Next boundary
 
-The next roadmap layer is commercial operations: plans, entitlements, billable usage, invoices/support and super-admin controls.
+The next major product layer is advanced geospatial capability: movement history, heatmaps, geofences, alerts and webhooks.
+
+External payment collection, tax calculation, refunds/credits and customer checkout are deliberately left for a future payment-provider layer.
