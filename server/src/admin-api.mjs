@@ -28,6 +28,10 @@ import {
   validateInvoiceGenerate,
   validateInvoicePatch
 } from "./commercial-validation.mjs";
+import {
+  parseHeatmapQuery,
+  parseMovementHistoryQuery
+} from "./geospatial-validation.mjs";
 
 const COOKIE_NAME = "geolive_admin_session";
 
@@ -1244,7 +1248,7 @@ export async function handleAdminApi({
     }
 
     const projectMatch = url.pathname.match(
-      /^\/v1\/admin\/projects\/([0-9a-f-]{36})(?:\/(users|summary|clusters))?$/
+      /^\/v1\/admin\/projects\/([0-9a-f-]{36})(?:\/(users|summary|clusters|history|heatmap))?$/
     );
 
     if (projectMatch) {
@@ -1281,6 +1285,113 @@ export async function handleAdminApi({
                 nextCursor: null
               };
         sendJson(res, 200, { projectId, ...page });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource === "history"
+      ) {
+        await adminStore
+          .authorizeProject(
+            session.user.id,
+            projectId
+          );
+
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              projectId,
+              "movementHistory"
+            );
+        }
+
+        if (
+          typeof geoStore
+            .listMovementHistoryPage !==
+          "function"
+        ) {
+          sendJson(res, 501, {
+            error:
+              "movement_history_unavailable"
+          });
+          return true;
+        }
+
+        const query =
+          parseMovementHistoryQuery(
+            url.searchParams
+          );
+        const page =
+          await geoStore
+            .listMovementHistoryPage(
+              projectId,
+              query
+            );
+        sendJson(res, 200, {
+          projectId,
+          userId: query.userId,
+          window: {
+            from: query.from,
+            to: query.to
+          },
+          ...page
+        });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource === "heatmap"
+      ) {
+        await adminStore
+          .authorizeProject(
+            session.user.id,
+            projectId
+          );
+
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              projectId,
+              "heatmap"
+            );
+        }
+
+        if (
+          typeof geoStore
+            .heatmapHistory !==
+          "function"
+        ) {
+          sendJson(res, 501, {
+            error:
+              "heatmap_unavailable"
+          });
+          return true;
+        }
+
+        const query =
+          parseHeatmapQuery(
+            url.searchParams
+          );
+        const cells =
+          await geoStore
+            .heatmapHistory(
+              projectId,
+              query
+            );
+        sendJson(res, 200, {
+          projectId,
+          window: {
+            from: query.from,
+            to: query.to
+          },
+          gridDegrees:
+            query.gridDegrees,
+          userId:
+            query.userId || null,
+          cells
+        });
         return true;
       }
 
