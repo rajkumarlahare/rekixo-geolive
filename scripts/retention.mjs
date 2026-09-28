@@ -21,6 +21,7 @@ try {
     historyDeleted: 0,
     securityEventsDeleted: 0,
     metricsDeleted: 0,
+    realtimeEventsDeleted: 0,
     rateCountersDeleted: 0,
     sessionsDeleted: 0
   };
@@ -33,6 +34,7 @@ try {
       "historyDeleted",
       "securityEventsDeleted",
       "metricsDeleted",
+      "realtimeEventsDeleted",
       "rateCountersDeleted",
       "sessionsDeleted"
     ]) {
@@ -42,7 +44,8 @@ try {
     if (
       result.historyDeleted < batchSize &&
       result.securityEventsDeleted < batchSize &&
-      result.metricsDeleted < batchSize
+      result.metricsDeleted < batchSize &&
+      result.realtimeEventsDeleted < batchSize
     ) {
       break;
     }
