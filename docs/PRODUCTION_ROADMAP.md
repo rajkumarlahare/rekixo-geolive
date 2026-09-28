@@ -84,7 +84,7 @@
 - commercial plan catalog
 - account subscriptions with backward-compatible legacy plan
 - account-level entitlement overrides
-- project-count and client-security feature entitlement enforcement
+- project-count plus realtime/client-security feature entitlement enforcement
 - calendar-period billable usage snapshots
 - frozen finalized usage periods
 - provider-neutral invoice ledger and line items
