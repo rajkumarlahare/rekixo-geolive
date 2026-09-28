@@ -2,8 +2,12 @@ name: GeoLive CI
 
 on:
   push:
-    branches: [main, "build/**"]
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: geolive-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

@@ -594,15 +594,19 @@ export async function handleAdminApi({
         platformAccountCommercial &&
         req.method === "GET"
       ) {
-        await commercialStore.requirePlatformRole(
-          session.user.id,
-          anyPlatformRole
-        );
+        const platformRole =
+          await commercialStore.requirePlatformRole(
+            session.user.id,
+            anyPlatformRole
+          );
         const commercial =
           await commercialStore
             .accountCommercialOverview(
               platformAccountCommercial[1]
             );
+        if (platformRole === "billing") {
+          delete commercial.supportCases;
+        }
         sendJson(res, 200, {
           accountId:
             platformAccountCommercial[1],

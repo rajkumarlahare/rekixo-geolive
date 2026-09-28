@@ -47,10 +47,10 @@ P3 adds a separate `platform_roles` authorization plane. Tenant account membersh
 
 Platform roles are:
 
-- `superadmin`
-- `billing`
-- `support`
-- `viewer`
+- `superadmin`: full commercial/support administration;
+- `billing`: subscriptions and invoices, without support metadata access;
+- `support`: support queue, replies and internal notes;
+- `viewer`: cross-account read-only commercial/support visibility.
 
 Sensitive plan, entitlement, subscription, invoice and support mutations are audited.
 
@@ -91,3 +91,8 @@ Location history, realtime replay events, P2 replay nonces, security events and 
 ## Compatibility
 
 Existing trusted `location:write` integrations continue to work. P2/P3 are additive, and the legacy plan preserves pre-commercial accounts.
+
+
+### Entitlement override reset
+
+A platform super-admin may send `null` for a supported entitlement override. GeoLive deletes that override row and restores inheritance from the account's plan. This is different from setting a boolean feature to `false` or a numeric allowance to `0`.
