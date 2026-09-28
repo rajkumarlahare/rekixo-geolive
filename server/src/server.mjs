@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.mjs";
 import { authenticate, originAllowed } from "./auth.mjs";
 import { MemoryGeoLiveStore } from "./store-memory.mjs";
+import { createConfiguredStore } from "./store-factory.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -72,7 +73,10 @@ async function serveDashboard(res, pathname) {
   }
 }
 
-export function createGeoLiveServer({ config = loadConfig(), store = new MemoryGeoLiveStore() } = {}) {
+export function createGeoLiveServer({
+  config = loadConfig(),
+  store = new MemoryGeoLiveStore()
+} = {}) {
   const eventClients = new Map();
 
   function publish(projectId, payload) {
@@ -100,16 +104,26 @@ export function createGeoLiveServer({ config = loadConfig(), store = new MemoryG
       }
 
       if (req.method === "GET" && url.pathname === "/health") {
-        return json(res, 200, { ok: true, service: "rekixo-geolive", version: "0.1.0" });
+        return json(res, 200, {
+          ok: true,
+          service: "rekixo-geolive",
+          version: "0.2.0"
+        });
       }
 
       if (req.method === "GET" && url.pathname === "/ready") {
-        const durableReady = process.env.GEOLIVE_PERSISTENCE_READY === "true";
-        const ready = config.keys.length > 0 && (!config.isProduction || durableReady);
+        const persistenceReady = typeof store.ready === "function"
+          ? await store.ready()
+          : true;
+        const ready = config.keys.length > 0
+          && persistenceReady
+          && (!config.isProduction || config.persistence === "postgres");
+
         return json(res, ready ? 200 : 503, {
           ready,
           credentialCount: config.keys.length,
-          persistence: config.isProduction ? (durableReady ? "durable" : "not-configured") : "memory"
+          persistence: config.persistence,
+          persistenceReady
         });
       }
 
@@ -117,20 +131,31 @@ export function createGeoLiveServer({ config = loadConfig(), store = new MemoryG
         const auth = authenticate(req, config.keys, "location:write");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
         const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) return json(res, 403, { error: "origin_not_allowed" });
+        if (origin && !headers["access-control-allow-origin"]) {
+          return json(res, 403, { error: "origin_not_allowed" });
+        }
 
         const input = validateLocation(await readJson(req));
         const receivedAt = new Date().toISOString();
-        const record = await store.upsertLocation(auth.key.projectId, { ...input, receivedAt });
+        const record = await store.upsertLocation(auth.key.projectId, {
+          ...input,
+          receivedAt
+        });
         publish(auth.key.projectId, { type: "location", user: record });
-        return json(res, 202, { accepted: true, userId: record.userId, receivedAt }, headers);
+        return json(res, 202, {
+          accepted: true,
+          userId: record.userId,
+          receivedAt
+        }, headers);
       }
 
       if (req.method === "GET" && url.pathname === "/v1/users") {
         const auth = authenticate(req, config.keys, "users:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
         const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) return json(res, 403, { error: "origin_not_allowed" });
+        if (origin && !headers["access-control-allow-origin"]) {
+          return json(res, 403, { error: "origin_not_allowed" });
+        }
 
         const users = await store.listUsers(auth.key.projectId, {
           search: url.searchParams.get("search") || "",
@@ -141,23 +166,34 @@ export function createGeoLiveServer({ config = loadConfig(), store = new MemoryG
           limit: url.searchParams.get("limit") || 500,
           thresholds: config.thresholds
         });
-        return json(res, 200, { projectId: auth.key.projectId, users }, headers);
+        return json(res, 200, {
+          projectId: auth.key.projectId,
+          users
+        }, headers);
       }
 
       if (req.method === "GET" && url.pathname === "/v1/summary") {
         const auth = authenticate(req, config.keys, "summary:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
         const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) return json(res, 403, { error: "origin_not_allowed" });
+        if (origin && !headers["access-control-allow-origin"]) {
+          return json(res, 403, { error: "origin_not_allowed" });
+        }
+
         const summary = await store.summary(auth.key.projectId, config.thresholds);
-        return json(res, 200, { projectId: auth.key.projectId, ...summary }, headers);
+        return json(res, 200, {
+          projectId: auth.key.projectId,
+          ...summary
+        }, headers);
       }
 
       if (req.method === "GET" && url.pathname === "/v1/events") {
         const auth = authenticate(req, config.keys, "events:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
         const headers = corsHeaders(origin, config, auth.key);
-        if (origin && !headers["access-control-allow-origin"]) return json(res, 403, { error: "origin_not_allowed" });
+        if (origin && !headers["access-control-allow-origin"]) {
+          return json(res, 403, { error: "origin_not_allowed" });
+        }
 
         res.writeHead(200, {
           ...headers,
@@ -185,17 +221,49 @@ export function createGeoLiveServer({ config = loadConfig(), store = new MemoryG
 
       return json(res, 404, { error: "not_found" });
     } catch (error) {
-      if (error instanceof InputError) return json(res, 400, { error: error.code });
+      if (error instanceof InputError) {
+        return json(res, 400, { error: error.code });
+      }
       console.error("GeoLive request failed", error);
       return json(res, 500, { error: "internal_error" });
     }
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+async function start() {
   const config = loadConfig();
-  const server = createGeoLiveServer({ config });
+  const store = await createConfiguredStore(config);
+
+  if (config.persistence === "postgres" && typeof store.assertReady === "function") {
+    await store.assertReady();
+  }
+
+  const server = createGeoLiveServer({ config, store });
   server.listen(config.port, () => {
-    console.log(`Rekixo GeoLive listening on http://localhost:${config.port}`);
+    console.log(
+      `Rekixo GeoLive listening on http://localhost:${config.port} (${config.persistence})`
+    );
+  });
+
+  async function shutdown(signal) {
+    console.log(`GeoLive received ${signal}; shutting down.`);
+    server.close(async () => {
+      try {
+        if (typeof store.close === "function") await store.close();
+      } finally {
+        process.exit(0);
+      }
+    });
+    setTimeout(() => process.exit(1), 10000).unref();
+  }
+
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => shutdown("SIGINT"));
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  start().catch((error) => {
+    console.error("GeoLive failed to start", error);
+    process.exit(1);
   });
 }

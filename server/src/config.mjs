@@ -67,11 +67,28 @@ export function loadConfig(env = process.env) {
     ...keys.flatMap((key) => key.allowedOrigins)
   ])];
 
+  const persistence = String(
+    env.GEOLIVE_PERSISTENCE || (env.DATABASE_URL ? "postgres" : "memory")
+  ).toLowerCase();
+
+  if (!["memory", "postgres"].includes(persistence)) {
+    throw new Error("GEOLIVE_PERSISTENCE must be memory or postgres.");
+  }
+  if (persistence === "postgres" && !env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required for postgres persistence.");
+  }
+
   return {
     port: Number(env.PORT || 8787),
     isProduction,
     allowedOrigins,
     keys,
+    persistence,
+    database: {
+      url: env.DATABASE_URL || "",
+      sslMode: env.DATABASE_SSL || (isProduction ? "verify-full" : "disable"),
+      maxPoolSize: Math.min(Math.max(Number(env.DATABASE_POOL_MAX || 10), 1), 50)
+    },
     thresholds: {
       onlineSeconds: Number(env.GEOLIVE_ONLINE_SECONDS || 120),
       recentSeconds: Number(env.GEOLIVE_RECENT_SECONDS || 900),

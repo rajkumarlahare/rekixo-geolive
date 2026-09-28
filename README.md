@@ -6,72 +6,91 @@ The core boundary is:
 
 > Projects integrate with GeoLive through a stable API/SDK contract. GeoLive does not directly depend on, edit, or share private databases with sibling products.
 
-## What is implemented in this foundation
+## Current foundation
+
+Implemented:
 
 - project-scoped location ingestion
 - project-scoped user list and summary APIs
 - online / recent / offline / inactive presence states
 - server-sent real-time events
-- dark live-globe dashboard prototype based on the supplied GeoLive visual direction
-- zero-runtime-dependency JavaScript SDK
+- dark live-globe dashboard prototype
+- JavaScript SDK
 - Android/Kotlin transport adapter
 - Flutter/Dart transport adapter
-- PostgreSQL + PostGIS production-direction schema
+- **durable PostgreSQL + PostGIS store**
+- latest-state + append-only history transaction
+- immutable checksum-verified database migrations
+- PostGIS indexes
+- graceful database shutdown/readiness
 - OpenAPI contract
-- security and architecture rules
-- regression tests for project isolation and credential scoping
+- CI with real PostGIS integration tests
 
-The included Node server intentionally uses an **in-memory development store**. It is enough to exercise the contract and UI, but it is not approved for real customer tracking. Production must wire durable PostgreSQL/PostGIS storage and the remaining security/control-plane gates in the roadmap.
+Memory persistence remains available for local demos only. **Production refuses to use the memory store.**
 
-## Repository boundary
+## Durable Postgres setup
 
-Only this repository contains GeoLive changes. Existing sibling repositories are read-only references for compatibility. They do not need to be modified or redeployed for the GeoLive foundation.
+1. Create a PostgreSQL database with PostGIS available.
+2. Configure:
 
-## Local run
+```text
+GEOLIVE_PERSISTENCE=postgres
+DATABASE_URL=postgresql://...
+DATABASE_SSL=verify-full
+```
 
-Node.js 22:
+3. Apply immutable migrations:
 
 ```bash
-# Configure environment values from .env.example using your preferred shell/env loader.
-npm test
+npm ci
+npm run migrate
+```
+
+4. Until the Admin/Project UI is built, provision a project from the operator CLI:
+
+```bash
+npm run db:bootstrap -- finworkar "FinWorkar"
+```
+
+The command prints the database project UUID. Use that UUID as the `projectId` in the currently configured hashed runtime key record.
+
+5. Start:
+
+```bash
 npm start
 ```
 
-Open:
+The production process fails closed if Postgres/PostGIS/migrations are not ready.
 
-```text
-http://localhost:8787/
-```
+## Repository boundary
 
-Health/readiness:
-
-```text
-GET /health
-GET /ready
-```
+Only this repository contains GeoLive changes. Existing sibling repositories remain read-only references for compatibility and do not need to be modified or redeployed.
 
 ## Credential model
 
-A credential is bound to exactly one project and minimal scopes.
+A credential is bound to exactly one project and minimal scopes:
 
 - ingestion: `location:write`
 - dashboard: `users:read`, `summary:read`, `events:read`
 
-The client does **not** choose its authoritative project by submitting an arbitrary `projectId`; the authenticated credential resolves the project first. This is a key tenant-isolation rule.
+The client does not select its authoritative tenant through an arbitrary request-body `projectId`; authentication resolves it first.
 
-Do not embed dashboard/admin credentials in Android, Flutter or browser bundles. The production client model will use short-lived ingest tokens or equivalent attestation.
+The next control-plane phase will move key lifecycle (generate/revoke/rotate) fully into Postgres/Admin APIs. Until then, production runtime keys remain supplied as hashed `GEOLIVE_KEYS_JSON`.
 
-## Universal integration modes
+## Verification
 
-1. Trusted backend → GeoLive REST API.
-2. Android/Flutter/Web → short-lived ingest token → GeoLive.
-3. Local/demo direct development key.
+```bash
+npm run check
+```
+
+CI also boots a real PostGIS database, applies migrations and verifies that the same external user ID can exist in two projects without crossing tenant boundaries.
 
 See:
 
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
 - [Integration guide](docs/INTEGRATION.md)
+- [P1A durable Postgres](docs/P1A-DURABLE-POSTGRES.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [Sibling repository safety](docs/REPOSITORY-SAFETY.md)
 - [OpenAPI](openapi.yaml)
