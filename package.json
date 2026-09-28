@@ -1,6 +1,6 @@
 {
   "name": "rekixo-geolive",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Project-neutral real-time location tracking and live globe platform by Rekixo.",
@@ -9,7 +9,13 @@
     "start": "node server/src/server.mjs",
     "dev": "NODE_ENV=development node server/src/server.mjs",
     "test": "node --test server/test/*.test.mjs",
-    "check": "node --check server/src/server.mjs && node --check dashboard/app.js && node --check sdk/javascript/index.mjs && npm test",
+    "test:postgres": "node --test server/test/postgres-integration.test.mjs",
+    "check": "node --check server/src/server.mjs && node --check server/src/store-postgres.mjs && node --check server/src/database.mjs && node --check scripts/migrate.mjs && node --check scripts/bootstrap-project.mjs && node --check dashboard/app.js && node --check sdk/javascript/index.mjs && npm test",
+    "migrate": "node scripts/migrate.mjs",
+    "db:bootstrap": "node scripts/bootstrap-project.mjs",
     "hash-key": "node scripts/hash-key.mjs"
+  },
+  "dependencies": {
+    "pg": "8.23.0"
   }
 }
