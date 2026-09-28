@@ -90,7 +90,7 @@ ON CONFLICT (account_id) DO NOTHING;
 CREATE OR REPLACE FUNCTION geolive_assign_legacy_subscription()
 RETURNS trigger
 LANGUAGE plpgsql
-AS $
+AS $geolive$
 BEGIN
   INSERT INTO account_subscriptions (
     account_id,
@@ -107,7 +107,7 @@ BEGIN
 
   RETURN NEW;
 END;
-$;
+$geolive$;
 
 CREATE TRIGGER accounts_assign_legacy_subscription
 AFTER INSERT ON accounts
