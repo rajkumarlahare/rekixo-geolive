@@ -512,6 +512,8 @@ export class PostgresCommercialStore {
     actorUserId,
     overrides
   }) {
+    await this.getSubscription(accountId);
+
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
