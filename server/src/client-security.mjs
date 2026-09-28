@@ -1,5 +1,7 @@
 import {
-  normalizeProofPublicKey
+  normalizeProofPublicKey,
+  requestProofCanonical,
+  verifyProofSignature
 } from "./request-proof.mjs";
 
 function error(code, status = 400) {
@@ -218,4 +220,187 @@ export function validateClientSecurityPatch(
   }
 
   return out;
+}
+
+
+function requestHeader(req, name) {
+  const value = req.headers[
+    String(name).toLowerCase()
+  ];
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
+export async function validateClientLocationRequest({
+  req,
+  rawBody,
+  input,
+  auth,
+  policy,
+  store,
+  now = () => Date.now()
+}) {
+  if (!auth?.key?.clientToken) {
+    return { ok: true };
+  }
+
+  const key = auth.key;
+  if (input.userId !== key.subject) {
+    return {
+      ok: false,
+      status: 403,
+      error: "client_token_subject_mismatch"
+    };
+  }
+
+  if (
+    key.platform &&
+    input.device?.platform &&
+    String(input.device.platform).toLowerCase() !==
+      String(key.platform).toLowerCase()
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: "client_token_platform_mismatch"
+    };
+  }
+
+  const packageId = requestHeader(
+    req,
+    "x-geolive-package"
+  );
+  if (
+    key.packageId &&
+    packageId !== key.packageId
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: "client_token_package_mismatch"
+    };
+  }
+
+  const timestamp = requestHeader(
+    req,
+    "x-geolive-request-timestamp"
+  );
+  const nonce = requestHeader(
+    req,
+    "x-geolive-request-nonce"
+  );
+
+  const timestampMs = Number(timestamp);
+  const maxAgeSeconds = Math.min(
+    Math.max(
+      Number(policy?.requestMaxAgeSeconds) || 120,
+      30
+    ),
+    600
+  );
+
+  if (
+    !Number.isSafeInteger(timestampMs) ||
+    Math.abs(now() - timestampMs) >
+      maxAgeSeconds * 1000
+  ) {
+    return {
+      ok: false,
+      status: 401,
+      error: "client_request_stale"
+    };
+  }
+
+  if (
+    nonce.length < 16 ||
+    nonce.length > 128 ||
+    !/^[A-Za-z0-9_-]+$/.test(nonce)
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      error: "invalid_client_request_nonce"
+    };
+  }
+
+  const proofRequired = Boolean(
+    policy?.requireRequestProof
+  );
+  if (
+    proofRequired &&
+    !key.proofPublicKey
+  ) {
+    return {
+      ok: false,
+      status: 401,
+      error: "client_request_proof_required"
+    };
+  }
+
+  if (key.proofPublicKey) {
+    const signature = requestHeader(
+      req,
+      "x-geolive-request-signature"
+    );
+    if (!signature) {
+      return {
+        ok: false,
+        status: 401,
+        error:
+          "client_request_signature_required"
+      };
+    }
+
+    const canonical =
+      requestProofCanonical({
+        method: req.method,
+        path: "/v1/locations",
+        timestamp,
+        nonce,
+        body: rawBody
+      });
+
+    if (
+      !verifyProofSignature({
+        proofPublicKey:
+          key.proofPublicKey,
+        signature,
+        canonical
+      })
+    ) {
+      return {
+        ok: false,
+        status: 401,
+        error:
+          "client_request_signature_invalid"
+      };
+    }
+  }
+
+  if (!store) {
+    return {
+      ok: false,
+      status: 503,
+      error:
+        "client_security_store_unavailable"
+    };
+  }
+
+  const unused =
+    await store.consumeRequestNonce(
+      key.projectId,
+      key.jti,
+      nonce,
+      key.expiresAt
+    );
+  if (!unused) {
+    return {
+      ok: false,
+      status: 409,
+      error: "client_request_replayed"
+    };
+  }
+
+  return { ok: true };
 }
