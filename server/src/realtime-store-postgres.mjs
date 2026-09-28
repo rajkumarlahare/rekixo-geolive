@@ -79,6 +79,36 @@ export class PostgresRealtimeStore {
       5000
     );
 
+    const latestSequence =
+      await this.latestSequence(projectId);
+
+    if (
+      after !== "0" &&
+      (
+        BigInt(after) > BigInt(latestSequence) ||
+        (
+          BigInt(after) < BigInt(latestSequence) &&
+          !(
+            await this.pool.query(
+              `SELECT 1
+               FROM realtime_events
+               WHERE project_id = $1
+                 AND id = $2::bigint
+               LIMIT 1`,
+              [projectId, after]
+            )
+          ).rows.length
+        )
+      )
+    ) {
+      return {
+        events: [],
+        hasMore: false,
+        resyncRequired: true,
+        latestSequence
+      };
+    }
+
     const result = await this.pool.query(
       `SELECT
           id,
@@ -102,9 +132,10 @@ export class PostgresRealtimeStore {
     return {
       events: rows.map(mapEvent),
       hasMore,
+      resyncRequired: false,
       latestSequence: rows.length
         ? String(rows.at(-1).id)
-        : await this.latestSequence(projectId)
+        : latestSequence
     };
   }
 }
