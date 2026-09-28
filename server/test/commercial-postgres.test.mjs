@@ -109,6 +109,28 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
         }
       );
 
+    const realtimeAccess =
+      await commercialStore.assertProjectFeature(
+        project.id,
+        "realtime"
+      );
+    assert.equal(
+      realtimeAccess.effective.realtime,
+      true
+    );
+
+    await assert.rejects(
+      () =>
+        commercialStore.assertProjectFeature(
+          project.id,
+          "androidAttestation"
+        ),
+      (error) =>
+        error instanceof CommercialStoreError &&
+        error.code === "feature_not_entitled" &&
+        error.status === 402
+    );
+
     const entitlements =
       await commercialStore
         .setEntitlementOverrides({
