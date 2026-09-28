@@ -32,6 +32,10 @@ ON location_history (
 );
 
 -- geolive:split
+DROP INDEX CONCURRENTLY IF EXISTS
+  location_history_project_user_time_idx;
+
+-- geolive:split
 UPDATE commercial_plans
 SET features =
   COALESCE(features, '{}'::jsonb) ||
