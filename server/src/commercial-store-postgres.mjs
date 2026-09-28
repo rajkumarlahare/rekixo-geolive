@@ -154,6 +154,7 @@ export class PostgresCommercialStore {
           to_regclass('public.account_subscriptions') IS NOT NULL AS subscriptions,
           to_regclass('public.account_entitlement_overrides') IS NOT NULL AS entitlements,
           to_regclass('public.billing_usage_periods') IS NOT NULL AS usage,
+          to_regclass('public.billing_tracked_users_daily') IS NOT NULL AS tracked_users,
           to_regclass('public.billing_invoices') IS NOT NULL AS invoices,
           to_regclass('public.platform_roles') IS NOT NULL AS platform_roles,
           to_regclass('public.support_cases') IS NOT NULL AS support_cases
@@ -164,6 +165,7 @@ export class PostgresCommercialStore {
         row.subscriptions &&
         row.entitlements &&
         row.usage &&
+        row.tracked_users &&
         row.invoices &&
         row.platform_roles &&
         row.support_cases
@@ -481,11 +483,11 @@ export class PostgresCommercialStore {
       includedTrackedUsers:
         plan.includedTrackedUsers,
       realtime:
-        plan.features.realtime !== false,
+        Boolean(plan.features.realtime),
       clientTokens:
-        plan.features.clientTokens !== false,
+        Boolean(plan.features.clientTokens),
       androidAttestation:
-        plan.features.androidAttestation !== false,
+        Boolean(plan.features.androidAttestation),
       prioritySupport:
         Boolean(plan.features.prioritySupport)
     };
@@ -649,9 +651,7 @@ export class PostgresCommercialStore {
   ) {
     const [
       requests,
-      users,
-      exchanges,
-      realtime
+      users
     ] = await Promise.all([
       this.pool.query(
         `SELECT
@@ -668,34 +668,14 @@ export class PostgresCommercialStore {
         `SELECT count(*)::bigint AS tracked_users
         FROM (
           SELECT DISTINCT
-            h.project_id,
-            h.external_user_id
-          FROM location_history h
-          JOIN projects p ON p.id = h.project_id
+            u.project_id,
+            u.external_user_id
+          FROM billing_tracked_users_daily u
+          JOIN projects p ON p.id = u.project_id
           WHERE p.account_id = $1
-            AND h.received_at >= $2::date
-            AND h.received_at < $3::date
+            AND u.usage_date >= $2::date
+            AND u.usage_date < $3::date
         ) active_users`,
-        [accountId, periodStart, periodEnd]
-      ),
-      this.pool.query(
-        `SELECT
-          COALESCE(sum(m.request_count), 0)::bigint AS token_exchanges
-        FROM api_usage_hourly m
-        JOIN projects p ON p.id = m.project_id
-        WHERE p.account_id = $1
-          AND m.bucket_hour >= $2::date
-          AND m.bucket_hour < $3::date
-          AND m.route = 'client_tokens.exchange'`,
-        [accountId, periodStart, periodEnd]
-      ),
-      this.pool.query(
-        `SELECT count(*)::bigint AS realtime_events
-        FROM realtime_events e
-        JOIN projects p ON p.id = e.project_id
-        WHERE p.account_id = $1
-          AND e.created_at >= $2::date
-          AND e.created_at < $3::date`,
         [accountId, periodStart, periodEnd]
       )
     ]);
@@ -706,11 +686,7 @@ export class PostgresCommercialStore {
       readRequests:
         integer(requests.rows[0]?.read_count),
       trackedUsers:
-        integer(users.rows[0]?.tracked_users),
-      tokenExchanges:
-        integer(exchanges.rows[0]?.token_exchanges),
-      realtimeEvents:
-        integer(realtime.rows[0]?.realtime_events)
+        integer(users.rows[0]?.tracked_users)
     };
 
     const result = await this.pool.query(
