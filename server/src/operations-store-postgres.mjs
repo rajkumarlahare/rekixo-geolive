@@ -7,7 +7,8 @@ const DEFAULT_LIMITS = Object.freeze({
   maxLiveUsers: 100000,
   historyRetentionDays: 30,
   securityEventRetentionDays: 90,
-  metricsRetentionDays: 90
+  metricsRetentionDays: 90,
+  realtimeEventRetentionHours: 24
 });
 
 function int(value) {
@@ -50,6 +51,10 @@ function mapLimits(row = {}) {
     metricsRetentionDays: int(
       row.metrics_retention_days ??
       DEFAULT_LIMITS.metricsRetentionDays
+    ),
+    realtimeEventRetentionHours: int(
+      row.realtime_event_retention_hours ??
+      DEFAULT_LIMITS.realtimeEventRetentionHours
     ),
     updatedAt: row.updated_at ? iso(row.updated_at) : null
   };
@@ -114,6 +119,7 @@ export class PostgresOperationsStore {
           l.history_retention_days,
           l.security_event_retention_days,
           l.metrics_retention_days,
+          l.realtime_event_retention_hours,
           l.updated_at
        FROM projects p
        LEFT JOIN project_limits l ON l.project_id = p.id
@@ -145,8 +151,9 @@ export class PostgresOperationsStore {
         history_retention_days,
         security_event_retention_days,
         metrics_retention_days,
+        realtime_event_retention_hours,
         updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
       ON CONFLICT (project_id)
       DO UPDATE SET
         ingest_requests_per_minute = EXCLUDED.ingest_requests_per_minute,
@@ -156,6 +163,7 @@ export class PostgresOperationsStore {
         history_retention_days = EXCLUDED.history_retention_days,
         security_event_retention_days = EXCLUDED.security_event_retention_days,
         metrics_retention_days = EXCLUDED.metrics_retention_days,
+        realtime_event_retention_hours = EXCLUDED.realtime_event_retention_hours,
         updated_at = now()
       RETURNING *`,
       [
@@ -166,7 +174,8 @@ export class PostgresOperationsStore {
         next.maxLiveUsers,
         next.historyRetentionDays,
         next.securityEventRetentionDays,
-        next.metricsRetentionDays
+        next.metricsRetentionDays,
+        next.realtimeEventRetentionHours
       ]
     );
 
@@ -584,6 +593,26 @@ export class PostgresOperationsStore {
         [size, DEFAULT_LIMITS.metricsRetentionDays]
       );
 
+      const realtime = await this.pool.query(
+        `WITH doomed AS (
+          SELECT e.ctid
+          FROM realtime_events e
+          LEFT JOIN project_limits l ON l.project_id = e.project_id
+          WHERE e.created_at <
+            now() - (
+              COALESCE(l.realtime_event_retention_hours, $2)::double precision
+              * interval '1 hour'
+            )
+          ORDER BY e.created_at ASC
+          LIMIT $1
+        )
+        DELETE FROM realtime_events e
+        USING doomed d
+        WHERE e.ctid = d.ctid
+        RETURNING e.id`,
+        [size, DEFAULT_LIMITS.realtimeEventRetentionHours]
+      );
+
       const counters = await this.pool.query(
         `DELETE FROM api_rate_limit_counters
          WHERE expires_at < now()
@@ -611,6 +640,7 @@ export class PostgresOperationsStore {
         historyDeleted: history.rowCount,
         securityEventsDeleted: security.rowCount,
         metricsDeleted: metrics.rowCount,
+        realtimeEventsDeleted: realtime.rowCount,
         rateCountersDeleted: counters.rowCount,
         sessionsDeleted: sessions.rowCount
       };
@@ -621,8 +651,9 @@ export class PostgresOperationsStore {
              history_deleted = $2,
              security_events_deleted = $3,
              metrics_deleted = $4,
-             rate_counters_deleted = $5,
-             sessions_deleted = $6,
+             realtime_events_deleted = $5,
+             rate_counters_deleted = $6,
+             sessions_deleted = $7,
              status = 'success'
          WHERE id = $1`,
         [
@@ -630,6 +661,7 @@ export class PostgresOperationsStore {
           summary.historyDeleted,
           summary.securityEventsDeleted,
           summary.metricsDeleted,
+          summary.realtimeEventsDeleted,
           summary.rateCountersDeleted,
           summary.sessionsDeleted
         ]
