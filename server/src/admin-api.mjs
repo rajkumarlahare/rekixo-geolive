@@ -709,7 +709,7 @@ export async function handleAdminApi({
       ) {
         await commercialStore.requirePlatformRole(
           session.user.id,
-          anyPlatformRole
+          ["superadmin","support","viewer"]
         );
         const cases =
           await commercialStore
@@ -742,7 +742,7 @@ export async function handleAdminApi({
           await commercialStore
             .requirePlatformRole(
               session.user.id,
-              anyPlatformRole
+              ["superadmin","support","viewer"]
             );
           const messages =
             await commercialStore
