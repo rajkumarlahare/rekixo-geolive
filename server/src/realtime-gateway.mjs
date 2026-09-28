@@ -194,11 +194,14 @@ export function createRealtimeGateway({
             }
           );
 
-          if (replay.hasMore) {
+          if (replay.resyncRequired || replay.hasMore) {
             peer.sendJson({
               type: "resync_required",
-              reason: "replay_limit",
+              reason: replay.resyncRequired
+                ? "replay_anchor_unavailable"
+                : "replay_limit",
               latestSequence:
+                replay.latestSequence ||
                 await realtimeStore.latestSequence(projectId)
             });
             peer._heldEvents.length = 0;
