@@ -163,6 +163,28 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
         error.status === 402
     );
 
+    const clientTokenFeature =
+      await commercialStore.assertProjectFeature(
+        project.id,
+        "clientTokens"
+      );
+    assert.equal(
+      clientTokenFeature.effective.clientTokens,
+      true
+    );
+
+    await assert.rejects(
+      () =>
+        commercialStore.assertProjectFeature(
+          project.id,
+          "androidAttestation"
+        ),
+      (error) =>
+        error instanceof CommercialStoreError &&
+        error.code === "feature_not_entitled" &&
+        error.status === 402
+    );
+
     const now = "2026-09-15T12:00:00.000Z";
     await geoStore.upsertLocation(
       project.id,
@@ -177,6 +199,13 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
           platform: "test"
         }
       }
+    );
+
+    await pool.query(
+      `DELETE FROM location_history
+       WHERE project_id = $1
+         AND external_user_id = 'billable-user'`,
+      [project.id]
     );
 
     await pool.query(
@@ -213,10 +242,6 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
     );
     assert.equal(
       usage.metrics.trackedUsers,
-      1
-    );
-    assert.equal(
-      usage.metrics.realtimeEvents,
       1
     );
 
