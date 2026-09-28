@@ -256,8 +256,9 @@ export async function validateClientLocationRequest({
 
   if (
     key.platform &&
-    input.device?.platform &&
-    String(input.device.platform).toLowerCase() !==
+    String(
+      input.device?.platform || ""
+    ).toLowerCase() !==
       String(key.platform).toLowerCase()
   ) {
     return {
