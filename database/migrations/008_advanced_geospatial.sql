@@ -1,9 +1,15 @@
 -- geolive:nontransactional
 -- P4A advanced geospatial read foundation.
--- Every split statement is idempotent because this migration runs
--- outside a transaction to build large history indexes concurrently.
+-- Each split statement is retry-safe. The indexes are dropped by
+-- their new P4A-specific names before concurrent recreation so an
+-- interrupted CREATE INDEX CONCURRENTLY cannot leave an invalid
+-- index that a later IF NOT EXISTS would silently preserve.
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS
+DROP INDEX CONCURRENTLY IF EXISTS
+  location_history_project_time_id_idx;
+
+-- geolive:split
+CREATE INDEX CONCURRENTLY
   location_history_project_time_id_idx
 ON location_history (
   project_id,
@@ -12,7 +18,11 @@ ON location_history (
 );
 
 -- geolive:split
-CREATE INDEX CONCURRENTLY IF NOT EXISTS
+DROP INDEX CONCURRENTLY IF EXISTS
+  location_history_project_user_time_id_idx;
+
+-- geolive:split
+CREATE INDEX CONCURRENTLY
   location_history_project_user_time_id_idx
 ON location_history (
   project_id,
