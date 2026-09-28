@@ -1154,7 +1154,7 @@ document.querySelector("#clientSecurityForm").addEventListener("submit", async (
   button.disabled = true;
 
   try {
-    const payload = await api(
+    await api(
       `/v1/admin/projects/${project.id}/client-security`,
       {
         method: "PATCH",
@@ -1174,17 +1174,7 @@ document.querySelector("#clientSecurityForm").addEventListener("submit", async (
       }
     );
 
-    setClientSecurityFields({
-      ...payload,
-      clientTokensConfigured:
-        document.querySelector("#clientSecurityStatus").textContent === "Signing ready",
-      playIntegrityConfiguredPackages:
-        document.querySelector("#playIntegrityPackages").textContent
-          .replace(/^Play Integrity packages:\s*/, "")
-          .split(",")
-          .map((value) => value.trim())
-          .filter((value) => value && value !== "No Play Integrity package configured.")
-    });
+    await loadOperations();
   } catch (error) {
     setText(
       "opsError",
