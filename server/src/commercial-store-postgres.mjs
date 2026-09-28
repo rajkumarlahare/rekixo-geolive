@@ -1119,12 +1119,29 @@ export class PostgresCommercialStore {
     }
     const before = mapInvoice(current.rows[0]);
 
+    const transitions = {
+      draft: new Set(["draft", "open", "void"]),
+      open: new Set([
+        "open",
+        "paid",
+        "void",
+        "uncollectible"
+      ]),
+      uncollectible: new Set([
+        "uncollectible",
+        "paid",
+        "void"
+      ]),
+      paid: new Set(["paid"]),
+      void: new Set(["void"])
+    };
     if (
-      ["paid","void"].includes(before.status) &&
-      before.status !== status
+      !transitions[before.status]?.has(status)
     ) {
       throw new CommercialStoreError(
-        "invoice_status_final",
+        ["paid", "void"].includes(before.status)
+          ? "invoice_status_final"
+          : "invalid_invoice_transition",
         409
       );
     }
