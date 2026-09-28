@@ -2949,6 +2949,12 @@ async function loadHistoricalHeatmap() {
     document.querySelector(
       "#clearGeo"
     ).disabled = false;
+    if (state.selectedUserId) {
+      setText(
+        "trailStatus",
+        `Ready to load history for ${state.selectedUserId}.`
+      );
+    }
 
     setText(
       "geoStatus",
@@ -3434,6 +3440,21 @@ canvas.addEventListener("click", (event) => {
 
 function showClusterDetail(cluster) {
   state.selectedUserId = "";
+  if (
+    state.geospatialMode ===
+    "trail"
+  ) {
+    state.historyPoints = [];
+    state.geospatialMode = "";
+    document.querySelector(
+      "#clearGeo"
+    ).disabled =
+      state.heatmapCells.length === 0;
+    setText(
+      "geoStatus",
+      "Movement trail cleared."
+    );
+  }
   document.querySelector(
     "#loadTrail"
   ).disabled = true;
@@ -3477,8 +3498,29 @@ function showClusterDetail(cluster) {
 }
 
 function showDetail(user) {
-  state.selectedUserId =
+  const nextUserId =
     user.userId || "";
+  if (
+    state.geospatialMode ===
+      "trail" &&
+    state.selectedUserId &&
+    nextUserId !==
+      state.selectedUserId
+  ) {
+    state.historyPoints = [];
+    state.geospatialMode = "";
+    document.querySelector(
+      "#clearGeo"
+    ).disabled =
+      state.heatmapCells.length === 0;
+    setText(
+      "geoStatus",
+      "Movement trail cleared after user selection changed."
+    );
+  }
+
+  state.selectedUserId =
+    nextUserId;
   document.querySelector(
     "#loadTrail"
   ).disabled =
