@@ -425,6 +425,18 @@ export function createGeoLiveServer({
         }
 
         if (
+          !auth.key?.prefix ||
+          !/^[0-9a-f-]{36}$/i.test(
+            String(auth.key.id || "")
+          )
+        ) {
+          return json(res, 403, {
+            error:
+              "client_token_issuer_requires_database_key"
+          });
+        }
+
+        if (
           !clientTokenService?.configured
         ) {
           return json(res, 503, {
