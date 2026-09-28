@@ -150,7 +150,8 @@ function validateLimitsInput(body) {
     maxLiveUsers: [1, 10000000],
     historyRetentionDays: [1, 3650],
     securityEventRetentionDays: [7, 3650],
-    metricsRetentionDays: [7, 3650]
+    metricsRetentionDays: [7, 3650],
+    realtimeEventRetentionHours: [1, 720]
   };
   const out = {};
   for (const [key, [min, max]] of Object.entries(ranges)) {
@@ -600,7 +601,7 @@ export async function handleAdminApi({
     }
 
     const projectMatch = url.pathname.match(
-      /^\/v1\/admin\/projects\/([0-9a-f-]{36})(?:\/(users|summary))?$/
+      /^\/v1\/admin\/projects\/([0-9a-f-]{36})(?:\/(users|summary|clusters))?$/
     );
 
     if (projectMatch) {
@@ -650,6 +651,27 @@ export async function handleAdminApi({
           config.thresholds
         );
         sendJson(res, 200, { projectId, ...summary });
+        return true;
+      }
+
+      if (req.method === "GET" && resource === "clusters") {
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId
+        );
+        if (typeof geoStore.clusterUsers !== "function") {
+          sendJson(res, 501, { error: "clustering_unavailable" });
+          return true;
+        }
+        const clusters = await geoStore.clusterUsers(projectId, {
+          gridDegrees: url.searchParams.get("gridDegrees") || 8,
+          status: url.searchParams.get("status") || "",
+          country: url.searchParams.get("country") || "",
+          state: url.searchParams.get("state") || "",
+          city: url.searchParams.get("city") || "",
+          thresholds: config.thresholds
+        });
+        sendJson(res, 200, { projectId, clusters });
         return true;
       }
 
