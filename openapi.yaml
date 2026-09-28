@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.4.0
+  version: 0.5.0
   description: Project-scoped live-location API with account-scoped admin and database-backed API-key lifecycle.
 servers:
   - url: https://geolive.example.com
@@ -46,8 +46,15 @@ paths:
         - integrationBearer: []
       parameters:
         - $ref: "#/components/parameters/PackageHeader"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
       responses:
-        "200": { description: Project-scoped latest users }
+        "200": { description: Cursor-paginated project-scoped latest users }
+        "429": { description: Project read rate limit exceeded }
 
   /v1/summary:
     get:
@@ -275,6 +282,61 @@ paths:
       responses:
         "200": { description: Key revoked }
 
+  /v1/admin/projects/{projectId}/operations/limits:
+    get:
+      operationId: adminGetProjectLimits
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project rate limits, quotas and retention settings }
+    patch:
+      operationId: adminUpdateProjectLimits
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectLimitsPatch"
+      responses:
+        "200": { description: Project limits updated }
+        "403": { description: Owner/admin role required }
+
+  /v1/admin/projects/{projectId}/operations/metrics:
+    get:
+      operationId: adminProjectMetrics
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: hours
+          schema: { type: integer, minimum: 1, maximum: 744, default: 24 }
+      responses:
+        "200": { description: Aggregated operational metrics and daily usage }
+
+  /v1/admin/projects/{projectId}/operations/security-events:
+    get:
+      operationId: adminProjectSecurityEvents
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        "200": { description: Cursor-paginated project security events }
+
 components:
   securitySchemes:
     integrationBearer:
@@ -310,6 +372,18 @@ components:
       schema: { type: string }
 
   schemas:
+    ProjectLimitsPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        ingestRequestsPerMinute: { type: integer, minimum: 1, maximum: 1000000 }
+        readRequestsPerMinute: { type: integer, minimum: 1, maximum: 1000000 }
+        dailyIngestQuota: { type: integer, minimum: 1, maximum: 1000000000 }
+        maxLiveUsers: { type: integer, minimum: 1, maximum: 10000000 }
+        historyRetentionDays: { type: integer, minimum: 1, maximum: 3650 }
+        securityEventRetentionDays: { type: integer, minimum: 7, maximum: 3650 }
+        metricsRetentionDays: { type: integer, minimum: 7, maximum: 3650 }
+
     CreateApiKey:
       type: object
       required: [name, scopes]

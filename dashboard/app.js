@@ -113,6 +113,7 @@ function populateProjectSelect() {
   document.querySelector("#newProject").disabled = writableAccounts.length === 0;
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
+  document.querySelector("#manageOps").disabled = !state.projectId;
 }
 
 function applyIdentity() {
@@ -292,6 +293,7 @@ document.querySelector("#loginForm").addEventListener("submit", async (event) =>
     const messages = {
       invalid_credentials: "Email or password is incorrect.",
       login_temporarily_locked: "Too many failed attempts. Try again later.",
+      login_rate_limited: "Too many sign-in attempts. Try again shortly.",
       admin_requires_postgres: "Admin control plane requires PostgreSQL."
     };
     setText("loginError", messages[error.code] || "Sign in failed.");
@@ -314,6 +316,7 @@ projectSelect.addEventListener("change", () => {
   state.projectId = projectSelect.value;
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
+  document.querySelector("#manageOps").disabled = !state.projectId;
   loadProject();
   startPolling();
 });
@@ -321,7 +324,10 @@ projectSelect.addEventListener("change", () => {
 document.querySelector("#newProject").addEventListener("click", () => openProjectModal("create"));
 document.querySelector("#editProject").addEventListener("click", () => openProjectModal("edit"));
 document.querySelector("#manageKeys").addEventListener("click", openKeyModal);
+document.querySelector("#manageOps").addEventListener("click", openOpsModal);
 document.querySelector("#projectModalClose").addEventListener("click", closeProjectModal);
+document.querySelector("#opsModalClose").addEventListener("click", closeOpsModal);
+document.querySelector("#refreshOps").addEventListener("click", loadOperations);
 document.querySelector("#projectCancel").addEventListener("click", closeProjectModal);
 document.querySelector("#keyModalClose").addEventListener("click", closeKeyModal);
 document.querySelector("#refreshKeys").addEventListener("click", loadKeys);
@@ -662,6 +668,135 @@ document.querySelector("#copySecret").addEventListener("click", async () => {
     }, 1200);
   } catch {
     setText("keyError", "Clipboard access failed. Select and copy the secret manually.");
+  }
+});
+
+
+function closeOpsModal() {
+  document.querySelector("#opsModal").hidden = true;
+}
+
+async function openOpsModal() {
+  if (!state.projectId) return;
+  document.querySelector("#opsModal").hidden = false;
+  await loadOperations();
+}
+
+function setLimitFields(limits) {
+  document.querySelector("#limitIngestMinute").value =
+    limits.ingestRequestsPerMinute;
+  document.querySelector("#limitReadMinute").value =
+    limits.readRequestsPerMinute;
+  document.querySelector("#limitDailyIngest").value =
+    limits.dailyIngestQuota;
+  document.querySelector("#limitLiveUsers").value =
+    limits.maxLiveUsers;
+  document.querySelector("#limitHistoryDays").value =
+    limits.historyRetentionDays;
+  document.querySelector("#limitSecurityDays").value =
+    limits.securityEventRetentionDays;
+  document.querySelector("#limitMetricsDays").value =
+    limits.metricsRetentionDays;
+
+  const writable = canWriteProject();
+  document.querySelectorAll("#limitsForm input").forEach((input) => {
+    input.disabled = !writable;
+  });
+  document.querySelector("#saveLimits").hidden = !writable;
+}
+
+function renderSecurityEvents(events) {
+  const list = document.querySelector("#securityList");
+  list.replaceChildren();
+
+  if (!events.length) {
+    const empty = document.createElement("div");
+    empty.className = "key-empty";
+    empty.textContent = "No recent project security events.";
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const event of events) {
+    const row = document.createElement("div");
+    row.className = "security-event";
+
+    const severity = document.createElement("span");
+    severity.className = `severity ${event.severity}`;
+    severity.textContent = event.severity;
+
+    const body = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = event.eventType;
+    const meta = document.createElement("small");
+    const keyRef = event.keyRef ? ` · ${event.keyRef}` : "";
+    meta.textContent = `${new Date(event.createdAt).toLocaleString()}${keyRef}`;
+    body.append(title, meta);
+
+    const details = document.createElement("small");
+    details.textContent = event.metadata?.route || event.metadata?.group || "—";
+
+    row.append(severity, body, details);
+    list.appendChild(row);
+  }
+}
+
+async function loadOperations() {
+  const project = projectById();
+  if (!project) return;
+
+  setText("opsError", "");
+  try {
+    const [limitsPayload, metricsPayload, eventsPayload] =
+      await Promise.all([
+        api(`/v1/admin/projects/${project.id}/operations/limits`),
+        api(`/v1/admin/projects/${project.id}/operations/metrics?hours=24`),
+        api(`/v1/admin/projects/${project.id}/operations/security-events?limit=25`)
+      ]);
+
+    setLimitFields(limitsPayload.limits);
+    const totals = metricsPayload.metrics?.totals || {};
+    setText("opsRequests", totals.requests || 0);
+    setText("opsErrors", totals.errors || 0);
+    setText("opsLatency", `${totals.averageLatencyMs || 0} ms`);
+    setText("opsSecurity", totals.securityEvents || 0);
+    renderSecurityEvents(eventsPayload.events || []);
+  } catch (error) {
+    setText("opsError", `Could not load operations: ${error.code}`);
+  }
+}
+
+document.querySelector("#limitsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const project = projectById();
+  if (!project || !canWriteProject(project)) return;
+
+  setText("opsError", "");
+  const button = document.querySelector("#saveLimits");
+  button.disabled = true;
+
+  try {
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/operations/limits`,
+      {
+        method: "PATCH",
+        mutate: true,
+        body: JSON.stringify({
+          ingestRequestsPerMinute: Number(document.querySelector("#limitIngestMinute").value),
+          readRequestsPerMinute: Number(document.querySelector("#limitReadMinute").value),
+          dailyIngestQuota: Number(document.querySelector("#limitDailyIngest").value),
+          maxLiveUsers: Number(document.querySelector("#limitLiveUsers").value),
+          historyRetentionDays: Number(document.querySelector("#limitHistoryDays").value),
+          securityEventRetentionDays: Number(document.querySelector("#limitSecurityDays").value),
+          metricsRetentionDays: Number(document.querySelector("#limitMetricsDays").value)
+        })
+      }
+    );
+    setLimitFields(payload.limits);
+  } catch (error) {
+    setText("opsError", `Could not save limits: ${error.code}`);
+  } finally {
+    button.disabled = false;
   }
 });
 

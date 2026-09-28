@@ -12,6 +12,7 @@ import { MemoryGeoLiveStore } from "./store-memory.mjs";
 import { createConfiguredStore } from "./store-factory.mjs";
 import { PostgresAdminStore } from "./admin-store-postgres.mjs";
 import { PostgresApiKeyStore } from "./api-key-store-postgres.mjs";
+import { PostgresOperationsStore } from "./operations-store-postgres.mjs";
 import { handleAdminApi } from "./admin-api.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
 
@@ -80,6 +81,7 @@ function corsHeaders(origin, config, key) {
     vary: "Origin",
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "Authorization,Content-Type,X-GeoLive-Key,X-GeoLive-Package",
+    "access-control-expose-headers": "X-RateLimit-Limit,X-RateLimit-Remaining,X-RateLimit-Reset,Retry-After",
     "access-control-max-age": "600"
   };
 }
@@ -128,7 +130,8 @@ export function createGeoLiveServer({
   config = loadConfig(),
   store = new MemoryGeoLiveStore(),
   adminStore = null,
-  keyStore = null
+  keyStore = null,
+  opsStore = null
 } = {}) {
   const eventClients = new Map();
 
@@ -144,6 +147,117 @@ export function createGeoLiveServer({
       keyStore,
       environmentKeys: config.keys
     }, requiredScope);
+  }
+
+  function apiKeyRef(key) {
+    if (key?.prefix && key?.id) return `db:${key.id}`;
+    return `env:${key?.id || "unknown"}`;
+  }
+
+  function rateHeaders(rate) {
+    if (!rate) return {};
+    return {
+      "x-ratelimit-limit": String(rate.limit),
+      "x-ratelimit-remaining": String(rate.remaining),
+      "x-ratelimit-reset": rate.resetAt,
+      ...(rate.allowed
+        ? {}
+        : { "retry-after": String(rate.retryAfterSeconds) })
+    };
+  }
+
+  async function recordUsage({
+    auth,
+    route,
+    statusCode,
+    startedAt
+  }) {
+    if (!opsStore || !auth?.key?.projectId) return;
+    await opsStore.recordUsage({
+      projectId: auth.key.projectId,
+      keyRef: apiKeyRef(auth.key),
+      route,
+      statusCode,
+      latencyMs: Date.now() - startedAt
+    });
+  }
+
+  async function enforceOperations(auth, group, route) {
+    if (!opsStore) {
+      return { ok: true, headers: {}, limits: null };
+    }
+
+    const projectId = auth.key.projectId;
+    const limits = await opsStore.getProjectLimits(projectId);
+    const perMinute =
+      group === "ingest"
+        ? limits.ingestRequestsPerMinute
+        : limits.readRequestsPerMinute;
+
+    const rate = await opsStore.consumeProjectRateLimit(
+      projectId,
+      group,
+      perMinute
+    );
+
+    if (!rate.allowed) {
+      await opsStore.recordSecurityEvent({
+        projectId,
+        keyRef: apiKeyRef(auth.key),
+        eventType: "api.rate_limited",
+        severity: "warning",
+        metadata: { group, route }
+      });
+      return {
+        ok: false,
+        status: 429,
+        error: "rate_limited",
+        headers: rateHeaders(rate),
+        limits
+      };
+    }
+
+    if (group === "ingest") {
+      const quota = await opsStore.consumeDailyIngestQuota(
+        projectId,
+        limits.dailyIngestQuota
+      );
+      if (!quota.allowed) {
+        await opsStore.recordSecurityEvent({
+          projectId,
+          keyRef: apiKeyRef(auth.key),
+          eventType: "api.daily_ingest_quota_exceeded",
+          severity: "warning",
+          metadata: { route }
+        });
+        return {
+          ok: false,
+          status: 429,
+          error: "daily_ingest_quota_exceeded",
+          headers: rateHeaders(rate),
+          limits
+        };
+      }
+    } else {
+      await opsStore.recordRead(projectId);
+    }
+
+    return {
+      ok: true,
+      headers: rateHeaders(rate),
+      limits
+    };
+  }
+
+  async function recordRestrictionFailure(auth, error, route) {
+    if (!opsStore || !auth?.key?.projectId) return;
+    await opsStore.recordSecurityEvent({
+      projectId: auth.key.projectId,
+      keyRef: apiKeyRef(auth.key),
+      eventType: `api.${error}`,
+      severity: "warning",
+      metadata: { route }
+    });
   }
 
   return http.createServer(async (req, res) => {
@@ -170,6 +284,7 @@ export function createGeoLiveServer({
         config,
         adminStore,
         keyStore,
+        opsStore,
         geoStore: store
       })) {
         return;
@@ -183,7 +298,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.4.0"
+          version: "0.5.0"
         });
       }
 
@@ -197,9 +312,13 @@ export function createGeoLiveServer({
         const apiKeyReady = keyStore
           ? await keyStore.ready()
           : !config.isProduction;
+        const operationsReady = opsStore
+          ? await opsStore.ready()
+          : !config.isProduction;
         const ready = persistenceReady
           && adminReady
           && apiKeyReady
+          && operationsReady
           && (!config.isProduction || config.persistence === "postgres");
 
         return json(res, ready ? 200 : 503, {
@@ -208,86 +327,357 @@ export function createGeoLiveServer({
           persistenceReady,
           adminReady,
           apiKeyReady,
-          environmentCredentialCount: config.keys.length
+          operationsReady,
+          environmentCredentialCount: config.keys.length,
+          legacyCredentialBridgeActive: config.keys.length > 0
         });
       }
 
       if (req.method === "POST" && url.pathname === "/v1/locations") {
+        const startedAt = Date.now();
         const auth = await authorizePublic(req, "location:write");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
 
-        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        const restrictions = validateClientRestrictions(
+          req,
+          origin,
+          config,
+          auth.key
+        );
         if (!restrictions.ok) {
-          return json(res, restrictions.status, { error: restrictions.error });
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "locations.write"
+          );
+          await recordUsage({
+            auth,
+            route: "locations.write",
+            statusCode: restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            { error: restrictions.error }
+          );
         }
 
-        const headers = corsHeaders(origin, config, auth.key);
+        const operations = await enforceOperations(
+          auth,
+          "ingest",
+          "locations.write"
+        );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "locations.write",
+            statusCode: operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            { error: operations.error },
+            operations.headers
+          );
+        }
+
+        const headers = {
+          ...corsHeaders(origin, config, auth.key),
+          ...operations.headers
+        };
         const input = validateLocation(await readJson(req));
         const receivedAt = new Date().toISOString();
-        const record = await store.upsertLocation(auth.key.projectId, {
-          ...input,
-          receivedAt
-        });
-        publish(auth.key.projectId, { type: "location", user: record });
-        return json(res, 202, {
-          accepted: true,
-          userId: record.userId,
-          receivedAt
-        }, headers);
+
+        try {
+          const record = await store.upsertLocation(
+            auth.key.projectId,
+            {
+              ...input,
+              receivedAt
+            }
+          );
+          publish(
+            auth.key.projectId,
+            { type: "location", user: record }
+          );
+          await recordUsage({
+            auth,
+            route: "locations.write",
+            statusCode: 202,
+            startedAt
+          });
+          return json(
+            res,
+            202,
+            {
+              accepted: true,
+              userId: record.userId,
+              receivedAt
+            },
+            headers
+          );
+        } catch (error) {
+          if (
+            error?.code ===
+            "project_live_user_quota_exceeded"
+          ) {
+            if (opsStore) {
+              await opsStore.recordSecurityEvent({
+                projectId: auth.key.projectId,
+                keyRef: apiKeyRef(auth.key),
+                eventType: "api.live_user_quota_exceeded",
+                severity: "warning",
+                metadata: { route: "locations.write" }
+              });
+            }
+            await recordUsage({
+              auth,
+              route: "locations.write",
+              statusCode: 429,
+              startedAt
+            });
+            return json(
+              res,
+              429,
+              { error: error.code },
+              headers
+            );
+          }
+          throw error;
+        }
       }
 
       if (req.method === "GET" && url.pathname === "/v1/users") {
+        const startedAt = Date.now();
         const auth = await authorizePublic(req, "users:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
 
-        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        const restrictions = validateClientRestrictions(
+          req,
+          origin,
+          config,
+          auth.key
+        );
         if (!restrictions.ok) {
-          return json(res, restrictions.status, { error: restrictions.error });
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "users.read"
+          );
+          await recordUsage({
+            auth,
+            route: "users.read",
+            statusCode: restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            { error: restrictions.error }
+          );
         }
 
-        const headers = corsHeaders(origin, config, auth.key);
-        const users = await store.listUsers(auth.key.projectId, {
-          search: url.searchParams.get("search") || "",
-          status: url.searchParams.get("status") || "",
-          country: url.searchParams.get("country") || "",
-          state: url.searchParams.get("state") || "",
-          city: url.searchParams.get("city") || "",
-          limit: url.searchParams.get("limit") || 500,
-          thresholds: config.thresholds
+        const operations = await enforceOperations(
+          auth,
+          "read",
+          "users.read"
+        );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "users.read",
+            statusCode: operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            { error: operations.error },
+            operations.headers
+          );
+        }
+
+        const page =
+          typeof store.listUsersPage === "function"
+            ? await store.listUsersPage(auth.key.projectId, {
+                search: url.searchParams.get("search") || "",
+                status: url.searchParams.get("status") || "",
+                country: url.searchParams.get("country") || "",
+                state: url.searchParams.get("state") || "",
+                city: url.searchParams.get("city") || "",
+                limit: url.searchParams.get("limit") || 100,
+                cursor: url.searchParams.get("cursor") || "",
+                thresholds: config.thresholds
+              })
+            : {
+                users: await store.listUsers(auth.key.projectId, {
+                  search: url.searchParams.get("search") || "",
+                  status: url.searchParams.get("status") || "",
+                  country: url.searchParams.get("country") || "",
+                  state: url.searchParams.get("state") || "",
+                  city: url.searchParams.get("city") || "",
+                  limit: url.searchParams.get("limit") || 100,
+                  thresholds: config.thresholds
+                }),
+                nextCursor: null
+              };
+
+        await recordUsage({
+          auth,
+          route: "users.read",
+          statusCode: 200,
+          startedAt
         });
-        return json(res, 200, {
-          projectId: auth.key.projectId,
-          users
-        }, headers);
+        return json(
+          res,
+          200,
+          {
+            projectId: auth.key.projectId,
+            ...page
+          },
+          {
+            ...corsHeaders(origin, config, auth.key),
+            ...operations.headers
+          }
+        );
       }
 
       if (req.method === "GET" && url.pathname === "/v1/summary") {
+        const startedAt = Date.now();
         const auth = await authorizePublic(req, "summary:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
 
-        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        const restrictions = validateClientRestrictions(
+          req,
+          origin,
+          config,
+          auth.key
+        );
         if (!restrictions.ok) {
-          return json(res, restrictions.status, { error: restrictions.error });
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "summary.read"
+          );
+          await recordUsage({
+            auth,
+            route: "summary.read",
+            statusCode: restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            { error: restrictions.error }
+          );
         }
 
-        const headers = corsHeaders(origin, config, auth.key);
-        const summary = await store.summary(auth.key.projectId, config.thresholds);
-        return json(res, 200, {
-          projectId: auth.key.projectId,
-          ...summary
-        }, headers);
+        const operations = await enforceOperations(
+          auth,
+          "read",
+          "summary.read"
+        );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "summary.read",
+            statusCode: operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            { error: operations.error },
+            operations.headers
+          );
+        }
+
+        const summary = await store.summary(
+          auth.key.projectId,
+          config.thresholds
+        );
+        await recordUsage({
+          auth,
+          route: "summary.read",
+          statusCode: 200,
+          startedAt
+        });
+        return json(
+          res,
+          200,
+          {
+            projectId: auth.key.projectId,
+            ...summary
+          },
+          {
+            ...corsHeaders(origin, config, auth.key),
+            ...operations.headers
+          }
+        );
       }
 
       if (req.method === "GET" && url.pathname === "/v1/events") {
+        const startedAt = Date.now();
         const auth = await authorizePublic(req, "events:read");
         if (!auth.ok) return json(res, auth.status, { error: auth.error });
 
-        const restrictions = validateClientRestrictions(req, origin, config, auth.key);
+        const restrictions = validateClientRestrictions(
+          req,
+          origin,
+          config,
+          auth.key
+        );
         if (!restrictions.ok) {
-          return json(res, restrictions.status, { error: restrictions.error });
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "events.read"
+          );
+          await recordUsage({
+            auth,
+            route: "events.read",
+            statusCode: restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            { error: restrictions.error }
+          );
         }
 
-        const headers = corsHeaders(origin, config, auth.key);
+        const operations = await enforceOperations(
+          auth,
+          "read",
+          "events.read"
+        );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "events.read",
+            statusCode: operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            { error: operations.error },
+            operations.headers
+          );
+        }
+
+        const headers = {
+          ...corsHeaders(origin, config, auth.key),
+          ...operations.headers
+        };
+        await recordUsage({
+          auth,
+          route: "events.read",
+          statusCode: 200,
+          startedAt
+        });
         res.writeHead(200, {
           ...SECURITY_HEADERS,
           ...headers,
@@ -336,18 +726,23 @@ async function start() {
   const keyStore = config.persistence === "postgres"
     ? new PostgresApiKeyStore({ pool: store.pool })
     : null;
+  const opsStore = config.persistence === "postgres"
+    ? new PostgresOperationsStore({ pool: store.pool })
+    : null;
 
   if (config.persistence === "postgres" && typeof store.assertReady === "function") {
     await store.assertReady();
     await adminStore.assertReady();
     await keyStore.assertReady();
+    await opsStore.assertReady();
   }
 
   const server = createGeoLiveServer({
     config,
     store,
     adminStore,
-    keyStore
+    keyStore,
+    opsStore
   });
   server.listen(config.port, () => {
     console.log(
