@@ -206,6 +206,10 @@ export function validateEntitlementOverrides(body) {
   const out = {};
   for (const [key, value] of Object.entries(body)) {
     if (!allowed.has(key)) fail("invalid_entitlement_key");
+    if (value === null) {
+      out[key] = null;
+      continue;
+    }
     if (
       key.startsWith("included") ||
       key === "maxProjects"
@@ -223,6 +227,9 @@ export function validateEntitlementOverrides(body) {
     } else {
       fail("invalid_entitlement_value");
     }
+  }
+  if (!Object.keys(out).length) {
+    fail("empty_entitlement_update");
   }
   return out;
 }
