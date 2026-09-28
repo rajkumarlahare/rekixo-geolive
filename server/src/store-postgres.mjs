@@ -362,8 +362,6 @@ export class PostgresGeoLiveStore {
         [projectId, observation.userId]
       );
 
-      await client.query("COMMIT");
-
       const row = latest.rows[0] || {
         project_id: projectId,
         external_user_id: observation.userId,
@@ -389,7 +387,51 @@ export class PostgresGeoLiveStore {
         identity.rows[0]?.email ??
         observation.email ??
         null;
-      return mapRow(row);
+
+      const mapped = {
+        ...mapRow(row),
+        status: "online"
+      };
+
+      const realtime = await client.query(
+        `INSERT INTO realtime_events (
+          project_id,
+          event_type,
+          external_user_id,
+          payload
+        ) VALUES ($1, 'location', $2, $3::jsonb)
+        RETURNING
+          id,
+          event_id,
+          project_id,
+          event_type,
+          external_user_id,
+          created_at`,
+        [
+          projectId,
+          observation.userId,
+          JSON.stringify(mapped)
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      const eventRow = realtime.rows[0];
+      return {
+        ...mapped,
+        _realtimeEvent: {
+          sequence: String(eventRow.id),
+          eventId: eventRow.event_id,
+          projectId: eventRow.project_id,
+          type: eventRow.event_type,
+          userId: eventRow.external_user_id,
+          payload: mapped,
+          createdAt:
+            eventRow.created_at instanceof Date
+              ? eventRow.created_at.toISOString()
+              : new Date(eventRow.created_at).toISOString()
+        }
+      };
     } catch (error) {
       try {
         await client.query("ROLLBACK");
@@ -601,6 +643,119 @@ export class PostgresGeoLiveStore {
       options
     );
     return page.users;
+  }
+
+  async clusterUsers(
+    projectId,
+    {
+      gridDegrees = 8,
+      status = "",
+      country = "",
+      state = "",
+      city = "",
+      thresholds = {}
+    } = {}
+  ) {
+    const grid = Math.min(
+      Math.max(Number(gridDegrees) || 8, 0.25),
+      45
+    );
+    const online = Number(
+      thresholds.onlineSeconds ?? 120
+    );
+    const recent = Number(
+      thresholds.recentSeconds ?? 900
+    );
+    const inactive = Number(
+      thresholds.inactiveSeconds ?? 86400
+    );
+
+    const params = [
+      projectId,
+      online,
+      recent,
+      inactive,
+      grid
+    ];
+    const where = [];
+
+    if (status) {
+      params.push(String(status));
+      where.push(`presence = ${params.length}`);
+    }
+    if (country) {
+      params.push(String(country));
+      where.push(`country = ${params.length}`);
+    }
+    if (state) {
+      params.push(String(state));
+      where.push(`state = ${params.length}`);
+    }
+    if (city) {
+      params.push(String(city));
+      where.push(`city = ${params.length}`);
+    }
+
+    const result = await this.pool.query(
+      `WITH scoped AS (
+        SELECT
+          latitude,
+          longitude,
+          country,
+          state,
+          city,
+          CASE
+            WHEN received_at >=
+              now() - ($2::double precision * interval '1 second')
+              THEN 'online'
+            WHEN received_at >=
+              now() - ($3::double precision * interval '1 second')
+              THEN 'recent'
+            WHEN received_at >=
+              now() - ($4::double precision * interval '1 second')
+              THEN 'offline'
+            ELSE 'inactive'
+          END AS presence
+        FROM live_user_state
+        WHERE project_id = $1
+      ),
+      filtered AS (
+        SELECT *
+        FROM scoped
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      )
+      SELECT
+        (
+          floor((latitude + 90.0) / $5) * $5
+          - 90.0
+          + $5 / 2.0
+        )::double precision AS latitude,
+        (
+          floor((longitude + 180.0) / $5) * $5
+          - 180.0
+          + $5 / 2.0
+        )::double precision AS longitude,
+        count(*)::int AS count,
+        count(*) FILTER (WHERE presence = 'online')::int AS online,
+        count(*) FILTER (WHERE presence = 'recent')::int AS recent,
+        count(*) FILTER (WHERE presence = 'offline')::int AS offline,
+        count(*) FILTER (WHERE presence = 'inactive')::int AS inactive
+      FROM filtered
+      GROUP BY 1, 2
+      ORDER BY count DESC
+      LIMIT 5000`,
+      params
+    );
+
+    return result.rows.map((row) => ({
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      count: Number(row.count),
+      online: Number(row.online),
+      recent: Number(row.recent),
+      offline: Number(row.offline),
+      inactive: Number(row.inactive)
+    }));
   }
 
   async summary(projectId, thresholds = {}) {

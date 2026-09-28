@@ -104,6 +104,38 @@ export function loadConfig(env = process.env) {
       maxFailedLogins: boundedNumber(env.GEOLIVE_ADMIN_MAX_FAILED_LOGINS, 5, 3, 20),
       lockMinutes: boundedNumber(env.GEOLIVE_ADMIN_LOCK_MINUTES, 15, 1, 1440)
     },
+    realtime: {
+      redisUrl: String(env.GEOLIVE_REDIS_URL || "").trim(),
+      redisChannel: String(
+        env.GEOLIVE_REDIS_CHANNEL || "rekixo:geolive:events"
+      ).trim(),
+      redisRequired:
+        String(env.GEOLIVE_REDIS_REQUIRED || "").toLowerCase() === "true",
+      maxReplayEvents: boundedNumber(
+        env.GEOLIVE_REALTIME_MAX_REPLAY_EVENTS,
+        1000,
+        100,
+        5000
+      ),
+      authTimeoutMs: boundedNumber(
+        env.GEOLIVE_REALTIME_AUTH_TIMEOUT_MS,
+        5000,
+        1000,
+        30000
+      ),
+      heartbeatIntervalMs: boundedNumber(
+        env.GEOLIVE_REALTIME_HEARTBEAT_INTERVAL_MS,
+        25000,
+        5000,
+        60000
+      ),
+      heartbeatTimeoutMs: boundedNumber(
+        env.GEOLIVE_REALTIME_HEARTBEAT_TIMEOUT_MS,
+        70000,
+        15000,
+        180000
+      )
+    },
     thresholds: {
       onlineSeconds: boundedNumber(env.GEOLIVE_ONLINE_SECONDS, 120, 10, 3600),
       recentSeconds: boundedNumber(env.GEOLIVE_RECENT_SECONDS, 900, 60, 86400),

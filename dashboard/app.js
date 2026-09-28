@@ -21,7 +21,16 @@ const state = {
   refreshes: 0,
   pollTimer: null,
   projectMode: "create",
-  keys: []
+  keys: [],
+  clusters: [],
+  useClusters: false,
+  realtimeSocket: null,
+  realtimeRetryTimer: null,
+  realtimeRetryMs: 1000,
+  realtimeSequence: "0",
+  realtimeProjectId: "",
+  clusterRefreshTimer: null,
+  liveRefreshTimer: null
 };
 
 const colors = {
@@ -127,6 +136,8 @@ function applyIdentity() {
 function resetData() {
   state.users = [];
   state.filtered = [];
+  state.clusters = [];
+  state.useClusters = false;
   state.summary = { total: 0, online: 0, recent: 0, offline: 0, inactive: 0 };
   state.refreshes = 0;
   updateStats();
@@ -148,7 +159,12 @@ function updateStats() {
   setText("recentSide", state.summary.recent);
   setText("offlineSide", state.summary.offline);
   setText("liveBadge", state.summary.online);
-  setText("showingCount", state.filtered.length);
+  setText(
+    "showingCount",
+    state.useClusters
+      ? state.summary.total
+      : state.filtered.length
+  );
 }
 
 function unique(field) {
@@ -189,9 +205,85 @@ function applyFilters() {
     (!city || u.city === city)
   );
 
+  const hasFilters = Boolean(
+    q ||
+    state.activeStatus ||
+    country ||
+    region ||
+    city
+  );
+  state.useClusters = Boolean(
+    !hasFilters &&
+    state.summary.total > 500 &&
+    state.clusters.length
+  );
+
   updateStats();
+  const markerCount = state.useClusters
+    ? state.clusters.length
+    : state.filtered.length;
   document.querySelector("#emptyState").hidden =
-    Boolean(state.projectId && state.filtered.length);
+    Boolean(state.projectId && markerCount);
+}
+
+function clusterGridDegrees() {
+  if (state.zoom <= 0.8) return 15;
+  if (state.zoom <= 1.0) return 10;
+  if (state.zoom <= 1.2) return 6;
+  if (state.zoom <= 1.35) return 4;
+  return 2.5;
+}
+
+async function loadClusters() {
+  const project = projectById();
+  if (!project || state.summary.total <= 500) {
+    state.clusters = [];
+    state.useClusters = false;
+    return;
+  }
+
+  const payload = await api(
+    `/v1/admin/projects/${project.id}/clusters?gridDegrees=${encodeURIComponent(clusterGridDegrees())}`
+  );
+  state.clusters = payload.clusters || [];
+  applyFilters();
+}
+
+function scheduleClusterRefresh(delay = 250) {
+  clearTimeout(state.clusterRefreshTimer);
+  state.clusterRefreshTimer = setTimeout(() => {
+    loadClusters().catch(() => {});
+  }, delay);
+}
+
+async function refreshLiveSummary() {
+  const project = projectById();
+  if (!project) return;
+
+  const summaryPayload = await api(
+    `/v1/admin/projects/${project.id}/summary`
+  );
+  state.summary = {
+    total: summaryPayload.total || 0,
+    online: summaryPayload.online || 0,
+    recent: summaryPayload.recent || 0,
+    offline: summaryPayload.offline || 0,
+    inactive: summaryPayload.inactive || 0
+  };
+
+  if (state.summary.total > 500) {
+    await loadClusters();
+  } else {
+    state.clusters = [];
+  }
+  applyFilters();
+}
+
+function scheduleLiveRefresh() {
+  clearTimeout(state.liveRefreshTimer);
+  state.liveRefreshTimer = setTimeout(() => {
+    refreshLiveSummary().catch(() => {});
+  }, 1000);
 }
 
 async function loadProject({ quiet = false } = {}) {
@@ -205,12 +297,9 @@ async function loadProject({ quiet = false } = {}) {
   setText("projectState", `${project.status.toUpperCase()} · ${project.role}`);
 
   try {
-    const [usersPayload, summaryPayload] = await Promise.all([
-      api(`/v1/admin/projects/${project.id}/users?limit=1000`),
-      api(`/v1/admin/projects/${project.id}/summary`)
-    ]);
-
-    state.users = usersPayload.users || [];
+    const summaryPayload = await api(
+      `/v1/admin/projects/${project.id}/summary`
+    );
     state.summary = {
       total: summaryPayload.total || 0,
       online: summaryPayload.online || 0,
@@ -218,11 +307,31 @@ async function loadProject({ quiet = false } = {}) {
       offline: summaryPayload.offline || 0,
       inactive: summaryPayload.inactive || 0
     };
+
+    const requests = [
+      api(`/v1/admin/projects/${project.id}/users?limit=500`)
+    ];
+    if (state.summary.total > 500) {
+      requests.push(
+        api(
+          `/v1/admin/projects/${project.id}/clusters?gridDegrees=${encodeURIComponent(clusterGridDegrees())}`
+        )
+      );
+    }
+
+    const [usersPayload, clustersPayload] =
+      await Promise.all(requests);
+
+    state.users = usersPayload.users || [];
+    state.clusters = clustersPayload?.clusters || [];
     state.refreshes += 1;
 
     rebuildGeoFilters();
     applyFilters();
-    setText("lastUpdated", `Last updated: ${new Date().toLocaleTimeString()}`);
+    setText(
+      "lastUpdated",
+      `Last updated: ${new Date().toLocaleTimeString()}`
+    );
 
     if (!quiet) showDetail({});
   } catch (error) {
@@ -234,10 +343,185 @@ async function loadProject({ quiet = false } = {}) {
   }
 }
 
+function isNewerSequence(next, current) {
+  try {
+    return BigInt(String(next || "0")) >
+      BigInt(String(current || "0"));
+  } catch {
+    return false;
+  }
+}
+
+function applyRealtimeLocation(message) {
+  const user = {
+    ...(message.payload || {}),
+    status: "online"
+  };
+  if (!user.userId) return;
+
+  const index = state.users.findIndex(
+    (item) => item.userId === user.userId
+  );
+  if (index >= 0) {
+    state.users[index] = {
+      ...state.users[index],
+      ...user
+    };
+  } else if (state.users.length < 500) {
+    state.users.unshift(user);
+  }
+
+  if (
+    message.sequence &&
+    isNewerSequence(
+      message.sequence,
+      state.realtimeSequence
+    )
+  ) {
+    state.realtimeSequence =
+      String(message.sequence);
+  }
+
+  state.refreshes += 1;
+  rebuildGeoFilters();
+  applyFilters();
+  scheduleLiveRefresh();
+  setText(
+    "lastUpdated",
+    `Live: ${new Date().toLocaleTimeString()}`
+  );
+}
+
+function stopRealtime({ resetSequence = false } = {}) {
+  clearTimeout(state.realtimeRetryTimer);
+  state.realtimeRetryTimer = null;
+
+  const socket = state.realtimeSocket;
+  state.realtimeSocket = null;
+  if (socket) {
+    try {
+      socket.close(1000, "project_change");
+    } catch {}
+  }
+
+  if (resetSequence) {
+    state.realtimeSequence = "0";
+    state.realtimeProjectId = "";
+    state.realtimeRetryMs = 1000;
+  }
+}
+
+function startRealtime() {
+  const project = projectById();
+  if (!project || !state.user) return;
+
+  if (state.realtimeProjectId !== project.id) {
+    stopRealtime({ resetSequence: true });
+    state.realtimeProjectId = project.id;
+  } else {
+    stopRealtime();
+  }
+
+  const protocol =
+    location.protocol === "https:" ? "wss:" : "ws:";
+  const url = new URL(
+    `${protocol}//${location.host}/v1/admin/realtime`
+  );
+  url.searchParams.set("projectId", project.id);
+  url.searchParams.set(
+    "after",
+    state.realtimeSequence || "0"
+  );
+
+  const socket = new WebSocket(url);
+  state.realtimeSocket = socket;
+
+  socket.addEventListener("open", () => {
+    if (state.realtimeSocket !== socket) return;
+    state.realtimeRetryMs = 1000;
+    setText(
+      "projectState",
+      `${project.status.toUpperCase()} · ${project.role} · LIVE`
+    );
+  });
+
+  socket.addEventListener("message", (event) => {
+    if (state.realtimeSocket !== socket) return;
+
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+
+    if (message.type === "location") {
+      if (
+        !message.sequence ||
+        isNewerSequence(
+          message.sequence,
+          state.realtimeSequence
+        )
+      ) {
+        applyRealtimeLocation(message);
+      }
+      return;
+    }
+
+    if (message.type === "ready") {
+      if (
+        message.latestSequence &&
+        isNewerSequence(
+          message.latestSequence,
+          state.realtimeSequence
+        )
+      ) {
+        state.realtimeSequence =
+          String(message.latestSequence);
+      }
+      return;
+    }
+
+    if (message.type === "resync_required") {
+      state.realtimeSequence =
+        String(message.latestSequence || "0");
+      loadProject({ quiet: true }).catch(() => {});
+    }
+  });
+
+  socket.addEventListener("close", () => {
+    if (state.realtimeSocket !== socket) return;
+    state.realtimeSocket = null;
+    if (!state.user || state.projectId !== project.id) return;
+
+    setText(
+      "projectState",
+      `${project.status.toUpperCase()} · ${project.role} · RECONNECTING`
+    );
+
+    const delay = state.realtimeRetryMs;
+    state.realtimeRetryMs = Math.min(
+      state.realtimeRetryMs * 2,
+      15000
+    );
+    state.realtimeRetryTimer = setTimeout(
+      startRealtime,
+      delay
+    );
+  });
+
+  socket.addEventListener("error", () => {
+    // close event drives reconnect and polling remains a fallback.
+  });
+}
+
 function startPolling() {
   clearInterval(state.pollTimer);
   if (!state.projectId) return;
-  state.pollTimer = setInterval(() => loadProject({ quiet: true }), 15000);
+  state.pollTimer = setInterval(
+    () => loadProject({ quiet: true }),
+    60000
+  );
 }
 
 function hydrateSession(payload) {
@@ -255,12 +539,15 @@ function hydrateSession(payload) {
     return;
   }
 
-  loadProject();
+  loadProject()
+    .then(() => startRealtime())
+    .catch(() => {});
   startPolling();
 }
 
 function showLogin(message = "") {
   clearInterval(state.pollTimer);
+  stopRealtime({ resetSequence: true });
   state.user = null;
   state.csrf = "";
   state.projects = [];
@@ -313,11 +600,14 @@ document.querySelector("#logout").addEventListener("click", async () => {
 });
 
 projectSelect.addEventListener("change", () => {
+  stopRealtime({ resetSequence: true });
   state.projectId = projectSelect.value;
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
-  loadProject();
+  loadProject()
+    .then(() => startRealtime())
+    .catch(() => {});
   startPolling();
 });
 
@@ -697,6 +987,8 @@ function setLimitFields(limits) {
     limits.securityEventRetentionDays;
   document.querySelector("#limitMetricsDays").value =
     limits.metricsRetentionDays;
+  document.querySelector("#limitRealtimeHours").value =
+    limits.realtimeEventRetentionHours;
 
   const writable = canWriteProject();
   document.querySelectorAll("#limitsForm input").forEach((input) => {
@@ -788,7 +1080,8 @@ document.querySelector("#limitsForm").addEventListener("submit", async (event) =
           maxLiveUsers: Number(document.querySelector("#limitLiveUsers").value),
           historyRetentionDays: Number(document.querySelector("#limitHistoryDays").value),
           securityEventRetentionDays: Number(document.querySelector("#limitSecurityDays").value),
-          metricsRetentionDays: Number(document.querySelector("#limitMetricsDays").value)
+          metricsRetentionDays: Number(document.querySelector("#limitMetricsDays").value),
+          realtimeEventRetentionHours: Number(document.querySelector("#limitRealtimeHours").value)
         })
       }
     );
@@ -829,8 +1122,14 @@ document.querySelector("#reset").addEventListener("click", () => {
 });
 
 document.querySelector("#pause").onclick = () => state.paused = !state.paused;
-document.querySelector("#zoomIn").onclick = () => state.zoom = Math.min(1.5, state.zoom + .1);
-document.querySelector("#zoomOut").onclick = () => state.zoom = Math.max(.7, state.zoom - .1);
+document.querySelector("#zoomIn").onclick = () => {
+  state.zoom = Math.min(1.5, state.zoom + .1);
+  scheduleClusterRefresh();
+};
+document.querySelector("#zoomOut").onclick = () => {
+  state.zoom = Math.max(.7, state.zoom - .1);
+  scheduleClusterRefresh();
+};
 document.querySelector("#center").onclick = () => state.rotation = -20;
 
 function resize() {
@@ -937,22 +1236,69 @@ function draw() {
     ctx.stroke();
   }
 
-  for (const user of state.filtered) {
-    const point = projectPoint(user.latitude, user.longitude, cx, cy, radius);
+  const markers = state.useClusters
+    ? state.clusters
+    : state.filtered;
+
+  for (const marker of markers) {
+    const point = projectPoint(
+      marker.latitude,
+      marker.longitude,
+      cx,
+      cy,
+      radius
+    );
     if (point.z <= 0) {
-      user.__screen = null;
+      marker.__screen = null;
       continue;
     }
 
-    const size = 4 + 4 * point.z;
+    const isCluster = state.useClusters;
+    const clusterStatus = isCluster
+      ? marker.online > 0
+        ? "online"
+        : marker.recent > 0
+          ? "recent"
+          : marker.offline > 0
+            ? "offline"
+            : "inactive"
+      : marker.status;
+
+    const size = isCluster
+      ? Math.min(
+          21,
+          6 + Math.log2((marker.count || 1) + 1) * 2.2
+        )
+      : 4 + 4 * point.z;
+
     ctx.beginPath();
     ctx.arc(point.x, point.y, size, 0, Math.PI * 2);
-    ctx.fillStyle = colors[user.status] || colors.inactive;
+    ctx.fillStyle =
+      colors[clusterStatus] || colors.inactive;
     ctx.shadowColor = ctx.fillStyle;
     ctx.shadowBlur = 12;
     ctx.fill();
     ctx.shadowBlur = 0;
-    user.__screen = { x: point.x, y: point.y, z: point.z };
+
+    if (isCluster && marker.count > 1) {
+      ctx.fillStyle = "#061018";
+      ctx.font = "bold 10px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        marker.count > 999
+          ? "999+"
+          : String(marker.count),
+        point.x,
+        point.y
+      );
+    }
+
+    marker.__screen = {
+      x: point.x,
+      y: point.y,
+      z: point.z
+    };
   }
 
   ctx.restore();
@@ -969,17 +1315,66 @@ canvas.addEventListener("click", (event) => {
   let best = null;
   let distance = 18;
 
-  for (const user of state.filtered) {
-    if (!user.__screen) continue;
-    const candidate = Math.hypot(user.__screen.x - x, user.__screen.y - y);
+  const markers = state.useClusters
+    ? state.clusters
+    : state.filtered;
+
+  for (const marker of markers) {
+    if (!marker.__screen) continue;
+    const candidate = Math.hypot(
+      marker.__screen.x - x,
+      marker.__screen.y - y
+    );
     if (candidate < distance) {
-      best = user;
+      best = marker;
       distance = candidate;
     }
   }
 
-  if (best) showDetail(best);
+  if (best) {
+    if (state.useClusters) {
+      showClusterDetail(best);
+    } else {
+      showDetail(best);
+    }
+  }
 });
+
+function showClusterDetail(cluster) {
+  setText(
+    "detailName",
+    `${cluster.count || 0} users in cluster`
+  );
+  setText("detailEmail", "Server-side aggregated marker");
+  setText(
+    "detailStatus",
+    cluster.online > 0
+      ? "online"
+      : cluster.recent > 0
+        ? "recent"
+        : cluster.offline > 0
+          ? "offline"
+          : "inactive"
+  );
+  setText(
+    "detailLocation",
+    `Grid ${clusterGridDegrees()}°`
+  );
+  setText(
+    "detailCoords",
+    `${Number(cluster.latitude).toFixed(2)}, ${Number(cluster.longitude).toFixed(2)}`
+  );
+  setText(
+    "detailDevice",
+    `Online ${cluster.online || 0} · Recent ${cluster.recent || 0}`
+  );
+  setText(
+    "detailSeen",
+    `Offline ${cluster.offline || 0} · Inactive ${cluster.inactive || 0}`
+  );
+  document.querySelector("#activity").innerHTML =
+    "<div><b>Clustered marker</b><small>Zoom in for smaller geographic cells.</small></div>";
+}
 
 function showDetail(user) {
   setText("detailName", user.name || user.userId || "Select a user");

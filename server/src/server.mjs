@@ -13,6 +13,8 @@ import { createConfiguredStore } from "./store-factory.mjs";
 import { PostgresAdminStore } from "./admin-store-postgres.mjs";
 import { PostgresApiKeyStore } from "./api-key-store-postgres.mjs";
 import { PostgresOperationsStore } from "./operations-store-postgres.mjs";
+import { PostgresRealtimeStore } from "./realtime-store-postgres.mjs";
+import { createRealtimeGateway } from "./realtime-gateway.mjs";
 import { handleAdminApi } from "./admin-api.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
 
@@ -131,7 +133,8 @@ export function createGeoLiveServer({
   store = new MemoryGeoLiveStore(),
   adminStore = null,
   keyStore = null,
-  opsStore = null
+  opsStore = null,
+  realtimeGateway = null
 } = {}) {
   const eventClients = new Map();
 
@@ -298,7 +301,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.5.0"
+          version: "0.6.0"
         });
       }
 
@@ -315,10 +318,14 @@ export function createGeoLiveServer({
         const operationsReady = opsStore
           ? await opsStore.ready()
           : !config.isProduction;
+        const realtimeReady = realtimeGateway
+          ? realtimeGateway.ready()
+          : !config.isProduction;
         const ready = persistenceReady
           && adminReady
           && apiKeyReady
           && operationsReady
+          && realtimeReady
           && (!config.isProduction || config.persistence === "postgres");
 
         return json(res, ready ? 200 : 503, {
@@ -328,6 +335,10 @@ export function createGeoLiveServer({
           adminReady,
           apiKeyReady,
           operationsReady,
+          realtimeReady,
+          realtime: realtimeGateway
+            ? realtimeGateway.status()
+            : null,
           environmentCredentialCount: config.keys.length,
           legacyCredentialBridgeActive: config.keys.length > 0
         });
@@ -398,10 +409,31 @@ export function createGeoLiveServer({
               receivedAt
             }
           );
+
+          const realtimeEvent =
+            record._realtimeEvent || {
+              projectId: auth.key.projectId,
+              type: "location",
+              userId: record.userId,
+              payload: {
+                ...record,
+                _realtimeEvent: undefined
+              }
+            };
+          const publicRecord = { ...record };
+          delete publicRecord._realtimeEvent;
+
           publish(
             auth.key.projectId,
-            { type: "location", user: record }
+            { type: "location", user: publicRecord }
           );
+          const publishedEvent = realtimeGateway
+            ? await realtimeGateway.publish({
+                ...realtimeEvent,
+                payload: publicRecord
+              })
+            : realtimeEvent;
+
           await recordUsage({
             auth,
             route: "locations.write",
@@ -414,7 +446,9 @@ export function createGeoLiveServer({
             {
               accepted: true,
               userId: record.userId,
-              receivedAt
+              receivedAt,
+              eventSequence:
+                publishedEvent?.sequence || null
             },
             headers
           );
@@ -536,6 +570,96 @@ export function createGeoLiveServer({
           {
             projectId: auth.key.projectId,
             ...page
+          },
+          {
+            ...corsHeaders(origin, config, auth.key),
+            ...operations.headers
+          }
+        );
+      }
+
+      if (req.method === "GET" && url.pathname === "/v1/clusters") {
+        const startedAt = Date.now();
+        const auth = await authorizePublic(req, "users:read");
+        if (!auth.ok) return json(res, auth.status, { error: auth.error });
+
+        const restrictions = validateClientRestrictions(
+          req,
+          origin,
+          config,
+          auth.key
+        );
+        if (!restrictions.ok) {
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "clusters.read"
+          );
+          await recordUsage({
+            auth,
+            route: "clusters.read",
+            statusCode: restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            { error: restrictions.error }
+          );
+        }
+
+        const operations = await enforceOperations(
+          auth,
+          "read",
+          "clusters.read"
+        );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "clusters.read",
+            statusCode: operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            { error: operations.error },
+            operations.headers
+          );
+        }
+
+        if (typeof store.clusterUsers !== "function") {
+          return json(res, 501, {
+            error: "clustering_unavailable"
+          });
+        }
+
+        const clusters = await store.clusterUsers(
+          auth.key.projectId,
+          {
+            gridDegrees:
+              url.searchParams.get("gridDegrees") || 8,
+            status: url.searchParams.get("status") || "",
+            country: url.searchParams.get("country") || "",
+            state: url.searchParams.get("state") || "",
+            city: url.searchParams.get("city") || "",
+            thresholds: config.thresholds
+          }
+        );
+
+        await recordUsage({
+          auth,
+          route: "clusters.read",
+          statusCode: 200,
+          startedAt
+        });
+
+        return json(
+          res,
+          200,
+          {
+            projectId: auth.key.projectId,
+            clusters
           },
           {
             ...corsHeaders(origin, config, auth.key),
@@ -729,21 +853,37 @@ async function start() {
   const opsStore = config.persistence === "postgres"
     ? new PostgresOperationsStore({ pool: store.pool })
     : null;
+  const realtimeStore = config.persistence === "postgres"
+    ? new PostgresRealtimeStore({ pool: store.pool })
+    : null;
 
   if (config.persistence === "postgres" && typeof store.assertReady === "function") {
     await store.assertReady();
     await adminStore.assertReady();
     await keyStore.assertReady();
     await opsStore.assertReady();
+    await realtimeStore.assertReady();
   }
+
+  const realtimeGateway = createRealtimeGateway({
+    config,
+    keyStore,
+    adminStore,
+    opsStore,
+    realtimeStore
+  });
 
   const server = createGeoLiveServer({
     config,
     store,
     adminStore,
     keyStore,
-    opsStore
+    opsStore,
+    realtimeGateway
   });
+  realtimeGateway.attach(server);
+  realtimeGateway.start();
+
   server.listen(config.port, () => {
     console.log(
       `Rekixo GeoLive listening on http://localhost:${config.port} (${config.persistence})`
@@ -754,6 +894,7 @@ async function start() {
     console.log(`GeoLive received ${signal}; shutting down.`);
     server.close(async () => {
       try {
+        realtimeGateway.close();
         if (typeof store.close === "function") await store.close();
       } finally {
         process.exit(0);

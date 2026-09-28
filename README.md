@@ -6,25 +6,25 @@
 
 ## Current implementation
 
-P0 + P1A + P1B + P1C + P1D now provide:
+P0 + P1A + P1B + P1C + P1D + P1E now provide:
 
 - project-scoped live-location ingestion
-- online / recent / offline / inactive presence
 - durable PostgreSQL + PostGIS latest-state/history storage
-- immutable checksum-verified migrations
-- secure admin login and DB-backed revocable sessions
+- secure admin login and revocable sessions
 - owner/admin/viewer account memberships
 - project create/select/edit/suspend/soft-delete
 - database-backed `rgl_live_...` API keys
-- one-time full-secret reveal, hash-only storage, rotate/revoke/expiry
-- exact browser-origin and optional package restrictions
-- **PostgreSQL-distributed project rate limits**
-- **daily ingest + live-user quotas**
-- **cursor pagination**
-- **hourly operational metrics**
-- **project security-event monitoring**
-- **per-project retention policies + bounded retention worker**
-- dashboard controls for API keys, quotas, limits and security signals
+- key expiry / rotate / revoke / origin/package restrictions
+- PostgreSQL-distributed rate limits and quotas
+- cursor pagination
+- security events and operational metrics
+- configurable retention worker
+- **authenticated WebSocket project rooms**
+- **ordered replay/resume using durable realtime sequences**
+- **heartbeat, reconnect and backpressure controls**
+- **optional Redis multi-instance realtime fanout**
+- **server-side marker clustering for large projects**
+- dashboard live reconnect/resume and clustered markers
 - JavaScript / Android / Flutter adapters
 - real PostgreSQL/PostGIS CI integration tests
 
@@ -57,49 +57,92 @@ npm run admin:bootstrap -- admin@example.com "Admin Name" "Rekixo"
 
 Open the dashboard, sign in, create/select a project, then configure API keys and Security & Operations.
 
-## P1D operations model
+## Production realtime
 
-Default project controls:
+Integration clients connect to:
 
-- ingest: 600 requests/minute
-- reads: 300 requests/minute
-- daily ingest: 1,000,000
-- live users: 100,000
-- history retention: 30 days
-- security/metrics retention: 90 days
+```text
+wss://<host>/v1/realtime
+```
 
-These are editable per project by owner/admin roles.
+The API key is **not** placed in the URL. After the socket opens, send:
 
-Run retention from a trusted scheduler:
+```json
+{
+  "type": "authenticate",
+  "token": "rgl_live_...",
+  "resumeAfter": "12345"
+}
+```
+
+A read key with `events:read` is required.
+
+GeoLive emits:
+
+- `ready`
+- `location`
+- `resync_required`
+- `pong`
+
+Each durable PostgreSQL location event has a monotonically increasing `sequence`. Clients persist the last applied sequence and send it as `resumeAfter` after reconnect.
+
+If the replay gap exceeds the configured replay limit, GeoLive sends `resync_required`; the client should reload current state through REST and continue receiving new events.
+
+The authenticated dashboard uses a same-origin admin WebSocket automatically.
+
+## Multi-instance fanout
+
+For more than one GeoLive application instance, configure Redis:
+
+```text
+GEOLIVE_REDIS_URL=redis://redis.internal:6379/0
+GEOLIVE_REDIS_REQUIRED=true
+```
+
+`rediss://` is supported for TLS.
+
+Each instance broadcasts locally and publishes durable events to a shared Redis channel. Messages originating from the same instance are ignored on subscriber echo.
+
+If Redis is required but unavailable, `/ready` reports not-ready.
+
+## Backpressure
+
+Slow WebSocket clients do not receive unbounded queues.
+
+GeoLive:
+
+- coalesces queued location updates per user
+- caps queued frames
+- caps writable buffering
+- closes persistently slow consumers with WebSocket code `1013`
+
+Clients should reconnect with their last durable sequence.
+
+## Marker clustering
+
+Large projects use server-side geographic grid clustering. The dashboard automatically switches to cluster markers above 500 users when no user filter is active, and requests smaller grid cells as the globe zoom increases.
+
+Public read-key clients can use:
+
+```text
+GET /v1/clusters?gridDegrees=8
+```
+
+## Realtime retention
+
+Durable replay events default to 24 hours per project and are deleted by the existing trusted retention worker:
 
 ```bash
 npm run retention
 ```
 
-Optional worker bounds:
+The retention period is editable in Security & Operations.
 
-```text
-GEOLIVE_RETENTION_BATCH_SIZE=5000
-GEOLIVE_RETENTION_MAX_BATCHES=20
-```
+## Compatibility
 
-The server does not run destructive retention automatically at startup.
+`GET /v1/events` SSE remains available for compatibility, but multi-instance production realtime should use the P1E WebSocket path.
 
-## Pagination
-
-User-list endpoints support:
-
-```text
-?limit=100&cursor=<opaque-cursor>
-```
-
-Responses include `nextCursor` when more rows remain.
-
-## Legacy API-key migration
-
-The pre-P1C `GEOLIVE_KEYS_JSON` bridge remains temporarily readable to prevent outages during migration. Do not create new production integrations on it.
-
-See [Legacy key retirement](docs/LEGACY-KEY-RETIREMENT.md).
+The old `GEOLIVE_KEYS_JSON` bridge remains migration-only. New production integrations should use database-backed keys.
 
 ## Verification
 
@@ -107,16 +150,15 @@ See [Legacy key retirement](docs/LEGACY-KEY-RETIREMENT.md).
 npm run check
 ```
 
-CI starts a real PostGIS service, applies all migrations, runs project/admin/API-key/P1D operations tests and executes the retention worker.
+CI applies all migrations and verifies PostGIS persistence, API-key lifecycle, quotas, pagination, realtime event replay, WebSocket delivery, clustering and retention.
 
 See:
 
 - [Architecture](ARCHITECTURE.md)
 - [Security](SECURITY.md)
 - [Integration guide](docs/INTEGRATION.md)
-- [P1A durable Postgres](docs/P1A-DURABLE-POSTGRES.md)
-- [P1B admin control plane](docs/P1B-ADMIN-CONTROL-PLANE.md)
 - [P1C API-key lifecycle](docs/P1C-API-KEY-LIFECYCLE.md)
 - [P1D security & operations](docs/P1D-SECURITY-OPERATIONS.md)
+- [P1E production realtime](docs/P1E-PRODUCTION-REALTIME.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)

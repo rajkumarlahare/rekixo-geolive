@@ -2,18 +2,18 @@
 
 GeoLive is designed so existing projects can integrate without architectural rewrites or direct database coupling.
 
-## 1. Create a project key
+## 1. Create project credentials
 
 From the authenticated GeoLive dashboard, select a project and open **API Keys**.
 
 Create separate credentials:
 
 - ingest key: `location:write`
-- read key: `users:read`, `summary:read`, `events:read`
+- read/realtime key: `users:read`, `summary:read`, `events:read`
 
 The full `rgl_live_...` secret is displayed once. Store it in the consuming project's secret manager or trusted backend configuration.
 
-Do not put read/admin credentials in a mobile or browser bundle.
+Do not put admin credentials in client applications.
 
 ## 2. REST ingestion
 
@@ -29,33 +29,95 @@ X-GeoLive-Package: com.example.app
   "longitude": 81.6296,
   "accuracyM": 12.5,
   "capturedAt": "2026-09-28T05:00:00.000Z",
-  "device": { "platform": "android", "appVersion": "2.27" }
+  "device": {
+    "platform": "android",
+    "appVersion": "2.27"
+  }
 }
 ```
 
-`X-GeoLive-Package` is required only when the key has package restrictions.
-
 The project is resolved from the authenticated key. The request body cannot choose another project.
 
-## 3. Browser integrations
+Accepted responses include `eventSequence` when durable realtime persistence is active.
 
-Configure exact allowed origins on the key, for example:
+## 3. Production realtime WebSocket
 
-```text
-https://app.example.com
-```
-
-Do not include paths.
-
-The browser's Origin header is checked on the authenticated request.
-
-Long-lived secrets in browser JavaScript can be extracted by users. For sensitive production deployments, prefer:
+Connect to:
 
 ```text
-Browser -> trusted backend -> future short-lived GeoLive token -> GeoLive
+wss://geolive.example.com/v1/realtime
 ```
 
-## 4. JavaScript SDK
+Do not place the API key in the WebSocket URL.
+
+After the connection opens, authenticate:
+
+```json
+{
+  "type": "authenticate",
+  "token": "rgl_live_...",
+  "packageId": "com.example.app",
+  "resumeAfter": "12345"
+}
+```
+
+The credential must include `events:read`.
+
+The server replies with `ready`, then emits project-scoped `location` events.
+
+Persist the latest applied numeric `sequence`. On reconnect, send it as `resumeAfter`.
+
+If the replay gap is too large, GeoLive sends `resync_required`. Reload current state via REST and continue receiving new events.
+
+## 4. Realtime event example
+
+```json
+{
+  "type": "location",
+  "sequence": "12346",
+  "eventId": "f7d59f39-6cbd-4c8a-a88c-a1b146882003",
+  "projectId": "5d1d0b97-5ef0-4d34-95f8-0c655675798d",
+  "userId": "user_123",
+  "payload": {
+    "userId": "user_123",
+    "latitude": 21.2514,
+    "longitude": 81.6296,
+    "status": "online"
+  },
+  "createdAt": "2026-09-28T05:00:01.000Z"
+}
+```
+
+## 5. Backpressure and reconnect
+
+GeoLive bounds WebSocket memory use.
+
+Queued location updates can be coalesced per user. Persistently slow consumers may be closed with WebSocket code `1013`.
+
+Reconnect using the last successfully applied sequence.
+
+## 6. Large-map clustering
+
+Read-key clients can request aggregate map cells:
+
+```http
+GET /v1/clusters?gridDegrees=8
+Authorization: Bearer rgl_live_...
+```
+
+Each result contains a cluster center, user count and online/recent/offline/inactive counts.
+
+Smaller `gridDegrees` produces finer cells.
+
+## 7. Browser integrations
+
+Configure exact allowed origins on the API key.
+
+Browser `Origin` is checked during REST and WebSocket authentication.
+
+Long-lived keys embedded in browser JavaScript can be extracted. For sensitive deployments, use a trusted backend and the future P2 short-lived token flow.
+
+## 8. JavaScript SDK
 
 ```js
 import { GeoLiveClient } from "./sdk/javascript/index.mjs";
@@ -75,9 +137,7 @@ await geo.sendLocation({
 
 Call browser geolocation only after explicit user permission.
 
-## 5. Android
-
-The Android adapter accepts an optional package ID:
+## 9. Android
 
 ```kotlin
 val geo = RekixoGeoLiveClient(
@@ -88,13 +148,11 @@ val geo = RekixoGeoLiveClient(
 )
 ```
 
-Package-header restrictions are defense-in-depth, not cryptographic app identity. The later attestation phase is required for strong binding.
+Package-header restrictions are defense-in-depth. P2 app attestation is required for stronger client identity.
 
-The host Android app owns runtime permission prompts, foreground/background policy and location acquisition.
+The host app owns permission prompts and foreground/background location policy.
 
-## 6. Flutter
-
-The Flutter adapter also accepts `packageId`:
+## 10. Flutter
 
 ```dart
 final geo = RekixoGeoLiveClient(
@@ -105,22 +163,20 @@ final geo = RekixoGeoLiveClient(
 );
 ```
 
-## 7. Trusted server projects
+## 11. Trusted server projects
 
-Firebase Functions, Node services and other trusted backends can call GeoLive with server-held keys.
+Firebase Functions, Node services and other trusted backends can hold GeoLive credentials in their own secret manager and call the REST or WebSocket contracts.
 
-For server-to-server usage, keep the key only in the platform's secret store/environment and never log it.
+Never log raw GeoLive credentials.
 
-## 8. Key lifecycle
+## 12. Multi-instance GeoLive
 
-- create -> copy full secret once
-- rotate -> old key is revoked atomically, new secret shown once
-- revoke -> authentication fails immediately
-- expire -> authentication fails after expiry
-- last-used metadata -> visible in dashboard
+Client integrations do not change when GeoLive scales horizontally.
 
-## 9. Compatibility boundary
+GeoLive instances can share Redis Pub/Sub for realtime fanout while PostgreSQL remains the durable replay source.
 
-GeoLive does not require direct access to a sibling product database. Each product opts in through the API/SDK contract.
+## 13. Compatibility boundary
 
-Existing sibling repositories remain unchanged until their owners intentionally add a GeoLive integration.
+GeoLive does not directly read sibling-project databases.
+
+Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories stay independent until they intentionally integrate through these contracts.
