@@ -353,6 +353,29 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
       });
     assert.equal(resolved.status, "resolved");
 
+    const opened =
+      await commercialStore.updateInvoice({
+        invoiceId: generated.invoice.id,
+        actorUserId: owner.userId,
+        status: "open"
+      });
+    assert.equal(opened.status, "open");
+    assert.ok(opened.issuedAt);
+
+    await assert.rejects(
+      () =>
+        commercialStore.updateInvoice({
+          invoiceId: generated.invoice.id,
+          actorUserId: owner.userId,
+          status: "draft"
+        }),
+      (error) =>
+        error instanceof CommercialStoreError &&
+        error.code ===
+          "invalid_invoice_transition" &&
+        error.status === 409
+    );
+
     const paid =
       await commercialStore.updateInvoice({
         invoiceId: generated.invoice.id,
