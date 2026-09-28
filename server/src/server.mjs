@@ -15,6 +15,7 @@ import { PostgresApiKeyStore } from "./api-key-store-postgres.mjs";
 import { PostgresOperationsStore } from "./operations-store-postgres.mjs";
 import { PostgresRealtimeStore } from "./realtime-store-postgres.mjs";
 import { PostgresClientSecurityStore } from "./client-security-store-postgres.mjs";
+import { PostgresCommercialStore } from "./commercial-store-postgres.mjs";
 import { ClientTokenService } from "./client-token.mjs";
 import { PlayIntegrityVerifier } from "./play-integrity.mjs";
 import {
@@ -167,6 +168,7 @@ export function createGeoLiveServer({
   keyStore = null,
   opsStore = null,
   clientSecurityStore = null,
+  commercialStore = null,
   clientTokenService = null,
   playIntegrityVerifier = null,
   realtimeGateway = null
@@ -330,6 +332,7 @@ export function createGeoLiveServer({
         keyStore,
         opsStore,
         clientSecurityStore,
+        commercialStore,
         geoStore: store
       })) {
         return;
@@ -343,7 +346,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.7.0"
+          version: "0.8.0"
         });
       }
 
@@ -367,6 +370,10 @@ export function createGeoLiveServer({
           clientSecurityStore
             ? await clientSecurityStore.ready()
             : !config.isProduction;
+        const commercialReady =
+          commercialStore
+            ? await commercialStore.ready()
+            : !config.isProduction;
         const clientTokensConfigured =
           Boolean(clientTokenService?.configured);
         const clientTokensReady =
@@ -378,6 +385,7 @@ export function createGeoLiveServer({
           && operationsReady
           && realtimeReady
           && clientSecurityReady
+          && commercialReady
           && clientTokensReady
           && (!config.isProduction || config.persistence === "postgres");
 
@@ -390,6 +398,7 @@ export function createGeoLiveServer({
           operationsReady,
           realtimeReady,
           clientSecurityReady,
+          commercialReady,
           clientTokensConfigured,
           clientTokensRequired:
             Boolean(
@@ -434,6 +443,14 @@ export function createGeoLiveServer({
             error:
               "client_token_issuer_requires_database_key"
           });
+        }
+
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              auth.key.projectId,
+              "clientTokens"
+            );
         }
 
         if (
@@ -618,6 +635,17 @@ export function createGeoLiveServer({
         if (input.platform === "android") {
           const mode =
             policy.androidAttestationMode;
+
+          if (
+            input.attestation &&
+            commercialStore
+          ) {
+            await commercialStore
+              .assertProjectFeature(
+                auth.key.projectId,
+                "androidAttestation"
+              );
+          }
 
           if (
             mode === "required" &&
@@ -1374,6 +1402,12 @@ async function start() {
           pool: store.pool
         })
       : null;
+  const commercialStore =
+    config.persistence === "postgres"
+      ? new PostgresCommercialStore({
+          pool: store.pool
+        })
+      : null;
   const clientTokenService =
     new ClientTokenService({
       signingKeys:
@@ -1394,6 +1428,7 @@ async function start() {
     await opsStore.assertReady();
     await realtimeStore.assertReady();
     await clientSecurityStore.assertReady();
+    await commercialStore.assertReady();
   }
 
   const realtimeGateway = createRealtimeGateway({
@@ -1411,6 +1446,7 @@ async function start() {
     keyStore,
     opsStore,
     clientSecurityStore,
+    commercialStore,
     clientTokenService,
     playIntegrityVerifier,
     realtimeGateway
