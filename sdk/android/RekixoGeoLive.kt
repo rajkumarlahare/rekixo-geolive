@@ -87,13 +87,15 @@ data class GeoLiveObservation(
  * The host Android app owns runtime permission prompts, foreground/background
  * location policy, and LocationServices. Never embed a dashboard/admin secret.
  *
- * Long-lived API keys are appropriate only when the host accepts extraction risk.
- * Prefer the later short-lived-token/attestation path for untrusted clients.
- * packageId is only defense-in-depth until attestation is enabled.
+ * Long-lived API keys remain available for trusted/controlled integrations.
+ * For untrusted clients, prefer a short-lived rgl_client_ token supplied by
+ * tokenProvider and bind it to requestProofProvider / platform attestation.
+ * packageId alone is defense-in-depth; Android Play Integrity can provide
+ * stronger app/device evidence during the token exchange.
  */
 class RekixoGeoLiveClient(
     baseUrl: String,
-    private val ingestToken: String,
+    private val ingestToken: String = "",
     private val userId: String,
     private val packageId: String? = null,
     private val executor: Executor = Executors.newSingleThreadExecutor(),
