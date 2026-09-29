@@ -100,6 +100,18 @@ Public authenticated traffic uses PostgreSQL-backed distributed limits.
 
 GeoLive does not copy raw API secrets, client tokens, Play Integrity tokens, passwords, admin sessions, CSRF tokens, payment secrets or exact location payloads into security/metrics tables.
 
+## Geofence automation and outbound webhooks
+
+Geofence transitions are evaluated inside the same PostgreSQL transaction that persists each location observation. Per-project/user advisory locking keeps enter/exit state transitions ordered for concurrent writes. Dwell events are claimed with row locks and `SKIP LOCKED` so horizontally scaled servers do not emit the same due dwell twice.
+
+Webhook deliveries are durable database records with at-least-once semantics, stable event/delivery IDs, bounded exponential retries and a terminal dead-letter state. Signing secrets are derived from deployment-held master keys and are shown only when an endpoint is created or rotated; plaintext webhook secrets are not stored in PostgreSQL.
+
+Production webhook URLs require HTTPS. Before every outbound attempt GeoLive resolves the target and rejects loopback, link-local, RFC1918/private, carrier-grade NAT, multicast and other non-public address ranges. The HTTP request is pinned to the validated DNS result and redirects are not followed, reducing SSRF and DNS-rebinding exposure.
+
+Each webhook request includes `X-Rekixo-Timestamp`, `X-Rekixo-Signature: v1=<hex-hmac>`, `X-Rekixo-Event-Id`, `X-Rekixo-Delivery-Id` and `Idempotency-Key`. Consumers should verify the HMAC over `<timestamp>.<raw-body>`, enforce a timestamp freshness window and deduplicate by event or delivery ID.
+
+Geofence and webhook execution also fails closed when the corresponding commercial entitlement is disabled.
+
 ## Retention
 
 Location history, realtime replay events, P2 replay nonces, security events and operational metrics have bounded cleanup. Commercial invoice/support records are not deleted by the generic retention worker because they represent business records and require an explicit retention policy before automatic deletion.
