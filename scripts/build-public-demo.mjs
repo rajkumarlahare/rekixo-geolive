@@ -61,6 +61,7 @@ await writeFile(
     "runtime-config.js"
   ),
   `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${JSON.stringify({
+    demoMode: true,
     googleMapsApiKey
   })});\n`,
   "utf8"
