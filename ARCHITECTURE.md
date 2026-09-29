@@ -1,6 +1,6 @@
 # Rekixo GeoLive Architecture Contract
 
-Status: **P4A ADVANCED GEOSPATIAL READ FOUNDATION**
+Status: **P4C PRODUCT-GRADE GEOSPATIAL CONSOLE**
 
 ## Product boundary
 
@@ -122,6 +122,6 @@ P1E realtime and Redis fanout remain independent from the commercial data model.
 
 ## Next boundary
 
-P4B extends geospatial reads into event automation: geofence definitions, enter/exit/dwell evaluation, alert rules and signed/retriable outbound webhooks.
+The remaining P4C product boundary is route/trip analytics plus export workflows. The durable geospatial, realtime, geofence automation, webhook observability and commercial foundations are already in place.
 
 External payment collection, tax calculation, refunds/credits and customer checkout are deliberately left for a future payment-provider layer.
