@@ -23,7 +23,8 @@ const files = [
   "photorealistic-earth.js",
   "geofence-editor.js",
   "demo-mode.js",
-  "earth-dark.svg"
+  "earth-dark.svg",
+  "geolive-favicon.svg"
 ];
 
 for (const file of files) {
