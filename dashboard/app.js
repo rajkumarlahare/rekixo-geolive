@@ -59,6 +59,8 @@ const state = {
   projectMode: "create",
   keys: [],
   automation: {
+    geofencesEnabled: true,
+    webhooksEnabled: true,
     geofences: [],
     endpoints: [],
     rules: [],
@@ -1083,13 +1085,39 @@ function renderAutomation() {
   populateAutomationSelects();
   const writable =
     canWriteProject();
+  const geofenceWritable =
+    writable &&
+    state.automation.geofencesEnabled;
+  const webhookWritable =
+    writable &&
+    state.automation.webhooksEnabled;
+  const alertWritable =
+    webhookWritable &&
+    state.automation.endpoints.length > 0;
 
   document
     .querySelectorAll(
-      "#geofenceForm input, #geofenceForm select, #geofenceForm textarea, #geofenceForm button, #webhookForm input, #webhookForm select, #webhookForm textarea, #webhookForm button, #alertRuleForm input, #alertRuleForm select, #alertRuleForm textarea, #alertRuleForm button"
+      "#geofenceForm input, #geofenceForm select, #geofenceForm textarea, #geofenceForm button"
     )
     .forEach((element) => {
-      element.disabled = !writable;
+      element.disabled =
+        !geofenceWritable;
+    });
+  document
+    .querySelectorAll(
+      "#webhookForm input, #webhookForm select, #webhookForm textarea, #webhookForm button"
+    )
+    .forEach((element) => {
+      element.disabled =
+        !webhookWritable;
+    });
+  document
+    .querySelectorAll(
+      "#alertRuleForm input, #alertRuleForm select, #alertRuleForm textarea, #alertRuleForm button"
+    )
+    .forEach((element) => {
+      element.disabled =
+        !alertWritable;
     });
 
   const geofences =
@@ -1102,7 +1130,9 @@ function renderAutomation() {
   ) {
     automationEmpty(
       geofences,
-      "No geofences yet."
+      state.automation.geofencesEnabled
+        ? "No geofences yet."
+        : "Geofences are not enabled for this account."
     );
   }
   for (
@@ -1126,7 +1156,7 @@ function renderAutomation() {
             ? `Dwell: ${geofence.dwellSeconds}s`
             : "Dwell disabled"
         ],
-        actions: writable
+        actions: geofenceWritable
           ? [
               {
                 label:
@@ -1181,7 +1211,9 @@ function renderAutomation() {
   ) {
     automationEmpty(
       webhooks,
-      "No webhook endpoints yet."
+      state.automation.webhooksEnabled
+        ? "No webhook endpoints yet."
+        : "Webhooks are not enabled for this account."
     );
   }
   for (
@@ -1197,7 +1229,7 @@ function renderAutomation() {
           endpoint.url,
           `Secret generation ${endpoint.secretGeneration}`
         ],
-        actions: writable
+        actions: webhookWritable
           ? [
               {
                 label:
@@ -1258,7 +1290,9 @@ function renderAutomation() {
   if (!state.automation.rules.length) {
     automationEmpty(
       rules,
-      "No alert rules yet."
+      state.automation.webhooksEnabled
+        ? "No alert rules yet."
+        : "Alert rules require the Webhooks entitlement."
     );
   }
   for (
@@ -1293,7 +1327,7 @@ function renderAutomation() {
             "Missing endpoint",
           rule.eventTypes.join(", ")
         ],
-        actions: writable
+        actions: webhookWritable
           ? [
               {
                 label:
@@ -1334,7 +1368,9 @@ function renderAutomation() {
   if (!state.automation.events.length) {
     automationEmpty(
       events,
-      "No geofence events yet."
+      state.automation.geofencesEnabled
+        ? "No geofence events yet."
+        : "Geofence event history is not enabled for this account."
     );
   }
   for (
@@ -1370,7 +1406,9 @@ function renderAutomation() {
   ) {
     automationEmpty(
       deliveries,
-      "No webhook deliveries yet."
+      state.automation.webhooksEnabled
+        ? "No webhook deliveries yet."
+        : "Webhook delivery history is not enabled for this account."
     );
   }
   for (
@@ -1395,7 +1433,7 @@ function renderAutomation() {
           ).toLocaleString()
         ],
         actions:
-          writable &&
+          webhookWritable &&
           delivery.status === "dead"
             ? [
                 {
@@ -1440,16 +1478,10 @@ async function loadAutomation() {
     ""
   );
 
-  try {
-    const base =
-      `/v1/admin/projects/${project.id}`;
-    const [
-      geofencePayload,
-      endpointPayload,
-      rulePayload,
-      eventPayload,
-      deliveryPayload
-    ] = await Promise.all([
+  const base =
+    `/v1/admin/projects/${project.id}`;
+  const results =
+    await Promise.allSettled([
       api(`${base}/geofences`),
       api(
         `${base}/webhook-endpoints`
@@ -1463,29 +1495,114 @@ async function loadAutomation() {
       )
     ]);
 
-    state.automation = {
-      geofences:
-        geofencePayload.geofences ||
-        [],
-      endpoints:
-        endpointPayload.endpoints ||
-        [],
-      rules:
-        rulePayload.alertRules ||
-        [],
-      events:
-        eventPayload.events || [],
-      deliveries:
-        deliveryPayload.deliveries ||
-        []
-    };
-    renderAutomation();
-  } catch (error) {
-    setText(
-      "automationError",
-      automationErrorText(error)
+  const [
+    geofenceResult,
+    endpointResult,
+    ruleResult,
+    eventResult,
+    deliveryResult
+  ] = results;
+
+  const entitlementError =
+    (result) =>
+      result.status ===
+        "rejected" &&
+      [
+        "feature_not_entitled",
+        "subscription_not_active"
+      ].includes(
+        result.reason?.code
+      );
+
+  const geofencesEnabled =
+    !entitlementError(
+      geofenceResult
+    ) &&
+    !entitlementError(
+      eventResult
+    );
+  const webhooksEnabled =
+    !entitlementError(
+      endpointResult
+    ) &&
+    !entitlementError(
+      ruleResult
+    ) &&
+    !entitlementError(
+      deliveryResult
+    );
+
+  state.automation = {
+    geofencesEnabled,
+    webhooksEnabled,
+    geofences:
+      geofenceResult.status ===
+      "fulfilled"
+        ? geofenceResult.value
+            .geofences || []
+        : [],
+    endpoints:
+      endpointResult.status ===
+      "fulfilled"
+        ? endpointResult.value
+            .endpoints || []
+        : [],
+    rules:
+      ruleResult.status ===
+      "fulfilled"
+        ? ruleResult.value
+            .alertRules || []
+        : [],
+    events:
+      eventResult.status ===
+      "fulfilled"
+        ? eventResult.value
+            .events || []
+        : [],
+    deliveries:
+      deliveryResult.status ===
+      "fulfilled"
+        ? deliveryResult.value
+            .deliveries || []
+        : []
+  };
+
+  const labels = [
+    "geofences",
+    "webhook endpoints",
+    "alert rules",
+    "geofence events",
+    "webhook deliveries"
+  ];
+  const errors = results
+    .map((result, index) => {
+      if (
+        result.status !==
+          "rejected" ||
+        entitlementError(result)
+      ) {
+        return "";
+      }
+      return `Could not load ${labels[index]}: ${automationErrorText(result.reason)}`;
+    })
+    .filter(Boolean);
+
+  if (!geofencesEnabled) {
+    errors.push(
+      "Geofences are not enabled for this account."
     );
   }
+  if (!webhooksEnabled) {
+    errors.push(
+      "Webhooks are not enabled for this account."
+    );
+  }
+
+  setText(
+    "automationError",
+    errors.join(" ")
+  );
+  renderAutomation();
 }
 
 async function openAutomationModal() {
@@ -1787,12 +1904,19 @@ document.querySelector(
         "#webhookSecret"
       ).textContent;
     if (!secret) return;
-    await navigator.clipboard
-      .writeText(secret);
-    setText(
-      "automationError",
-      "Webhook signing secret copied."
-    );
+    try {
+      await navigator.clipboard
+        .writeText(secret);
+      setText(
+        "automationError",
+        "Webhook signing secret copied."
+      );
+    } catch {
+      setText(
+        "automationError",
+        "Clipboard access failed. Select and copy the secret manually."
+      );
+    }
   }
 );
 
