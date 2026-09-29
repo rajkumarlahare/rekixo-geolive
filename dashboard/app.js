@@ -7,6 +7,13 @@ import {
   haversineMeters,
   screenToGeo
 } from "./geofence-editor.js";
+import {
+  demoApi,
+  demoModeEnabled,
+  demoRealtimeMessage
+} from "./demo-mode.js";
+
+const DEMO_MODE = demoModeEnabled();
 
 const earthCanvas =
   document.querySelector(
@@ -106,6 +113,7 @@ const state = {
   useClusters: false,
   realtimeSocket: null,
   realtimeRetryTimer: null,
+  demoRealtimeTimer: null,
   realtimeRetryMs: 1000,
   realtimeSequence: "0",
   realtimeProjectId: "",
@@ -131,6 +139,10 @@ const setText = (id, value) => {
 };
 
 async function api(path, options = {}) {
+  if (DEMO_MODE) {
+    return demoApi(path, options);
+  }
+
   const headers = new Headers(options.headers || {});
   if (options.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
@@ -247,7 +259,7 @@ function applyIdentity() {
   setText("adminName", state.user?.displayName || "Admin");
   setText("adminEmail", state.user?.email || "Not signed in");
   setText("avatar", initials(state.user?.displayName));
-  document.querySelector("#logout").hidden = !state.user;
+  document.querySelector("#logout").hidden = !state.user || DEMO_MODE;
   search.disabled = !state.user;
 }
 
@@ -977,6 +989,8 @@ function applyRealtimeLocation(message) {
 
 function stopRealtime({ resetSequence = false } = {}) {
   clearTimeout(state.realtimeRetryTimer);
+  clearInterval(state.demoRealtimeTimer);
+  state.demoRealtimeTimer = null;
   state.realtimeRetryTimer = null;
 
   const socket = state.realtimeSocket;
@@ -997,6 +1011,19 @@ function stopRealtime({ resetSequence = false } = {}) {
 function startRealtime() {
   const project = projectById();
   if (!project || !state.user) return;
+
+  if (DEMO_MODE) {
+    stopRealtime();
+    state.realtimeProjectId = project.id;
+    setText(
+      "projectState",
+      `${project.status.toUpperCase()} · ${project.role} · DEMO LIVE`
+    );
+    state.demoRealtimeTimer = setInterval(() => {
+      applyRealtimeLocation(demoRealtimeMessage());
+    }, 4500);
+    return;
+  }
 
   if (state.realtimeProjectId !== project.id) {
     stopRealtime({ resetSequence: true });
@@ -1103,7 +1130,7 @@ function startPolling() {
   if (!state.projectId) return;
   state.pollTimer = setInterval(
     () => loadProject({ quiet: true }),
-    60000
+    DEMO_MODE ? 30000 : 60000
   );
 }
 
@@ -7498,6 +7525,15 @@ function showDetail(user) {
 
 document.querySelector("#detailClose").onclick = () => showDetail({});
 
+function installDemoUi() {
+  if (!DEMO_MODE) return;
+  document.body.classList.add("public-demo-mode");
+  const badge = document.createElement("div");
+  badge.className = "public-demo-badge";
+  badge.innerHTML = "<strong>PUBLIC DEMO</strong><span>Synthetic data · read-only · no real webhooks or secrets</span>";
+  document.body.appendChild(badge);
+}
+
 async function boot() {
   try {
     const payload = await api("/v1/admin/me");
@@ -7511,5 +7547,6 @@ async function boot() {
   }
 }
 
+installDemoUi();
 resetData();
 boot();
