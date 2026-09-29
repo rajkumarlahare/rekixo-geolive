@@ -220,7 +220,11 @@ GeoLive 0.13.0 adds an automation observability layer to the same tenant console
 
 Each webhook delivery can now be inspected in a project-scoped detail view that exposes endpoint/rule/event context, latest response or error state, scheduling state, the safely rendered response excerpt, and the completed attempt timeline with HTTP status, latency and failure reason. Dead-letter retries remain explicit audited mutations. Production query indexes for the new filters are created concurrently during migration.
 
-Trip/route analytics, export workflows and explicit pagination UX for very broad user text searches remain follow-up work rather than being represented as complete.
+GeoLive 0.14.0 completes the broad user-search paging UX. Text searches now render bounded 200-user pages instead of silently stopping at the first 500 matches. The globe exposes explicit Previous / Next controls, keeps an in-memory cursor stack for backwards navigation, preserves the current search page across polling/realtime refreshes, and invalidates stale requests when the project or filters change. Non-search large projects continue to use server-side geographic clustering.
+
+The memory and PostgreSQL stores both implement the same cursor contract, and integration coverage verifies that pages do not overlap while traversing more than 500 matching users.
+
+Trip/route analytics and export workflows remain follow-up work rather than being represented as complete.
 
 ## Production realtime
 
@@ -244,7 +248,7 @@ This cleans location history, realtime replay events, operational data, expired 
 
 ## Compatibility
 
-Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B, the P4C console foundation, the globe geofence editor and the 0.13.0 automation observability layer are additive.
+Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B, the P4C console foundation, the globe geofence editor, the automation observability layer and the 0.14.0 user-search pagination UX are additive.
 
 The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
 
