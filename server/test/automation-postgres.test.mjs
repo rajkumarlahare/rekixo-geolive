@@ -126,25 +126,26 @@ test("P4B Postgres geofence enter/dwell/exit schedules idempotent webhook delive
       /^rgl_whsec_/
     );
 
-    await automation
-      .createAlertRule({
-        project,
-        actorUserId: null,
-        input: {
-          name: "CI Rule",
-          geofenceId:
-            geofence.id,
-          webhookEndpointId:
-            createdEndpoint
-              .endpoint.id,
-          eventTypes: [
-            "enter",
-            "dwell",
-            "exit"
-          ],
-          enabled: true
-        }
-      });
+    const alertRule =
+      await automation
+        .createAlertRule({
+          project,
+          actorUserId: null,
+          input: {
+            name: "CI Rule",
+            geofenceId:
+              geofence.id,
+            webhookEndpointId:
+              createdEndpoint
+                .endpoint.id,
+            eventTypes: [
+              "enter",
+              "dwell",
+              "exit"
+            ],
+            enabled: true
+          }
+        });
 
     const insideAt =
       new Date(
@@ -268,6 +269,180 @@ test("P4B Postgres geofence enter/dwell/exit schedules idempotent webhook delive
           "pending"
       ),
       true
+    );
+
+    await automation
+      .updateAlertRule({
+        project,
+        actorUserId: null,
+        alertRuleId:
+          alertRule.id,
+        patch: {
+          enabled: false
+        }
+      });
+
+    const disabledDeliveries =
+      await automation
+        .listDeliveries(
+          project.id,
+          { limit: 20 }
+        );
+    assert.equal(
+      disabledDeliveries.deliveries
+        .every(
+          (item) =>
+            item.status === "dead" &&
+            item.lastError ===
+              "alert_rule_disabled"
+        ),
+      true
+    );
+
+    const retryId =
+      disabledDeliveries
+        .deliveries[0]
+        .deliveryId;
+    await pool.query(
+      `UPDATE webhook_deliveries
+      SET response_status = 503,
+          response_body_excerpt =
+            'stale',
+          delivered_at = now()
+      WHERE delivery_id = $1`,
+      [retryId]
+    );
+    await automation
+      .retryWebhookDelivery({
+        project,
+        actorUserId: null,
+        deliveryId: retryId
+      });
+    const retried =
+      (
+        await automation
+          .listDeliveries(
+            project.id,
+            { limit: 20 }
+          )
+      ).deliveries.find(
+        (item) =>
+          item.deliveryId ===
+          retryId
+      );
+    assert.equal(
+      retried.status,
+      "retry"
+    );
+    assert.equal(
+      retried.attemptCount,
+      0
+    );
+    assert.equal(
+      retried.responseStatus,
+      null
+    );
+    assert.equal(
+      retried.responseBodyExcerpt,
+      null
+    );
+    assert.equal(
+      retried.lastError,
+      null
+    );
+    assert.equal(
+      retried.deliveredAt,
+      null
+    );
+
+    const reenterAt =
+      new Date().toISOString();
+    await geo.upsertLocation(
+      project.id,
+      {
+        userId: "user-1",
+        latitude: 21.25,
+        longitude: 81.63,
+        receivedAt: reenterAt,
+        capturedAt: reenterAt
+      }
+    );
+    assert.equal(
+      Number(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS count
+            FROM geofence_user_state
+            WHERE project_id = $1
+              AND geofence_id = $2
+              AND external_user_id = 'user-1'`,
+            [
+              project.id,
+              geofence.id
+            ]
+          )
+        ).rows[0].count
+      ),
+      1
+    );
+
+    await automation
+      .updateGeofence({
+        project,
+        actorUserId: null,
+        geofenceId:
+          geofence.id,
+        patch: {
+          status: "paused"
+        }
+      });
+    assert.equal(
+      Number(
+        (
+          await pool.query(
+            `SELECT count(*)::int AS count
+            FROM geofence_user_state
+            WHERE project_id = $1
+              AND geofence_id = $2
+              AND external_user_id = 'user-1'`,
+            [
+              project.id,
+              geofence.id
+            ]
+          )
+        ).rows[0].count
+      ),
+      0
+    );
+
+    await automation
+      .updateGeofence({
+        project,
+        actorUserId: null,
+        geofenceId:
+          geofence.id,
+        patch: {
+          status: "active"
+        }
+      });
+    const baseline =
+      await geo.upsertLocation(
+        project.id,
+        {
+          userId: "user-1",
+          latitude: 21.25,
+          longitude: 81.63,
+          receivedAt:
+            new Date().toISOString()
+        }
+      );
+    assert.deepEqual(
+      baseline._automationEvents
+        .map(
+          (event) =>
+            event.eventType
+        ),
+      ["enter"]
     );
 
     await geo.upsertLocation(
