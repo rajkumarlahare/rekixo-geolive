@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.9.0
+  version: 0.10.0
   description: Project-scoped live-location API with short-lived client security, commercial plans, movement history, historical heatmaps, usage metering, invoices, support workflows and platform administration.
 servers:
   - url: https://geolive.example.com
@@ -412,6 +412,201 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Aggregate cluster centers for an authorized project }
+
+  /v1/admin/projects/{projectId}/geofences:
+    get:
+      operationId: adminListGeofences
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project geofence definitions }
+        "402": { description: Geofence feature not entitled }
+    post:
+      operationId: adminCreateGeofence
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Circle or polygon geofence created }
+        "402": { description: Geofence feature not entitled }
+
+  /v1/admin/projects/{projectId}/geofences/{geofenceId}:
+    patch:
+      operationId: adminUpdateGeofence
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: geofenceId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Geofence updated }
+    delete:
+      operationId: adminDeleteGeofence
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: geofenceId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Geofence soft-deleted and related rules disabled }
+
+  /v1/admin/projects/{projectId}/webhook-endpoints:
+    get:
+      operationId: adminListWebhookEndpoints
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project webhook endpoint metadata }
+        "402": { description: Webhook feature not entitled }
+    post:
+      operationId: adminCreateWebhookEndpoint
+      description: Creates an endpoint and returns its signing secret exactly once.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Webhook endpoint created; signing secret returned once }
+        "402": { description: Webhook feature not entitled }
+        "503": { description: Webhook signing keys are not configured }
+
+  /v1/admin/projects/{projectId}/webhook-endpoints/{endpointId}:
+    patch:
+      operationId: adminUpdateWebhookEndpoint
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: endpointId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Webhook endpoint metadata updated }
+    delete:
+      operationId: adminDeleteWebhookEndpoint
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: endpointId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Endpoint soft-deleted and pending deliveries dead-lettered }
+
+  /v1/admin/projects/{projectId}/webhook-endpoints/{endpointId}/rotate:
+    post:
+      operationId: adminRotateWebhookSecret
+      description: Rotates the derived endpoint signing secret and returns the new secret once.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: endpointId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Webhook signing secret rotated }
+
+  /v1/admin/projects/{projectId}/alert-rules:
+    get:
+      operationId: adminListAlertRules
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project geofence alert rules }
+    post:
+      operationId: adminCreateAlertRule
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Alert rule created }
+
+  /v1/admin/projects/{projectId}/alert-rules/{alertRuleId}:
+    patch:
+      operationId: adminUpdateAlertRule
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: alertRuleId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Alert rule updated }
+    delete:
+      operationId: adminDeleteAlertRule
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: alertRuleId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Alert rule soft-deleted }
+
+  /v1/admin/projects/{projectId}/geofence-events:
+    get:
+      operationId: adminListGeofenceEvents
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        "200": { description: Cursor-paginated project geofence event history }
+
+  /v1/admin/projects/{projectId}/webhook-deliveries:
+    get:
+      operationId: adminListWebhookDeliveries
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        "200": { description: Cursor-paginated webhook delivery and dead-letter state }
 
   /v1/admin/realtime:
     get:
