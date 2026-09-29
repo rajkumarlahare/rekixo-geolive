@@ -52,6 +52,13 @@ function rendererFailureCode(error) {
     ).toLowerCase();
 
   if (
+    code.includes(
+      "google_tiles_proxy_auth_401"
+    )
+  ) {
+    return "google_tiles_proxy_auth";
+  }
+  if (
     code.includes("google_tiles_http_401") ||
     code.includes("google_tiles_http_403")
   ) {
@@ -144,12 +151,14 @@ async function probeGoogleTiles({
   } catch {}
 
   if (!response.ok) {
+    const code =
+      sameOrigin &&
+      response.status === 401
+        ? "google_tiles_proxy_auth_401"
+        : `google_tiles_http_${response.status}`;
     const error =
-      new Error(
-        `google_tiles_http_${response.status}`
-      );
-    error.code =
-      `google_tiles_http_${response.status}`;
+      new Error(code);
+    error.code = code;
     throw error;
   }
 }
@@ -370,7 +379,10 @@ export class PhotorealisticEarthRenderer {
     this.retryAttempt = 0;
     this.failureReason = "";
 
-    if (this.configured) {
+    if (
+      this.configured &&
+      !this.tilesRootUrl
+    ) {
       queueMicrotask(() => {
         this.initialize().catch(
           () => {}
