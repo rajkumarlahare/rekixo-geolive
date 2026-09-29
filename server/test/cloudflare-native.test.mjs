@@ -149,6 +149,14 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
     config.triggers?.crons,
     ["* * * * *"]
   );
+  assert.equal(
+    config.vars?.GEOLIVE_CANONICAL_ORIGIN,
+    "https://geolive.rekixo.com"
+  );
+  assert.equal(
+    config.vars?.GEOLIVE_ALLOWED_ORIGINS,
+    "https://geolive.rekixo.com"
+  );
 
   for (const table of [
     "accounts",
@@ -184,6 +192,10 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   assert.match(
     worker,
     /enforceProjectRate/
+  );
+  assert.match(
+    worker,
+    /GEOLIVE_CANONICAL_ORIGIN/
   );
   assert.match(
     realtime,
