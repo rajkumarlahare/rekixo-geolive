@@ -12,6 +12,17 @@ The canonical production origin is:
 https://geolive.rekixo.com
 ```
 
+For the Google Map Tiles browser key, use a Website application restriction
+matching the origin itself:
+
+```text
+https://geolive.rekixo.com
+```
+
+Do not depend on a dashboard path such as `/dashboard/*`. The production
+Worker deliberately emits `Referrer-Policy: origin`, so cross-origin Google
+Tiles requests authorize against the site origin rather than a path.
+
 Use it for the authenticated dashboard and all new production integrations:
 
 - dashboard: `https://geolive.rekixo.com/dashboard/`

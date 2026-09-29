@@ -206,6 +206,10 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
     /GEOLIVE_CANONICAL_ORIGIN/
   );
   assert.match(
+    worker,
+    /"referrer-policy": "origin"/
+  );
+  assert.match(
     realtime,
     /setWebSocketAutoResponse/
   );
@@ -276,6 +280,10 @@ test("Photorealistic Earth validates Google Tiles and self-recovers from transie
   assert.match(
     renderer,
     /Google 3D retrying/
+  );
+  assert.match(
+    renderer,
+    /Google 3D blocked/
   );
   assert.match(
     app,

@@ -52,7 +52,7 @@ const DASHBOARD_CSP =
 function securityHeaders() {
   return {
     "x-content-type-options": "nosniff",
-    "referrer-policy": "strict-origin-when-cross-origin",
+    "referrer-policy": "origin",
     "x-frame-options": "DENY",
     "permissions-policy": "geolocation=(), camera=(), microphone=()"
   };
