@@ -398,7 +398,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.12.0"
+          version: "0.13.0"
         });
       }
 
@@ -449,7 +449,7 @@ export function createGeoLiveServer({
         return json(res, ready ? 200 : 503, {
           ready,
           service: "rekixo-geolive",
-          version: "0.12.0",
+          version: "0.13.0",
           persistence: config.persistence
         });
       }
