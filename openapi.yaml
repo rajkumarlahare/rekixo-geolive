@@ -314,6 +314,17 @@ paths:
       responses:
         "200": { description: Latest users for an authorized project }
 
+  /v1/admin/projects/{projectId}/facets:
+    get:
+      operationId: adminProjectLocationFacets
+      description: Project-scoped country, state and city values for scalable dashboard filtering.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Bounded location facet values for the authorized project }
+
   /v1/admin/projects/{projectId}/history:
     get:
       operationId: adminProjectMovementHistory
@@ -375,7 +386,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       responses:
-        "200": { description: Status totals for an authorized project }
+        "200": { description: Status totals plus UTC-day active-user count for an authorized project }
 
   /v1/admin/projects/{projectId}/clusters:
     get:
@@ -387,6 +398,18 @@ paths:
         - in: query
           name: gridDegrees
           schema: { type: number, minimum: 0.25, maximum: 45, default: 8 }
+        - in: query
+          name: status
+          schema: { type: string, enum: [online, recent, offline, inactive] }
+        - in: query
+          name: country
+          schema: { type: string }
+        - in: query
+          name: state
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
       responses:
         "200": { description: Aggregate cluster centers for an authorized project }
 
