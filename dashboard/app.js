@@ -239,6 +239,9 @@ function applyIdentity() {
 }
 
 function resetData() {
+  cancelGeofenceEditor({
+    restorePause: false
+  });
   state.users = [];
   state.filtered = [];
   state.automation = {
@@ -589,12 +592,7 @@ async function loadProject({ quiet = false } = {}) {
 
     rebuildGeoFilters();
     await refreshMapData();
-    if (
-      state.geofenceOverlayProjectId !==
-      project.id
-    ) {
-      await loadGeofenceOverlay();
-    }
+    await loadGeofenceOverlay();
     updateStats();
     setText(
       "lastUpdated",
