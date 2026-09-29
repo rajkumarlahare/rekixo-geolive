@@ -54,6 +54,10 @@ Platform roles are:
 
 Sensitive plan, entitlement, subscription, invoice and support mutations are audited.
 
+Admin realtime WebSocket upgrades enforce same-origin Host/Origin matching in production. Requests without an Origin header are rejected in production. Reverse-proxy client IP forwarding is ignored unless `GEOLIVE_TRUST_PROXY=true` is explicitly configured; the trusted proxy must overwrite `X-Forwarded-For`.
+
+Project creation enforces account project limits under an account-scoped PostgreSQL transaction/advisory lock so concurrent create requests cannot both consume the last entitlement slot. Project and API-key mutations commit their audit records in the same transaction as the protected state change.
+
 ## Commercial integrity
 
 Existing/new accounts default to the backward-compatible `legacy` subscription until deliberately reassigned.
