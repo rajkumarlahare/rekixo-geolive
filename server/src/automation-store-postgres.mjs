@@ -743,12 +743,12 @@ export class PostgresAutomationStore {
     actorUserId,
     input
   }) {
+    const shapeType =
+      input.shapeType;
     const client =
       await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const shapeType =
-        input.shapeType;
       const result =
         await client.query(
           `INSERT INTO geofences (
