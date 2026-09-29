@@ -1066,9 +1066,14 @@ function automationItem({
         document.createElement("button");
       button.type = "button";
       button.className =
-        action.danger
-          ? "danger-button"
-          : "text-button";
+        [
+          action.danger
+            ? "danger-button"
+            : "text-button",
+          action.className || ""
+        ]
+          .filter(Boolean)
+          .join(" ");
       button.textContent =
         action.label;
       button.addEventListener(
