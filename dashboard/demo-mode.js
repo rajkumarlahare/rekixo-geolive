@@ -514,7 +514,12 @@ export function demoModeEnabled(locationLike = globalThis.location) {
   try {
     const params = new URLSearchParams(locationLike?.search || "");
     const hostname = String(locationLike?.hostname || "").toLowerCase();
-    return params.get("demo") === "1" || hostname.endsWith(".pages.dev");
+    const pagesHost = hostname.endsWith(".pages.dev");
+    const localHost =
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1";
+    return pagesHost || (localHost && params.get("demo") === "1");
   } catch {
     return false;
   }
