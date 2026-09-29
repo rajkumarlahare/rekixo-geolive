@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  parseAutomationListQuery,
   validateAlertRule,
   validateGeofence,
   validateWebhookEndpoint
@@ -102,3 +103,71 @@ test("P4B validates webhook URL policy and alert events", () => {
       "invalid_alert_event_types"
   );
 });
+
+test("P4E automation history filters validate and normalize", () => {
+  const query =
+    parseAutomationListQuery(
+      new URLSearchParams({
+        limit: "50",
+        cursor: "opaque",
+        eventType: "enter",
+        status: "dead",
+        geofenceId:
+          "11111111-1111-4111-8111-111111111111",
+        endpointId:
+          "22222222-2222-4222-8222-222222222222",
+        userId: "worker-42"
+      })
+    );
+
+  assert.deepEqual(query, {
+    limit: 50,
+    cursor: "opaque",
+    eventType: "enter",
+    status: "dead",
+    geofenceId:
+      "11111111-1111-4111-8111-111111111111",
+    endpointId:
+      "22222222-2222-4222-8222-222222222222",
+    userId: "worker-42"
+  });
+});
+
+test("P4E automation history filters reject invalid values", () => {
+  assert.throws(
+    () =>
+      parseAutomationListQuery(
+        new URLSearchParams({
+          eventType: "unknown"
+        })
+      ),
+    (error) =>
+      error.code ===
+        "invalid_automation_event_type"
+  );
+
+  assert.throws(
+    () =>
+      parseAutomationListQuery(
+        new URLSearchParams({
+          status: "failed"
+        })
+      ),
+    (error) =>
+      error.code ===
+        "invalid_webhook_delivery_status"
+  );
+
+  assert.throws(
+    () =>
+      parseAutomationListQuery(
+        new URLSearchParams({
+          endpointId: "not-a-uuid"
+        })
+      ),
+    (error) =>
+      error.code ===
+        "invalid_webhook_endpoint_id"
+  );
+});
+
