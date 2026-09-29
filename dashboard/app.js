@@ -2402,6 +2402,7 @@ async function openAutomationModal() {
 }
 
 function closeAutomationModal() {
+  closeWebhookDeliveryDetail();
   document.querySelector(
     "#automationModal"
   ).hidden = true;
@@ -3276,6 +3277,118 @@ document.querySelector(
       }
     });
   }
+);
+
+let automationHistoryFilterTimer =
+  null;
+
+function scheduleAutomationHistoryReload(
+  kind,
+  delay = 180
+) {
+  clearTimeout(
+    automationHistoryFilterTimer
+  );
+  automationHistoryFilterTimer =
+    setTimeout(() => {
+      closeWebhookDeliveryDetail();
+      loadAutomationHistory(
+        kind
+      ).catch(() => {});
+    }, delay);
+}
+
+document.querySelector(
+  "#refreshEventHistory"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "events"
+    )
+);
+
+document.querySelector(
+  "#refreshDeliveryHistory"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "deliveries"
+    )
+);
+
+document.querySelector(
+  "#loadMoreEvents"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "events",
+      { append: true }
+    )
+);
+
+document.querySelector(
+  "#loadMoreDeliveries"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "deliveries",
+      { append: true }
+    )
+);
+
+[
+  "#eventTypeFilter",
+  "#eventGeofenceFilter"
+].forEach((selector) => {
+  document.querySelector(
+    selector
+  ).addEventListener(
+    "change",
+    () =>
+      scheduleAutomationHistoryReload(
+        "events",
+        0
+      )
+  );
+});
+
+document.querySelector(
+  "#eventUserFilter"
+).addEventListener(
+  "input",
+  () =>
+    scheduleAutomationHistoryReload(
+      "events",
+      350
+    )
+);
+
+[
+  "#deliveryStatusFilter",
+  "#deliveryEndpointFilter",
+  "#deliveryEventTypeFilter"
+].forEach((selector) => {
+  document.querySelector(
+    selector
+  ).addEventListener(
+    "change",
+    () =>
+      scheduleAutomationHistoryReload(
+        "deliveries",
+        0
+      )
+  );
+});
+
+document.querySelector(
+  "#deliveryDetailClose"
+).addEventListener(
+  "click",
+  closeWebhookDeliveryDetail
 );
 
 document.querySelector(
