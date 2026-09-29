@@ -307,12 +307,37 @@ paths:
   /v1/admin/projects/{projectId}/users:
     get:
       operationId: adminProjectUsers
+      description: Cursor-paginated latest-user search ordered by latest received time and user ID.
       security:
         - adminCookie: []
       parameters:
         - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: search
+          description: Case-insensitive substring search across external user ID, display name and email.
+          schema: { type: string }
+        - in: query
+          name: status
+          schema: { type: string, enum: [online, recent, offline, inactive] }
+        - in: query
+          name: country
+          schema: { type: string }
+        - in: query
+          name: state
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - in: query
+          name: cursor
+          description: Opaque cursor returned as nextCursor by the previous page.
+          schema: { type: string }
       responses:
-        "200": { description: Latest users for an authorized project }
+        "200": { description: Filtered user page with users and nextCursor for an authorized project }
+        "400": { description: Invalid cursor or pagination input }
 
   /v1/admin/projects/{projectId}/facets:
     get:
