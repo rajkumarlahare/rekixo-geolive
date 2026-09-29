@@ -622,6 +622,17 @@ export class GeoGlobeRenderer {
     );
   }
 
+  ensurePhotorealistic() {
+    return this.photorealistic
+      ?.initialize?.() ||
+      Promise.resolve(false);
+  }
+
+  suspendPhotorealistic() {
+    this.photorealistic
+      ?.destroy?.();
+  }
+
   get label() {
     if (
       this.photorealistic
