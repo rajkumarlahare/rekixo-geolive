@@ -212,7 +212,11 @@ The tenant dashboard now renders the Earth with a self-hosted WebGL sphere and a
 
 If WebGL is unavailable or the context is lost, the existing 2D globe path remains available as a functional fallback.
 
-The current P4C foundation does not yet include direct geofence drawing/editing on the globe, trip/route analytics or export workflows; those remain explicit follow-up items rather than being silently represented as complete.
+GeoLive 0.12.0 adds direct geofence drawing and editing on this globe. Tenant owners/admins can start a circle or polygon from the automation console, place geometry directly on the visible Earth, undo/redraw it, finish polygons, and save through the existing project-scoped geofence API. Existing geofences are rendered as live globe overlays; paused boundaries are shown distinctly. The editor preserves the user's prior rotation pause state and uses the same sphere projection as users, clusters, heatmaps and trails.
+
+Circle drawing uses a center click followed by an edge click and computes a geodesic radius. Polygon drawing accepts globe vertices, closes only after at least three points, and reuses the backend's existing validation and entitlement enforcement. Manual coordinate entry remains available for precision workflows.
+
+Trip/route analytics, export workflows, richer webhook observability and explicit pagination UX for very broad text searches remain follow-up work rather than being represented as complete.
 
 ## Production realtime
 
@@ -236,7 +240,7 @@ This cleans location history, realtime replay events, operational data, expired 
 
 ## Compatibility
 
-Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B and the P4C console foundation are additive.
+Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B, the P4C console foundation and the 0.12.0 globe geofence editor are additive.
 
 The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
 

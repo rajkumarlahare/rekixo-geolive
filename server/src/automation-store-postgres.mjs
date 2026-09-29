@@ -743,12 +743,12 @@ export class PostgresAutomationStore {
     actorUserId,
     input
   }) {
+    const shapeType =
+      input.shapeType;
     const client =
       await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const shapeType =
-        input.shapeType;
       const result =
         await client.query(
           `INSERT INTO geofences (
@@ -799,7 +799,7 @@ export class PostgresAutomationStore {
             input.latitude ?? null,
             input.longitude ?? null,
             input.radiusM ?? null,
-            shapeType === "polygon"
+            input.shapeType === "polygon"
               ? JSON.stringify({
                   type: "Polygon",
                   coordinates: [
@@ -851,14 +851,19 @@ export class PostgresAutomationStore {
         );
       } catch {}
       if (
-        error?.code === "XX000" ||
-        error?.code === "22023"
+        [
+          "XX000",
+          "22023",
+          "23514"
+        ].includes(error?.code)
       ) {
-        const wrapped = new Error(
-          "invalid_geofence_polygon"
-        );
-        wrapped.code =
-          "invalid_geofence_polygon";
+        const code =
+          shapeType === "polygon"
+            ? "invalid_geofence_polygon"
+            : "invalid_geofence_geometry";
+        const wrapped =
+          new Error(code);
+        wrapped.code = code;
         wrapped.status = 400;
         throw wrapped;
       }
@@ -1084,6 +1089,23 @@ export class PostgresAutomationStore {
           "ROLLBACK"
         );
       } catch {}
+      if (
+        [
+          "XX000",
+          "22023",
+          "23514"
+        ].includes(error?.code)
+      ) {
+        const code =
+          shapeType === "polygon"
+            ? "invalid_geofence_polygon"
+            : "invalid_geofence_geometry";
+        const wrapped =
+          new Error(code);
+        wrapped.code = code;
+        wrapped.status = 400;
+        throw wrapped;
+      }
       throw error;
     } finally {
       client.release();

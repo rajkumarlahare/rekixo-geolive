@@ -92,6 +92,32 @@ test("P4B Postgres geofence enter/dwell/exit schedules idempotent webhook delive
   };
 
   try {
+    await assert.rejects(
+      () =>
+        automation.createGeofence({
+          project,
+          actorUserId: null,
+          input: {
+            name: "Invalid bow tie",
+            status: "active",
+            shapeType: "polygon",
+            points: [
+              [81.62, 21.24],
+              [81.64, 21.26],
+              [81.62, 21.26],
+              [81.64, 21.24],
+              [81.62, 21.24]
+            ],
+            dwellSeconds: 60,
+            metadata: {}
+          }
+        }),
+      (error) =>
+        error.code ===
+          "invalid_geofence_polygon" &&
+        error.status === 400
+    );
+
     const geofence =
       await automation
         .createGeofence({
