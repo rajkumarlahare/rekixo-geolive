@@ -6,7 +6,7 @@
 
 ## Current implementation
 
-P0 through P4B now provide:
+P0 through the P4C console foundation now provide:
 
 - project-scoped live-location ingestion
 - PostgreSQL/PostGIS latest-state and append-only history
@@ -34,6 +34,9 @@ P0 through P4B now provide:
 - **durable signed webhook delivery with retries and dead-letter handling**
 - **SSRF-resistant production webhook networking and one-time signing-secret reveal**
 - **dashboard geofence, alert-rule, endpoint, event and delivery controls**
+- **self-hosted dependency-free WebGL globe renderer with 2D fallback**
+- **shared rotation/zoom projection for live markers, clusters, heatmaps and movement trails**
+- **pointer drag + wheel zoom interaction with server-side clustering refresh**
 
 Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
@@ -203,6 +206,14 @@ Webhook delivery is at least once. Failed attempts use bounded exponential backo
 
 See [Integration guide](docs/INTEGRATION.md) for the event envelope, signature verification and idempotency contract.
 
+## P4C geospatial console foundation
+
+The tenant dashboard now renders the Earth with a self-hosted WebGL sphere and a locally served dark Earth texture. No external map/CDN token is required for the globe renderer. Live markers, clusters, historical heatmap cells and movement trails continue to use the same geographic projection so overlays remain aligned while the globe rotates or zooms.
+
+If WebGL is unavailable or the context is lost, the existing 2D globe path remains available as a functional fallback.
+
+The current P4C foundation does not yet include direct geofence drawing/editing on the globe, trip/route analytics or export workflows; those remain explicit follow-up items rather than being silently represented as complete.
+
 ## Production realtime
 
 Integration readers connect to:
@@ -225,7 +236,7 @@ This cleans location history, realtime replay events, operational data, expired 
 
 ## Compatibility
 
-Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A and P4B are additive.
+Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B and the P4C console foundation are additive.
 
 The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
 
@@ -237,7 +248,7 @@ The legacy `GEOLIVE_KEYS_JSON` credential bridge remains migration-only.
 npm run check
 ```
 
-CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 commercial controls, P4A geospatial isolation, P4B geofence/webhook validation and PostgreSQL transitions, webhook signing/delivery behavior, and the billing rollup worker.
+CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 commercial controls, P4A geospatial isolation, P4B geofence/webhook validation and PostgreSQL transitions, webhook signing/delivery behavior, dashboard asset serving, and the billing rollup worker.
 
 See:
 
