@@ -129,12 +129,15 @@
 - tenant admin APIs for geofences, rules, endpoints, events and deliveries
 - PostgreSQL transition/isolation coverage plus webhook signing/worker tests
 
-## Next — P4C product-grade geospatial console
-- production WebGL/3D earth renderer
-- geofence editing/drawing directly on the globe
-- event/delivery observability UI
-- large-project server-side user search pagination UX
-- route/trip analytics and export workflows
+## In progress — P4C product-grade geospatial console
+- [x] dependency-free WebGL/3D earth renderer with self-hosted texture
+- [x] 2D canvas fallback when WebGL is unavailable
+- [x] drag rotation, wheel/button zoom, live marker/cluster overlays
+- [x] self-hosted dashboard asset serving and CSP-compatible loading
+- [ ] geofence editing/drawing directly on the globe
+- [ ] event/delivery observability UI
+- [ ] large-project server-side user search pagination UX
+- [ ] route/trip analytics and export workflows
 
 ## Later — Product administration
 - team/invite management
