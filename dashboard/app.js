@@ -71,7 +71,10 @@ const state = {
     endpoints: [],
     rules: [],
     events: [],
-    deliveries: []
+    deliveries: [],
+    eventsNextCursor: null,
+    deliveriesNextCursor: null,
+    selectedDeliveryId: ""
   },
   geofenceOverlayProjectId: "",
   geofenceEditor: {
@@ -249,7 +252,10 @@ function resetData() {
     endpoints: [],
     rules: [],
     events: [],
-    deliveries: []
+    deliveries: [],
+    eventsNextCursor: null,
+    deliveriesNextCursor: null,
+    selectedDeliveryId: ""
   };
   state.geofenceOverlayProjectId = "";
   state.facets = {
