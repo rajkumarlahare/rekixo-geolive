@@ -1,5 +1,5 @@
 -- GeoLive Cloudflare D1 core schema.
--- Cloudflare-native replacement for PostgreSQL/PostGIS/Redis in the production Worker.
+-- Cloudflare-native durable schema for the production Worker.
 
 CREATE TABLE IF NOT EXISTS accounts (
   id TEXT PRIMARY KEY,
