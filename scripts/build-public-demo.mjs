@@ -40,8 +40,12 @@ const index = sourceIndex
     'href="./styles.css"'
   )
   .replace(
-    '  <script type="module" src="/dashboard/app.js"></script>',
-    '  <script src="./demo-config.js"></script>\n  <script type="module" src="./app.js"></script>'
+    'src="/dashboard/runtime-config.js"',
+    'src="./runtime-config.js"'
+  )
+  .replace(
+    'src="/dashboard/app.js"',
+    'src="./app.js"'
   );
 
 const googleMapsApiKey =
@@ -54,9 +58,10 @@ const googleMapsApiKey =
 await writeFile(
   path.join(
     output,
-    "demo-config.js"
+    "runtime-config.js"
   ),
   `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${JSON.stringify({
+    demoMode: true,
     googleMapsApiKey
   })});\n`,
   "utf8"
@@ -66,7 +71,8 @@ if (
   index === sourceIndex ||
   index.includes("/dashboard/styles.css") ||
   index.includes("/dashboard/app.js") ||
-  !index.includes("./demo-config.js")
+  !index.includes("./runtime-config.js") ||
+  index.includes("/dashboard/runtime-config.js")
 ) {
   throw new Error(
     "public_demo_asset_rewrite_failed"
@@ -85,7 +91,7 @@ console.log(
 );
 console.log(
   "GeoLive public demo build:",
-  "0.16.0-photorealistic"
+  "0.16.1-production-correctness"
 );
 console.log(
   "Photorealistic Earth:",

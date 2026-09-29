@@ -43,7 +43,7 @@ The demo keeps the local WebGL globe as a zero-dependency fallback. To enable th
 4. Restrict the key's API access to **Map Tiles API**.
 5. In Cloudflare Pages, add `GOOGLE_MAPS_API_KEY` to the production build environment and redeploy.
 
-The build writes the browser key only into generated `dist-demo/demo-config.js`; it is never committed to Git. Browser map keys are visible to site visitors by design, so referrer and API restrictions are mandatory.
+The build writes the browser key only into generated `dist-demo/runtime-config.js`; it is never committed to Git. Browser map keys are visible to site visitors by design, so referrer and API restrictions are mandatory.
 
 When the key is configured, GeoLive loads pinned CesiumJS assets and Google's Photorealistic 3D Tiles. The renderer keeps Google/Cesium attribution visible and projects GeoLive clusters, users, heatmaps, movement trails and geofences into the same screen space. If loading fails, the dashboard automatically falls back to the existing local WebGL globe.
 
@@ -59,6 +59,8 @@ When the key is configured, GeoLive loads pinned CesiumJS assets and Google's Ph
 - Static Pages security headers are defined in `dashboard/_headers`.
 
 ## Production separation
+
+For a real Node production deployment, set the same restricted browser key as `GEOLIVE_GOOGLE_MAPS_API_KEY`; the server emits it only through `/dashboard/runtime-config.js`. Keep the key restricted to the Map Tiles API and the exact production website/referrer.
 
 The production Node service continues serving the real dashboard from `/dashboard`. The demo build rewrites only the generated copy in `dist-demo`, so static-hosting paths do not change production routes.
 

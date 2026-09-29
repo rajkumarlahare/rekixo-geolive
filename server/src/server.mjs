@@ -38,10 +38,21 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.resolve(__dirname, "../../dashboard");
+const SERVICE_VERSION = "0.16.1";
+const DASHBOARD_CSP =
+  "default-src 'self'; " +
+  "img-src 'self' data: blob: https://cdn.jsdelivr.net https://tile.googleapis.com; " +
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+  "script-src 'self' https://cdn.jsdelivr.net; " +
+  "connect-src 'self' https://cdn.jsdelivr.net https://tile.googleapis.com; " +
+  "worker-src 'self' blob: https://cdn.jsdelivr.net; " +
+  "child-src blob:; " +
+  "font-src 'self' data: https://cdn.jsdelivr.net; " +
+  "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
 
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
-  "referrer-policy": "no-referrer",
+  "referrer-policy": "strict-origin-when-cross-origin",
   "x-frame-options": "DENY",
   "permissions-policy": "geolocation=(), camera=(), microphone=()"
 };
@@ -151,13 +162,14 @@ const MIME = {
   ".svg": "image/svg+xml"
 };
 
-async function serveDashboard(res, pathname) {
+async function serveDashboard(res, pathname, config) {
   const relative = pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/"
     ? "index.html"
     : pathname.replace(/^\/dashboard\//, "");
   if (
     ![
       "index.html",
+      "runtime-config.js",
       "styles.css",
       "app.js",
       "globe-webgl.js",
@@ -168,11 +180,31 @@ async function serveDashboard(res, pathname) {
     ].includes(relative)
   ) return false;
 
+  if (relative === "runtime-config.js") {
+    const publicConfig = JSON.stringify({
+      demoMode: false,
+      googleMapsApiKey:
+        config?.public?.googleMapsApiKey || ""
+    }).replace(/</g, "\\u003c");
+    const content = Buffer.from(
+      `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${publicConfig});\n`,
+      "utf8"
+    );
+    res.writeHead(200, {
+      ...SECURITY_HEADERS,
+      "content-security-policy": DASHBOARD_CSP,
+      "content-type": MIME[".js"],
+      "cache-control": "no-store"
+    });
+    res.end(content);
+    return true;
+  }
+
   try {
     const content = await fs.readFile(path.join(dashboardDir, relative));
     res.writeHead(200, {
       ...SECURITY_HEADERS,
-      "content-security-policy": "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+      "content-security-policy": DASHBOARD_CSP,
       "content-type": MIME[path.extname(relative)] || "application/octet-stream",
       "cache-control": relative === "index.html" ? "no-store" : "public, max-age=300"
     });
@@ -393,14 +425,14 @@ export function createGeoLiveServer({
       }
 
       if (req.method === "GET" && (url.pathname === "/" || url.pathname.startsWith("/dashboard"))) {
-        if (await serveDashboard(res, url.pathname)) return;
+        if (await serveDashboard(res, url.pathname, config)) return;
       }
 
       if (req.method === "GET" && url.pathname === "/health") {
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.16.0"
+          version: SERVICE_VERSION
         });
       }
 
@@ -451,7 +483,7 @@ export function createGeoLiveServer({
         return json(res, ready ? 200 : 503, {
           ready,
           service: "rekixo-geolive",
-          version: "0.14.0",
+          version: SERVICE_VERSION,
           persistence: config.persistence
         });
       }

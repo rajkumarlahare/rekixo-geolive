@@ -149,7 +149,7 @@ test("public readiness response does not expose sensitive deployment metadata", 
     assert.deepEqual(payload, {
       ready: true,
       service: "rekixo-geolive",
-      version: "0.14.0",
+      version: "0.16.1",
       persistence: "memory"
     });
     assert.equal(
@@ -174,7 +174,8 @@ test("public readiness response does not expose sensitive deployment metadata", 
 test("P4C serves self-hosted WebGL globe assets with safe content types", async () => {
   const config = loadConfig({
     NODE_ENV: "test",
-    GEOLIVE_PERSISTENCE: "memory"
+    GEOLIVE_PERSISTENCE: "memory",
+    GEOLIVE_GOOGLE_MAPS_API_KEY: "test-browser-key"
   });
   const server = createGeoLiveServer({
     config,
@@ -193,6 +194,43 @@ test("P4C serves self-hosted WebGL globe assets with safe content types", async 
     const address = server.address();
     const base =
       `http://127.0.0.1:${address.port}`;
+
+    const runtimeConfigResponse =
+      await fetch(
+        `${base}/dashboard/runtime-config.js`
+      );
+    assert.equal(
+      runtimeConfigResponse.status,
+      200
+    );
+    assert.equal(
+      runtimeConfigResponse.headers.get(
+        "cache-control"
+      ),
+      "no-store"
+    );
+    assert.equal(
+      runtimeConfigResponse.headers.get(
+        "referrer-policy"
+      ),
+      "strict-origin-when-cross-origin"
+    );
+    assert.match(
+      runtimeConfigResponse.headers.get(
+        "content-security-policy"
+      ) || "",
+      /tile\.googleapis\.com/
+    );
+    const runtimeConfig =
+      await runtimeConfigResponse.text();
+    assert.match(
+      runtimeConfig,
+      /test-browser-key/
+    );
+    assert.match(
+      runtimeConfig,
+      /"demoMode":false/
+    );
 
     const moduleResponse =
       await fetch(

@@ -51,7 +51,13 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
       - run: npm ci --ignore-scripts
+
+      - name: Flutter SDK analysis
+        run: dart analyze sdk/flutter/rekixo_geolive.dart
 
       # DATABASE_URL is deliberately absent here so npm test keeps
       # database-backed tests skipped until migrations are applied.
