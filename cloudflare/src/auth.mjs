@@ -63,17 +63,39 @@ export async function authenticateIntegration(env, request, requiredScope) {
   if (!row || !safeHashEqual(hash, row.secret_hash)) {
     return { ok: false, status: 401, error: "invalid_key" };
   }
-  if (row.revoked_at) return { ok: false, status: 401, error: "revoked_key" };
+  if (row.revoked_at) {
+    return {
+      ok: false,
+      status: 401,
+      error: "revoked_key",
+      key: { id: row.id, projectId: row.project_id }
+    };
+  }
   if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
-    return { ok: false, status: 401, error: "expired_key" };
+    return {
+      ok: false,
+      status: 401,
+      error: "expired_key",
+      key: { id: row.id, projectId: row.project_id }
+    };
   }
   if (row.project_status !== "active") {
-    return { ok: false, status: 403, error: "project_not_active" };
+    return {
+      ok: false,
+      status: 403,
+      error: "project_not_active",
+      key: { id: row.id, projectId: row.project_id }
+    };
   }
 
   const scopes = parseJsonArray(row.scopes_json);
   if (requiredScope && !scopes.includes(requiredScope) && !scopes.includes("*")) {
-    return { ok: false, status: 403, error: "scope_denied" };
+    return {
+      ok: false,
+      status: 403,
+      error: "scope_denied",
+      key: { id: row.id, projectId: row.project_id }
+    };
   }
 
   const allowedOrigins = parseJsonArray(row.allowed_origins_json);
@@ -94,7 +116,12 @@ export async function authenticateIntegration(env, request, requiredScope) {
   const allowedPackages = parseJsonArray(row.allowed_packages_json);
   const packageId = String(request.headers.get("x-geolive-package") || "").trim();
   if (allowedPackages.length && !allowedPackages.includes(packageId)) {
-    return { ok: false, status: 403, error: "package_not_allowed" };
+    return {
+      ok: false,
+      status: 403,
+      error: "package_not_allowed",
+      key: { id: row.id, projectId: row.project_id }
+    };
   }
 
   return {
