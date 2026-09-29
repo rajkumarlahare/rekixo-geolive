@@ -656,6 +656,22 @@ export class GeoGlobeRenderer {
       ?.zoomStep?.(zoom) || 0.1;
   }
 
+  dragSensitivity(
+    zoom,
+    viewportHeight
+  ) {
+    return (
+      this.photorealistic
+        ?.dragSensitivity?.(
+          zoom,
+          viewportHeight
+        ) || {
+          longitude: 0.35,
+          latitude: 0
+        }
+    );
+  }
+
   project(
     latitude,
     longitude
