@@ -16,9 +16,9 @@ test("release metadata and canonical schema stay in sync", async () => {
   ]);
 
   const pkg = JSON.parse(packageJson);
-  assert.equal(pkg.version, "0.16.1");
-  assert.match(openapi, /version:\s*0\.16\.1/);
-  assert.match(server, /SERVICE_VERSION\s*=\s*"0\.16\.1"/);
+  assert.equal(pkg.version, "0.17.0");
+  assert.match(openapi, /version:\s*0\.17\.0/);
+  assert.match(server, /SERVICE_VERSION\s*=\s*"0\.17\.0"/);
 
   assert.match(schema, /CREATE TABLE geofences\s*\(/);
   assert.match(schema, /CREATE TABLE webhook_endpoints\s*\(/);

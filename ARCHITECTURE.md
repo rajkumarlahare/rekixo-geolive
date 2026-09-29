@@ -2,6 +2,29 @@
 
 Status: **P4C PRODUCT-GRADE GEOSPATIAL CONSOLE**
 
+## Runtime boundary
+
+GeoLive 0.17.0 introduces a Cloudflare-native production runtime:
+
+```text
+Worker
+  -> D1 durable data
+  -> Durable Object realtime rooms
+  -> Queue webhook delivery
+  -> Cron dwell/retention jobs
+  -> Worker Static Assets dashboard
+```
+
+The existing Node/PostgreSQL/PostGIS/Redis runtime remains a compatibility and
+reference implementation during the Cloudflare port. The two runtimes must not
+write to one production dataset.
+
+Cloudflare parity currently covers core admin sessions/projects/API keys,
+location ingestion, live users/search/clusters, history/heatmaps, operations
+limits, geofences, signed webhook automation and WebSocket realtime. Short-lived
+client tokens/Play Integrity and the commercial/support/platform plane still use
+the legacy runtime until their Cloudflare phases land.
+
 ## Product boundary
 
 GeoLive is reusable infrastructure. FinWorkar, EntroNex, LudoProof, Rekixo AR3D, Rekixo websites and future products are clients/tenants.
@@ -116,9 +139,14 @@ Platform support roles can read internal notes and update status/priority/assign
 
 ## Durable location write path
 
-After client authentication/proof and applicable feature entitlement checks succeed, the existing ingest controls run. PostgreSQL writes user identity, latest live state, append-only location history and durable realtime event.
+In the Cloudflare runtime, a restricted integration key resolves the project,
+D1 enforces project/quota state, and one D1 batch writes user identity, latest
+live state, append-only history and a durable realtime event. The event is then
+broadcast to that project's Durable Object room. Geofence transitions persist in
+D1 and schedule signed webhook jobs onto Cloudflare Queues.
 
-P1E realtime and Redis fanout remain independent from the commercial data model.
+In the legacy runtime, the equivalent durable write path remains
+PostgreSQL/PostGIS plus Redis fanout.
 
 ## Next boundary
 

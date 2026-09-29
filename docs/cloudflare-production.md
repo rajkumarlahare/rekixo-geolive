@@ -1,0 +1,246 @@
+# GeoLive Cloudflare-Native Production
+
+GeoLive 0.17.0 introduces a Cloudflare-native production runtime. The existing
+Cloudflare Pages site remains a synthetic public demo; real tenant traffic is
+served by a separate Cloudflare Worker.
+
+## Production topology
+
+```text
+Client apps / SDKs
+        |
+        v
+Cloudflare Worker
+  |-- Admin + integration HTTP API
+  |-- Static production dashboard
+  |-- Google Photorealistic 3D runtime config
+  |
+  +--> D1
+  |     accounts, projects, API keys, sessions
+  |     live state, history, usage, geofences
+  |     webhook state, audit/security records
+  |
+  +--> Durable Objects
+  |     project-scoped WebSocket rooms
+  |     hibernating live connections + replay
+  |
+  +--> Queues
+  |     signed outbound webhook delivery
+  |     retry + dead-letter handling
+  |
+  +--> Cron
+        dwell checks every minute
+        retention/session cleanup hourly
+```
+
+The legacy Node/PostgreSQL/PostGIS/Redis runtime remains in the repository as a
+reference and compatibility path. Do not run both runtimes against the same
+production dataset.
+
+## What is already ported
+
+The Cloudflare Worker currently implements:
+
+- production admin login/session/CSRF and account/project membership isolation;
+- project create/update/delete;
+- D1-backed API-key create/list/rotate/revoke;
+- real location ingestion;
+- live user list/search/filter/cursor pagination;
+- summary, facets and server-side geographic clustering;
+- movement history and historical heatmap;
+- per-project ingest/read rate limits, daily ingest quota and live-user quota;
+- usage metering, operations limits and security-event history;
+- circle/polygon geofences and enter/exit/dwell evaluation;
+- webhook endpoints, alert rules, signed Queue delivery, retry, DLQ and attempt history;
+- Durable Object WebSocket rooms and durable event replay;
+- the real admin dashboard as Worker Static Assets;
+- Google Photorealistic 3D runtime configuration;
+- scheduled dwell processing and retention.
+
+The current Cloudflare port deliberately does **not** claim parity for:
+
+- short-lived client-token exchange, P-256 request proof and Play Integrity;
+- SSE `/v1/events` (use the WebSocket endpoint in this runtime);
+- the commercial billing/support/platform console;
+- team invitations, password recovery and MFA;
+- route/trip analytics and CSV/JSON export.
+
+Keep those controls disabled or internal until the matching Cloudflare phase is
+implemented.
+
+## Resource creation
+
+The configuration file is:
+
+```text
+cloudflare/wrangler.jsonc
+```
+
+The D1 schema is:
+
+```text
+cloudflare/migrations/0001_core.sql
+```
+
+Create the D1 database:
+
+```bash
+npx wrangler@latest d1 create rekixo-geolive-production
+```
+
+Cloudflare prints the database UUID. Replace only:
+
+```text
+REPLACE_WITH_D1_DATABASE_ID
+```
+
+inside `cloudflare/wrangler.jsonc`.
+
+Create the producer queue:
+
+```bash
+npx wrangler@latest queues create rekixo-geolive-webhooks
+```
+
+The configured dead-letter queue is `rekixo-geolive-webhooks-dlq`. Wrangler/
+Cloudflare can create a missing DLQ from consumer configuration, but creating it
+explicitly before cutover makes the resource visible and auditable:
+
+```bash
+npx wrangler@latest queues create rekixo-geolive-webhooks-dlq
+```
+
+## Required secrets
+
+The Wrangler config declares these required secret names but contains no secret
+values:
+
+- `GEOLIVE_BOOTSTRAP_TOKEN`
+- `GEOLIVE_WEBHOOK_SIGNING_SECRET`
+- `GEOLIVE_GOOGLE_MAPS_API_KEY`
+
+Set them interactively. Never place their values in Git, screenshots, chat, shell
+arguments or Wrangler `vars`.
+
+```bash
+npx wrangler@latest secret put GEOLIVE_BOOTSTRAP_TOKEN --config cloudflare/wrangler.jsonc
+npx wrangler@latest secret put GEOLIVE_WEBHOOK_SIGNING_SECRET --config cloudflare/wrangler.jsonc
+npx wrangler@latest secret put GEOLIVE_GOOGLE_MAPS_API_KEY --config cloudflare/wrangler.jsonc
+```
+
+Use independent random values for the bootstrap and webhook master secrets.
+The Google browser key must remain restricted to **Map Tiles API** and to the
+exact production Worker/custom-domain HTTP referrer. The browser receives this
+key by design; its API/referrer restrictions are the security boundary.
+
+For local Worker development, use `cloudflare/.dev.vars`. That path is ignored
+by Git.
+
+## Build, migrate and deploy
+
+Build the Worker Static Assets:
+
+```bash
+npm run build:cloudflare
+```
+
+Apply D1 migrations:
+
+```bash
+npm run cloudflare:d1:migrate
+```
+
+Deploy:
+
+```bash
+npm run cloudflare:deploy
+```
+
+A deployment is not production-ready until both return:
+
+```text
+GET /health -> 200
+GET /ready  -> 200
+```
+
+The readiness response must report:
+
+```json
+{
+  "ready": true,
+  "service": "rekixo-geolive-cloudflare",
+  "version": "0.17.0",
+  "persistence": "d1",
+  "realtime": "durable-objects"
+}
+```
+
+## First bootstrap
+
+Bootstrap is intentionally one-shot. `POST /internal/bootstrap` requires
+`Authorization: Bearer <GEOLIVE_BOOTSTRAP_TOKEN>` and refuses to run after an
+admin already exists.
+
+The body requires:
+
+```json
+{
+  "email": "admin@example.com",
+  "displayName": "Admin",
+  "password": "<strong password>",
+  "accountName": "Rekixo",
+  "projectName": "GeoLive Production",
+  "projectSlug": "production"
+}
+```
+
+The response returns one production integration key **once**. Store that secret
+in the consuming application's secret storage. Never embed an admin credential
+or unrestricted production key in an Android/Web client.
+
+After bootstrap, open:
+
+```text
+https://<worker-domain>/dashboard/
+```
+
+and sign in with the bootstrapped admin account.
+
+## Real-location cutover test
+
+Before connecting a production app:
+
+1. Create a dedicated ingest key with only `location:write`.
+2. Restrict its package/origin where applicable.
+3. Send one known test user to `POST /v1/locations`.
+4. Confirm it appears in D1 `live_user_state` and `location_history`.
+5. Open the real dashboard and confirm the user appears on the photorealistic globe.
+6. Keep the dashboard open and send a second point; confirm the Durable Object
+   WebSocket moves the marker without a page refresh.
+7. Create a small test geofence and confirm enter/exit/dwell events.
+8. Point a webhook at a controlled HTTPS receiver and verify signature, retry and
+   delivery-attempt history.
+9. Only after these checks should a real mobile app key be enabled.
+
+## Rollback
+
+Do not delete the Pages demo during production rollout.
+
+If a Worker release is unhealthy:
+
+- roll back the Worker deployment;
+- do not roll back an already-applied D1 migration by editing its SQL;
+- create a forward migration for schema corrections;
+- keep API keys and webhook signing secrets stable across a code rollback;
+- verify `/ready` before restoring client traffic.
+
+## Security notes
+
+- Admin cookies are `Secure`, `HttpOnly`, `SameSite=Strict`.
+- Mutating admin requests require CSRF.
+- Integration secrets are stored only as SHA-256 hashes in D1.
+- Webhook secrets are derived from a Worker secret and are not stored in D1.
+- Webhook targets must be HTTPS and literal private/local network targets are
+  rejected.
+- Public API origin/package rules are enforced per API key.
+- Synthetic demo mode is explicitly disabled in the production Worker runtime.
