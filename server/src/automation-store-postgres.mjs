@@ -925,6 +925,35 @@ export class PostgresAutomationStore {
       patch.points ??
       current.points;
 
+    if (
+      shapeType === "circle" &&
+      patch.points !== undefined
+    ) {
+      const error = new Error(
+        "invalid_geofence_shape_fields"
+      );
+      error.code =
+        "invalid_geofence_shape_fields";
+      error.status = 400;
+      throw error;
+    }
+    if (
+      shapeType === "polygon" &&
+      (
+        patch.latitude !== undefined ||
+        patch.longitude !== undefined ||
+        patch.radiusM !== undefined
+      )
+    ) {
+      const error = new Error(
+        "invalid_geofence_shape_fields"
+      );
+      error.code =
+        "invalid_geofence_shape_fields";
+      error.status = 400;
+      throw error;
+    }
+
     const client =
       await this.pool.connect();
     try {
