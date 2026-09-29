@@ -105,6 +105,26 @@ test("P1E persists ordered realtime replay events and clusters users", {
       clusters.reduce((sum, item) => sum + item.count, 0),
       2
     );
+    const onlineClusters =
+      await geoStore.clusterUsers(
+        project.id,
+        {
+          gridDegrees: 10,
+          status: "online",
+          thresholds: {
+            onlineSeconds: 120,
+            recentSeconds: 900,
+            inactiveSeconds: 86400
+          }
+        }
+      );
+    assert.equal(
+      onlineClusters.reduce(
+        (sum, item) => sum + item.count,
+        0
+      ),
+      2
+    );
   } finally {
     await pool.query(
       "DELETE FROM admin_users WHERE id = $1",
