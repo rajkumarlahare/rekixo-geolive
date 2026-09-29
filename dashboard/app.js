@@ -26,12 +26,13 @@ const state = {
   projectId: "",
   users: [],
   filtered: [],
-  summary: { total: 0, online: 0, recent: 0, offline: 0, inactive: 0 },
+  summary: { total: 0, todayActive: 0, online: 0, recent: 0, offline: 0, inactive: 0 },
   activeStatus: "",
   rotation: -20,
   zoom: 1,
   paused: false,
   refreshes: 0,
+  apiRequests24h: 0,
   pollTimer: null,
   projectMode: "create",
   keys: [],
@@ -191,8 +192,9 @@ function resetData() {
   state.historyPoints = [];
   state.heatmapCells = [];
   state.geospatialMode = "";
-  state.summary = { total: 0, online: 0, recent: 0, offline: 0, inactive: 0 };
+  state.summary = { total: 0, todayActive: 0, online: 0, recent: 0, offline: 0, inactive: 0 };
   state.refreshes = 0;
+  state.apiRequests24h = 0;
   updateStats();
   rebuildGeoFilters();
   showDetail({});
@@ -211,17 +213,27 @@ function resetData() {
   document.querySelector("#clearGeo").disabled = true;
 }
 
+function formatCount(value) {
+  return Number(value || 0).toLocaleString();
+}
+
 function updateStats() {
-  setText("total", state.summary.total);
-  setText("online", state.summary.online);
-  setText("offline", state.summary.offline);
-  setText("recent", state.summary.recent);
-  setText("updates", state.refreshes);
-  setText("allCount", state.summary.total);
-  setText("onlineSide", state.summary.online);
-  setText("recentSide", state.summary.recent);
-  setText("offlineSide", state.summary.offline);
-  setText("liveBadge", state.summary.online);
+  setText("total", formatCount(state.summary.total));
+  setText("online", formatCount(state.summary.online));
+  setText("offline", formatCount(state.summary.offline));
+  setText(
+    "todayActive",
+    formatCount(state.summary.todayActive)
+  );
+  setText(
+    "apiRequests",
+    formatCount(state.apiRequests24h)
+  );
+  setText("allCount", formatCount(state.summary.total));
+  setText("onlineSide", formatCount(state.summary.online));
+  setText("recentSide", formatCount(state.summary.recent));
+  setText("offlineSide", formatCount(state.summary.offline));
+  setText("liveBadge", formatCount(state.summary.online));
   setText(
     "showingCount",
     state.useClusters
@@ -365,28 +377,38 @@ async function loadProject({ quiet = false } = {}) {
     );
     state.summary = {
       total: summaryPayload.total || 0,
+      todayActive:
+        summaryPayload.todayActive || 0,
       online: summaryPayload.online || 0,
       recent: summaryPayload.recent || 0,
       offline: summaryPayload.offline || 0,
       inactive: summaryPayload.inactive || 0
     };
 
-    const requests = [
-      api(`/v1/admin/projects/${project.id}/users?limit=500`)
-    ];
-    if (state.summary.total > 500) {
-      requests.push(
-        api(
-          `/v1/admin/projects/${project.id}/clusters?gridDegrees=${encodeURIComponent(clusterGridDegrees())}`
-        )
-      );
-    }
-
-    const [usersPayload, clustersPayload] =
-      await Promise.all(requests);
+    const [
+      usersPayload,
+      metricsPayload,
+      clustersPayload
+    ] = await Promise.all([
+      api(
+        `/v1/admin/projects/${project.id}/users?limit=500`
+      ),
+      api(
+        `/v1/admin/projects/${project.id}/operations/metrics?hours=24`
+      ),
+      state.summary.total > 500
+        ? api(
+            `/v1/admin/projects/${project.id}/clusters?gridDegrees=${encodeURIComponent(clusterGridDegrees())}`
+          )
+        : Promise.resolve(null)
+    ]);
 
     state.users = usersPayload.users || [];
-    state.clusters = clustersPayload?.clusters || [];
+    state.clusters =
+      clustersPayload?.clusters || [];
+    state.apiRequests24h =
+      metricsPayload.metrics?.totals
+        ?.requests || 0;
     state.refreshes += 1;
 
     rebuildGeoFilters();
