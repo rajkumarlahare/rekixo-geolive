@@ -201,6 +201,28 @@ export function createGeoLiveServer({
     }
   }
 
+  async function emitAutomationEvent(
+    automationEvent
+  ) {
+    const realtime =
+      automationEvent?.realtime;
+    if (!realtime) return;
+
+    publish(
+      realtime.projectId,
+      {
+        type: realtime.type,
+        event: realtime.payload
+      },
+      realtime.type
+    );
+    if (realtimeGateway) {
+      await realtimeGateway.publish(
+        realtime
+      );
+    }
+  }
+
   async function authorizePublic(req, requiredScope) {
     return authenticateRequest(req, {
       keyStore,
@@ -325,7 +347,7 @@ export function createGeoLiveServer({
     });
   }
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", "http://localhost");
       const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
@@ -992,22 +1014,9 @@ export function createGeoLiveServer({
             const automationEvent
             of automationEvents
           ) {
-            const realtime =
-              automationEvent.realtime;
-            if (!realtime) continue;
-            publish(
-              auth.key.projectId,
-              {
-                type: realtime.type,
-                event: realtime.payload
-              },
-              realtime.type
+            await emitAutomationEvent(
+              automationEvent
             );
-            if (realtimeGateway) {
-              await realtimeGateway.publish(
-                realtime
-              );
-            }
           }
 
           await recordUsage({
@@ -1686,6 +1695,47 @@ export function createGeoLiveServer({
       return json(res, 500, { error: "internal_error" });
     }
   });
+
+  let dwellRunning = false;
+  const dwellTimer =
+    automationStore
+      ? setInterval(
+          async () => {
+            if (dwellRunning) return;
+            dwellRunning = true;
+            try {
+              const events =
+                await automationStore
+                  .emitDueDwellEvents({
+                    limit: 100
+                  });
+              for (const event of events) {
+                await emitAutomationEvent(
+                  event
+                );
+              }
+            } catch (error) {
+              console.error(
+                "GeoLive dwell scheduler failed",
+                error
+              );
+            } finally {
+              dwellRunning = false;
+            }
+          },
+          config.webhooks
+            ?.dwellPollMs || 15000
+        )
+      : null;
+  dwellTimer?.unref?.();
+
+  server.on("close", () => {
+    if (dwellTimer) {
+      clearInterval(dwellTimer);
+    }
+  });
+
+  return server;
 }
 
 async function start() {
@@ -1782,45 +1832,6 @@ async function start() {
       : null;
   webhookWorker?.start();
 
-  let dwellRunning = false;
-  const dwellTimer =
-    automationStore
-      ? setInterval(
-          async () => {
-            if (dwellRunning) return;
-            dwellRunning = true;
-            try {
-              const events =
-                await automationStore
-                  .emitDueDwellEvents({
-                    limit: 100
-                  });
-              for (const event of events) {
-                if (
-                  event.realtime &&
-                  realtimeGateway
-                ) {
-                  await realtimeGateway
-                    .publish(
-                      event.realtime
-                    );
-                }
-              }
-            } catch (error) {
-              console.error(
-                "GeoLive dwell scheduler failed",
-                error
-              );
-            } finally {
-              dwellRunning = false;
-            }
-          },
-          config.webhooks
-            ?.dwellPollMs || 15000
-        )
-      : null;
-  dwellTimer?.unref?.();
-
   server.listen(config.port, () => {
     console.log(
       `Rekixo GeoLive listening on http://localhost:${config.port} (${config.persistence})`
@@ -1831,9 +1842,6 @@ async function start() {
     console.log(`GeoLive received ${signal}; shutting down.`);
     server.close(async () => {
       try {
-        if (dwellTimer) {
-          clearInterval(dwellTimer);
-        }
         webhookWorker?.close();
         realtimeGateway.close();
         if (typeof store.close === "function") await store.close();
