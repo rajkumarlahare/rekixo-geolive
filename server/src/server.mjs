@@ -395,27 +395,9 @@ export function createGeoLiveServer({
 
         return json(res, ready ? 200 : 503, {
           ready,
-          persistence: config.persistence,
-          persistenceReady,
-          adminReady,
-          apiKeyReady,
-          operationsReady,
-          realtimeReady,
-          clientSecurityReady,
-          commercialReady,
-          clientTokensConfigured,
-          clientTokensRequired:
-            Boolean(
-              config.clientTokens?.required
-            ),
-          playIntegrityConfiguredPackages:
-            playIntegrityVerifier
-              ?.configuredPackages || [],
-          realtime: realtimeGateway
-            ? realtimeGateway.status()
-            : null,
-          environmentCredentialCount: config.keys.length,
-          legacyCredentialBridgeActive: config.keys.length > 0
+          service: "rekixo-geolive",
+          version: "0.9.0",
+          persistence: config.persistence
         });
       }
 
