@@ -68,16 +68,22 @@ function json(value, status = 200, headers = {}) {
   });
 }
 
-function allowedOrigins(env) {
-  return String(env.GEOLIVE_ALLOWED_ORIGINS || "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
+function isHttpOrigin(value) {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return (
+      (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+      parsed.origin === value
+    );
+  } catch {
+    return false;
+  }
 }
 
-function preflight(request, env) {
+function preflight(request) {
   const origin = String(request.headers.get("origin") || "");
-  if (!origin || !allowedOrigins(env).includes(origin)) {
+  if (!isHttpOrigin(origin)) {
     return json({ error: "origin_not_allowed" }, 403);
   }
   return new Response(null, {
@@ -309,7 +315,7 @@ export default {
   async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
-      if (request.method === "OPTIONS") return preflight(request,env);
+      if (request.method === "OPTIONS") return preflight(request);
 
       if (url.pathname === "/") {
         return Response.redirect(new URL("/dashboard/",request.url),302);
