@@ -113,12 +113,28 @@
 - dashboard historical-heatmap overlay
 - memory and PostgreSQL isolation/pagination coverage
 
-## Next — P4B geofence automation
-- geofence definitions and project policy
-- enter / exit / dwell event evaluation
-- alert rules and delivery state
+## Completed — P4B geofence automation
+- circle and polygon geofence definitions
+- project-scoped active/paused lifecycle
+- transactionally ordered enter / exit evaluation
+- due dwell scheduler with multi-instance row claiming
+- durable geofence event history
+- project/geofence alert rules
+- one-time endpoint signing-secret reveal and rotation
 - signed outbound webhooks
-- webhook retry/idempotency/dead-letter handling
+- SSRF-resistant DNS validation and pinned delivery
+- exponential retries with idempotent delivery IDs
+- terminal dead-letter state and attempt history
+- geofence/webhook commercial entitlement enforcement
+- tenant admin APIs for geofences, rules, endpoints, events and deliveries
+- PostgreSQL transition/isolation coverage plus webhook signing/worker tests
+
+## Next — P4C product-grade geospatial console
+- production WebGL/3D earth renderer
+- geofence editing/drawing directly on the globe
+- event/delivery observability UI
+- large-project server-side user search pagination UX
+- route/trip analytics and export workflows
 
 ## Later — Product administration
 - team/invite management
