@@ -403,7 +403,10 @@ export class GeoGlobeRenderer {
     canvas,
     {
       textureUrl =
-        "/dashboard/earth-dark.svg"
+        new URL(
+          "./earth-dark.svg",
+          import.meta.url
+        ).href
     } = {}
   ) {
     this.canvas = canvas;
