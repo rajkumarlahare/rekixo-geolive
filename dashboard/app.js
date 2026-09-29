@@ -545,34 +545,182 @@ async function refreshMapData() {
   if (!project) return;
 
   const q = search.value.trim();
-  if (
-    state.summary.total > 500 &&
-    !q
-  ) {
-    await loadClusters();
+  if (!q) {
+    if (
+      state.userSearchPage.queryKey ||
+      state.userSearchPage.page > 1 ||
+      state.userSearchPage.nextCursor
+    ) {
+      resetUserSearchPaging();
+    }
+
+    if (
+      state.summary.total > 500
+    ) {
+      await loadClusters();
+      return;
+    }
+
+    const requestId =
+      ++state.userSearchPage
+        .requestId;
+    const params =
+      currentFilterParams();
+    params.set("limit", "500");
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/users?${params.toString()}`
+    );
+    if (
+      requestId !==
+        state.userSearchPage
+          .requestId ||
+      search.value.trim()
+    ) {
+      return;
+    }
+
+    state.users =
+      payload.users || [];
+    state.clusters = [];
+    state.useClusters = false;
+    applyFilters();
+    updateUserSearchPager();
     return;
   }
 
+  const queryKey =
+    userSearchQueryKey();
+  if (
+    state.userSearchPage
+      .queryKey !== queryKey
+  ) {
+    resetUserSearchPaging();
+    state.userSearchPage
+      .queryKey = queryKey;
+  }
+
+  const page =
+    state.userSearchPage;
+  const requestId =
+    ++page.requestId;
   const params =
     currentFilterParams();
-  params.set("limit", "500");
-
-  const payload = await api(
-    `/v1/admin/projects/${project.id}/users?${params.toString()}`
+  params.set(
+    "limit",
+    String(page.pageSize)
   );
-  state.users = payload.users || [];
-  state.clusters = [];
-  state.useClusters = false;
-  applyFilters();
-
-  if (payload.nextCursor) {
-    setText(
-      "projectState",
-      `${project.status.toUpperCase()} · ${project.role} · 500+ MATCHES`
+  if (page.cursor) {
+    params.set(
+      "cursor",
+      page.cursor
     );
+  }
+
+  page.loading = true;
+  updateUserSearchPager();
+
+  try {
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/users?${params.toString()}`
+    );
+    if (
+      requestId !==
+        state.userSearchPage
+          .requestId ||
+      queryKey !==
+        userSearchQueryKey()
+    ) {
+      return;
+    }
+
+    state.users =
+      payload.users || [];
+    state.clusters = [];
+    state.useClusters = false;
+    page.nextCursor =
+      payload.nextCursor || null;
+    applyFilters();
+  } finally {
+    if (
+      requestId ===
+      state.userSearchPage
+        .requestId
+    ) {
+      state.userSearchPage
+        .loading = false;
+      updateUserSearchPager();
+    }
   }
 }
 
+async function goUserSearchPage(
+  direction
+) {
+  const page =
+    state.userSearchPage;
+  if (
+    page.loading ||
+    !search.value.trim()
+  ) {
+    return;
+  }
+
+  const snapshot = {
+    page: page.page,
+    cursor: page.cursor,
+    nextCursor:
+      page.nextCursor,
+    previousCursors: [
+      ...page.previousCursors
+    ]
+  };
+
+  if (direction === "next") {
+    if (!page.nextCursor) {
+      return;
+    }
+    page.previousCursors.push(
+      page.cursor
+    );
+    page.cursor =
+      page.nextCursor;
+    page.page += 1;
+    page.nextCursor = null;
+  } else if (
+    direction === "previous"
+  ) {
+    if (page.page <= 1) {
+      return;
+    }
+    page.cursor =
+      page.previousCursors
+        .pop() || "";
+    page.page -= 1;
+    page.nextCursor = null;
+  } else {
+    return;
+  }
+
+  updateUserSearchPager();
+  try {
+    await refreshMapData();
+  } catch (error) {
+    page.page =
+      snapshot.page;
+    page.cursor =
+      snapshot.cursor;
+    page.nextCursor =
+      snapshot.nextCursor;
+    page.previousCursors =
+      snapshot.previousCursors;
+    page.loading = false;
+    updateUserSearchPager();
+    setText(
+      "lastUpdated",
+      `Search page failed: ${error.code || "request_failed"}`
+    );
+  }
+}
 function scheduleFilterRefresh(
   delay = 250
 ) {
