@@ -1031,6 +1031,51 @@ export class PostgresGeoLiveStore {
     }));
   }
 
+  async locationFacets(projectId) {
+    const values = async (column, limit) => {
+      const allowed = new Set([
+        "country",
+        "state",
+        "city"
+      ]);
+      if (!allowed.has(column)) {
+        throw new GeoLiveStoreError(
+          "invalid_facet",
+          400
+        );
+      }
+      const result = await this.pool.query(
+        `SELECT DISTINCT ${column} AS value
+           FROM live_user_state
+          WHERE project_id = $1
+            AND ${column} IS NOT NULL
+            AND btrim(${column}) <> ''
+          ORDER BY value ASC
+          LIMIT $2`,
+        [projectId, limit]
+      );
+      return result.rows.map(
+        (row) => row.value
+      );
+    };
+
+    const [
+      countries,
+      states,
+      cities
+    ] = await Promise.all([
+      values("country", 300),
+      values("state", 1000),
+      values("city", 2000)
+    ]);
+
+    return {
+      countries,
+      states,
+      cities
+    };
+  }
+
   async summary(projectId, thresholds = {}) {
     const online = Number(
       thresholds.onlineSeconds ?? 120
