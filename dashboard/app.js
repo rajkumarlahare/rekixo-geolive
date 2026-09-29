@@ -56,6 +56,16 @@ const state = {
   filtered: [],
   summary: { total: 0, todayActive: 0, online: 0, recent: 0, offline: 0, inactive: 0 },
   activeStatus: "",
+  userSearchPage: {
+    queryKey: "",
+    page: 1,
+    cursor: "",
+    nextCursor: null,
+    previousCursors: [],
+    pageSize: 200,
+    loading: false,
+    requestId: 0
+  },
   rotation: -20,
   zoom: 1,
   paused: false,
@@ -266,6 +276,19 @@ function resetData() {
   };
   state.clusters = [];
   state.useClusters = false;
+  state.userSearchPage = {
+    queryKey: "",
+    page: 1,
+    cursor: "",
+    nextCursor: null,
+    previousCursors: [],
+    pageSize: 200,
+    loading: false,
+    requestId:
+      state.userSearchPage
+        ?.requestId || 0
+  };
+  updateUserSearchPager();
   state.selectedUserId = "";
   state.historyPoints = [];
   state.heatmapCells = [];
