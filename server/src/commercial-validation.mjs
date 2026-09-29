@@ -201,6 +201,8 @@ export function validateEntitlementOverrides(body) {
     "realtime",
     "movementHistory",
     "heatmap",
+    "geofences",
+    "webhooks",
     "clientTokens",
     "androidAttestation",
     "prioritySupport"
