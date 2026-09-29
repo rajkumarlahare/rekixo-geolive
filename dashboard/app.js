@@ -1088,6 +1088,54 @@ function automationItem({
   return item;
 }
 
+function populateAutomationHistoryFilter(
+  id,
+  items,
+  allLabel
+) {
+  const select =
+    document.querySelector(
+      "#" + id
+    );
+  if (!select) return;
+  const current =
+    select.value;
+  select.replaceChildren();
+
+  const all =
+    document.createElement(
+      "option"
+    );
+  all.value = "";
+  all.textContent = allLabel;
+  select.appendChild(all);
+
+  for (const item of items) {
+    const option =
+      document.createElement(
+        "option"
+      );
+    option.value = item.id;
+    option.textContent =
+      item.status === "paused"
+        ? `${item.name} · Paused`
+        : item.name;
+    select.appendChild(option);
+  }
+
+  if (
+    [
+      ...select.options
+    ].some(
+      (option) =>
+        option.value ===
+        current
+    )
+  ) {
+    select.value = current;
+  }
+}
+
 function populateAutomationSelects() {
   const geofenceSelect =
     document.querySelector(
@@ -1170,6 +1218,17 @@ function populateAutomationSelects() {
     endpointSelect.value =
       currentEndpoint;
   }
+
+  populateAutomationHistoryFilter(
+    "eventGeofenceFilter",
+    state.automation.geofences,
+    "All geofences"
+  );
+  populateAutomationHistoryFilter(
+    "deliveryEndpointFilter",
+    state.automation.endpoints,
+    "All endpoints"
+  );
 }
 
 function renderAutomation() {
