@@ -510,7 +510,12 @@ function heatmapFor(projectId) {
   };
 }
 
-export function demoModeEnabled(locationLike = globalThis.location) {
+export function demoModeEnabled(
+  locationLike = globalThis.location,
+  publicConfig =
+    globalThis.__GEOLIVE_PUBLIC_CONFIG__ ||
+    {}
+) {
   try {
     const params = new URLSearchParams(locationLike?.search || "");
     const hostname = String(locationLike?.hostname || "").toLowerCase();
@@ -519,7 +524,11 @@ export function demoModeEnabled(locationLike = globalThis.location) {
       hostname === "localhost" ||
       hostname === "127.0.0.1" ||
       hostname === "::1";
-    return pagesHost || (localHost && params.get("demo") === "1");
+    return (
+      publicConfig.demoMode === true ||
+      pagesHost ||
+      (localHost && params.get("demo") === "1")
+    );
   } catch {
     return false;
   }
