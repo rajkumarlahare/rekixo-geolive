@@ -29,7 +29,8 @@
     "GEOLIVE_INACTIVE_SECONDS": "86400",
     "GEOLIVE_WEBHOOK_TIMEOUT_MS": "10000",
     "GEOLIVE_WEBHOOK_MAX_ATTEMPTS": "8",
-    "GEOLIVE_ALLOWED_ORIGINS": "https://rekixo-geolive.pages.dev"
+    "GEOLIVE_ALLOWED_ORIGINS": "https://geolive.rekixo.com",
+    "GEOLIVE_CANONICAL_ORIGIN": "https://geolive.rekixo.com"
   },
   "d1_databases": [
     {

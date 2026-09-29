@@ -449,6 +449,20 @@ export default {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return preflight(request);
 
+      const canonicalOrigin = String(
+        env.GEOLIVE_CANONICAL_ORIGIN || ""
+      ).replace(/\/+$/, "");
+      if (
+        canonicalOrigin &&
+        ["/", "/dashboard", "/dashboard/"].includes(url.pathname) &&
+        url.origin !== canonicalOrigin
+      ) {
+        return Response.redirect(
+          new URL("/dashboard/", canonicalOrigin),
+          302
+        );
+      }
+
       if (url.pathname === "/") {
         return Response.redirect(new URL("/dashboard/",request.url),302);
       }
@@ -456,6 +470,7 @@ export default {
         const publicConfig = JSON.stringify({
           demoMode: false,
           runtime: "cloudflare",
+          canonicalOrigin,
           capabilities: {
             core: true,
             operations: true,

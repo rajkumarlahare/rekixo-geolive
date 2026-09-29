@@ -54,6 +54,10 @@ GeoLive 0.17.0 adds a **Cloudflare-native production runtime** under
 - Cron for dwell processing and retention;
 - Worker Static Assets for the authenticated production dashboard.
 
+The canonical production origin is **`https://geolive.rekixo.com`**. The
+authenticated control plane is served at `/dashboard/`, while production API
+and realtime endpoints use the same origin.
+
 The existing `rekixo-geolive.pages.dev` deployment remains the synthetic,
 read-only public demo. It is intentionally not the production database/API.
 
