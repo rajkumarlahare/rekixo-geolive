@@ -198,6 +198,133 @@ async function publicRateGate(request, env, auth, group) {
   };
 }
 
+async function handleGoogle3dTiles(request, env) {
+  const url = new URL(request.url);
+  if (
+    !url.pathname.startsWith(
+      "/v1/3dtiles/"
+    )
+  ) {
+    return null;
+  }
+
+  if (
+    request.method !== "GET" &&
+    request.method !== "HEAD"
+  ) {
+    return json(
+      { error: "method_not_allowed" },
+      405,
+      { allow: "GET, HEAD" }
+    );
+  }
+
+  const auth =
+    await authenticateAdmin(
+      env,
+      request,
+      { touch: false }
+    );
+  if (!auth.ok) {
+    return json(
+      { error: auth.error },
+      auth.status
+    );
+  }
+
+  const apiKey =
+    String(
+      env.GEOLIVE_GOOGLE_MAPS_API_KEY ||
+      ""
+    ).trim();
+  if (!apiKey) {
+    return json(
+      {
+        error:
+          "google_tiles_not_configured"
+      },
+      503
+    );
+  }
+
+  const upstream =
+    new URL(
+      "https://tile.googleapis.com"
+    );
+  upstream.pathname =
+    url.pathname;
+  for (
+    const [key, value]
+    of url.searchParams
+  ) {
+    if (
+      key.toLowerCase() !== "key"
+    ) {
+      upstream.searchParams.append(
+        key,
+        value
+      );
+    }
+  }
+  upstream.searchParams.set(
+    "key",
+    apiKey
+  );
+
+  const headers = new Headers();
+  for (const name of [
+    "accept",
+    "range",
+    "if-none-match",
+    "if-modified-since"
+  ]) {
+    const value =
+      request.headers.get(name);
+    if (value) {
+      headers.set(name, value);
+    }
+  }
+
+  const response =
+    await fetch(
+      new Request(
+        upstream,
+        {
+          method:
+            request.method,
+          headers
+        }
+      )
+    );
+
+  const responseHeaders =
+    new Headers(
+      response.headers
+    );
+  responseHeaders.delete(
+    "set-cookie"
+  );
+  responseHeaders.set(
+    "x-content-type-options",
+    "nosniff"
+  );
+  responseHeaders.set(
+    "cross-origin-resource-policy",
+    "same-origin"
+  );
+
+  return new Response(
+    response.body,
+    {
+      status: response.status,
+      statusText:
+        response.statusText,
+      headers:
+        responseHeaders
+    }
+  );
+}
+
 async function handlePublic(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
@@ -486,7 +613,8 @@ export default {
                 ""
               ).trim()
             ),
-          googleMapsApiKey: String(env.GEOLIVE_GOOGLE_MAPS_API_KEY || "")
+          googleTilesRootUrl:
+            "/v1/3dtiles/root.json"
         }).replace(/</g,"\\u003c");
         return new Response(
           `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${publicConfig});\n`,
@@ -515,6 +643,15 @@ export default {
       }
       if (url.pathname === "/internal/bootstrap" && request.method === "POST") {
         return handleBootstrap(request,env);
+      }
+
+      const googleTiles =
+        await handleGoogle3dTiles(
+          request,
+          env
+        );
+      if (googleTiles) {
+        return googleTiles;
       }
 
       const adminRealtime=await handleAdminRealtime(request,env);
