@@ -968,7 +968,7 @@ WHERE code = 'legacy';
 -- available during production rollout and is retry-safe after an
 -- interrupted concurrent index build.
 
-CREATE INDEX
+CREATE INDEX IF NOT EXISTS
   geofence_events_project_type_time_idx
 ON geofence_events (
   project_id,
@@ -977,7 +977,7 @@ ON geofence_events (
   id DESC
 );
 
-CREATE INDEX
+CREATE INDEX IF NOT EXISTS
   geofence_events_project_geofence_time_idx
 ON geofence_events (
   project_id,
@@ -986,7 +986,7 @@ ON geofence_events (
   id DESC
 );
 
-CREATE INDEX
+CREATE INDEX IF NOT EXISTS
   geofence_events_project_user_time_idx
 ON geofence_events (
   project_id,
@@ -995,7 +995,7 @@ ON geofence_events (
   id DESC
 );
 
-CREATE INDEX
+CREATE INDEX IF NOT EXISTS
   webhook_deliveries_project_status_time_idx
 ON webhook_deliveries (
   project_id,
@@ -1004,7 +1004,7 @@ ON webhook_deliveries (
   id DESC
 );
 
-CREATE INDEX
+CREATE INDEX IF NOT EXISTS
   webhook_deliveries_project_endpoint_time_idx
 ON webhook_deliveries (
   project_id,
