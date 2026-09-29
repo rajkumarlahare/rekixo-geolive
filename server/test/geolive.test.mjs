@@ -8,6 +8,9 @@ import {
   originAllowed,
   packageAllowed
 } from "../src/auth.mjs";
+import {
+  createGeoLiveServer
+} from "../src/server.mjs";
 
 test("presence states follow configured thresholds", () => {
   const now = new Date("2026-09-28T00:00:00Z");
@@ -102,3 +105,69 @@ test("per-key origin and package restrictions are exact", () => {
   assert.equal(packageAllowed("com.other.app", key), false);
   assert.equal(packageAllowed("", key), false);
 });
+
+test("proxy trust is opt-in", () => {
+  const off = loadConfig({
+    NODE_ENV: "test",
+    GEOLIVE_PERSISTENCE: "memory",
+    GEOLIVE_TRUST_PROXY: "false"
+  });
+  const on = loadConfig({
+    NODE_ENV: "test",
+    GEOLIVE_PERSISTENCE: "memory",
+    GEOLIVE_TRUST_PROXY: "true"
+  });
+  assert.equal(off.admin.trustProxy, false);
+  assert.equal(on.admin.trustProxy, true);
+});
+
+test("public readiness response does not expose sensitive deployment metadata", async () => {
+  const config = loadConfig({
+    NODE_ENV: "test",
+    GEOLIVE_PERSISTENCE: "memory"
+  });
+  const server = createGeoLiveServer({
+    config,
+    store: new MemoryGeoLiveStore()
+  });
+
+  await new Promise((resolve) => {
+    server.listen(
+      0,
+      "127.0.0.1",
+      resolve
+    );
+  });
+
+  try {
+    const address = server.address();
+    const response = await fetch(
+      `http://127.0.0.1:${address.port}/ready`
+    );
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.deepEqual(payload, {
+      ready: true,
+      service: "rekixo-geolive",
+      version: "0.9.0",
+      persistence: "memory"
+    });
+    assert.equal(
+      "environmentCredentialCount" in payload,
+      false
+    );
+    assert.equal(
+      "playIntegrityConfiguredPackages" in payload,
+      false
+    );
+    assert.equal(
+      "realtime" in payload,
+      false
+    );
+  } finally {
+    await new Promise((resolve) =>
+      server.close(resolve)
+    );
+  }
+});
+
