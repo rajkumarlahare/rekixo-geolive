@@ -59,6 +59,183 @@ export class MemoryGeoLiveStore {
       .slice(0, Math.min(Math.max(Number(limit) || 500, 1), 1000));
   }
 
+  async listUsersPage(
+    projectId,
+    {
+      search = "",
+      status = "",
+      country = "",
+      state = "",
+      city = "",
+      limit = 100,
+      cursor = "",
+      thresholds
+    } = {}
+  ) {
+    const project =
+      this.#project(projectId);
+    const now = new Date();
+    const needle =
+      String(search)
+        .toLowerCase()
+        .trim();
+    const pageSize =
+      Math.min(
+        Math.max(
+          Number(limit) || 100,
+          1
+        ),
+        500
+      );
+    const decoded =
+      cursor
+        ? decodeCursor(
+            cursor,
+            [
+              "receivedAt",
+              "userId"
+            ]
+          )
+        : null;
+
+    let cursorTime = null;
+    let cursorUserId = "";
+    if (decoded) {
+      const date =
+        new Date(
+          decoded.receivedAt
+        );
+      cursorUserId =
+        String(
+          decoded.userId || ""
+        );
+      if (
+        Number.isNaN(
+          date.getTime()
+        ) ||
+        !cursorUserId
+      ) {
+        throw new CursorError();
+      }
+      cursorTime =
+        date.getTime();
+    }
+
+    const rows =
+      [...project.users.values()]
+        .map((row) => ({
+          ...row,
+          status:
+            presenceStatus(
+              row.lastSeenAt,
+              now,
+              thresholds
+            )
+        }))
+        .filter(
+          (row) =>
+            !needle ||
+            [
+              row.userId,
+              row.name,
+              row.email
+            ].some(
+              (value) =>
+                String(
+                  value || ""
+                )
+                  .toLowerCase()
+                  .includes(needle)
+            )
+        )
+        .filter(
+          (row) =>
+            !status ||
+            row.status === status
+        )
+        .filter(
+          (row) =>
+            !country ||
+            row.country === country
+        )
+        .filter(
+          (row) =>
+            !state ||
+            row.state === state
+        )
+        .filter(
+          (row) =>
+            !city ||
+            row.city === city
+        )
+        .filter((row) => {
+          if (!decoded) {
+            return true;
+          }
+          const seen =
+            new Date(
+              row.lastSeenAt
+            ).getTime();
+          return (
+            seen < cursorTime ||
+            (
+              seen ===
+                cursorTime &&
+              String(row.userId) <
+                cursorUserId
+            )
+          );
+        })
+        .sort((a, b) => {
+          const time =
+            new Date(
+              b.lastSeenAt
+            ).getTime() -
+            new Date(
+              a.lastSeenAt
+            ).getTime();
+          if (time) return time;
+          const left =
+            String(a.userId);
+          const right =
+            String(b.userId);
+          if (left === right) {
+            return 0;
+          }
+          return left < right
+            ? 1
+            : -1;
+        });
+
+    const page =
+      rows.slice(
+        0,
+        pageSize + 1
+      );
+    const hasMore =
+      page.length > pageSize;
+    const users =
+      page.slice(
+        0,
+        pageSize
+      );
+    const last =
+      users.at(-1);
+
+    return {
+      users,
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({
+              receivedAt:
+                last.lastSeenAt,
+              userId:
+                last.userId
+            })
+          : null
+    };
+  }
+
   async listMovementHistoryPage(
     projectId,
     {

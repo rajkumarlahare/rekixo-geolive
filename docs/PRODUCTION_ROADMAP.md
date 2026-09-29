@@ -150,9 +150,13 @@ Completed foundation:
 - completed-attempt timeline with response status, latency and failure reason
 - explicit dead-letter inspection and audited retry path
 - concurrent production indexes for observability filters
+- explicit cursor pagination UX for broad text-search result sets
+- backwards page navigation using a client-side cursor stack
+- stale-search response invalidation across filter/project changes
+- current-page preservation during realtime and polling refreshes
+- memory/PostgreSQL parity coverage for search pagination above 500 matches
 
 Remaining P4C work:
-- explicit pagination UX for very broad text-search results above 500 users
 - route/trip analytics and export workflows
 
 ## Later — Product administration

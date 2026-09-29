@@ -56,6 +56,16 @@ const state = {
   filtered: [],
   summary: { total: 0, todayActive: 0, online: 0, recent: 0, offline: 0, inactive: 0 },
   activeStatus: "",
+  userSearchPage: {
+    queryKey: "",
+    page: 1,
+    cursor: "",
+    nextCursor: null,
+    previousCursors: [],
+    pageSize: 200,
+    loading: false,
+    requestId: 0
+  },
   rotation: -20,
   zoom: 1,
   paused: false,
@@ -266,6 +276,19 @@ function resetData() {
   };
   state.clusters = [];
   state.useClusters = false;
+  state.userSearchPage = {
+    queryKey: "",
+    page: 1,
+    cursor: "",
+    nextCursor: null,
+    previousCursors: [],
+    pageSize: 200,
+    loading: false,
+    requestId:
+      state.userSearchPage
+        ?.requestId || 0
+  };
+  updateUserSearchPager();
   state.selectedUserId = "";
   state.historyPoints = [];
   state.heatmapCells = [];
@@ -364,6 +387,115 @@ function rebuildGeoFilters() {
   );
 }
 
+function resetUserSearchPaging({
+  preserveQuery = false
+} = {}) {
+  const requestId =
+    Number(
+      state.userSearchPage
+        ?.requestId || 0
+    ) + 1;
+  const pageSize =
+    Number(
+      state.userSearchPage
+        ?.pageSize || 200
+    );
+
+  state.userSearchPage = {
+    queryKey:
+      preserveQuery
+        ? state.userSearchPage
+            ?.queryKey || ""
+        : "",
+    page: 1,
+    cursor: "",
+    nextCursor: null,
+    previousCursors: [],
+    pageSize,
+    loading: false,
+    requestId
+  };
+  updateUserSearchPager();
+}
+
+function userSearchQueryKey() {
+  return [
+    state.projectId,
+    currentFilterParams()
+      .toString()
+  ].join("|");
+}
+
+function updateUserSearchPager() {
+  const pager =
+    document.querySelector(
+      "#searchPager"
+    );
+  if (!pager) return;
+
+  const q =
+    search.value.trim();
+  const page =
+    state.userSearchPage;
+  const visible =
+    Boolean(q) &&
+    (
+      page.page > 1 ||
+      Boolean(
+        page.nextCursor
+      )
+    );
+
+  pager.hidden = !visible;
+  if (!visible) {
+    return;
+  }
+
+  const first =
+    state.users.length
+      ? (
+          page.page - 1
+        ) *
+          page.pageSize +
+        1
+      : 0;
+  const last =
+    state.users.length
+      ? first +
+        state.users.length -
+        1
+      : 0;
+  const suffix =
+    page.nextCursor
+      ? " · more available"
+      : " · end of results";
+
+  setText(
+    "searchPageLabel",
+    `Page ${page.page} · “${q}”`
+  );
+  setText(
+    "searchPageRange",
+    state.users.length
+      ? `${formatCount(first)}–${formatCount(last)} shown${suffix}`
+      : `No matches on page ${page.page}`
+  );
+
+  const previous =
+    document.querySelector(
+      "#searchPrev"
+    );
+  const next =
+    document.querySelector(
+      "#searchNext"
+    );
+  previous.disabled =
+    page.loading ||
+    page.page <= 1;
+  next.disabled =
+    page.loading ||
+    !page.nextCursor;
+}
 function currentFilterParams({
   includeSearch = true
 } = {}) {
@@ -416,34 +548,182 @@ async function refreshMapData() {
   if (!project) return;
 
   const q = search.value.trim();
-  if (
-    state.summary.total > 500 &&
-    !q
-  ) {
-    await loadClusters();
+  if (!q) {
+    if (
+      state.userSearchPage.queryKey ||
+      state.userSearchPage.page > 1 ||
+      state.userSearchPage.nextCursor
+    ) {
+      resetUserSearchPaging();
+    }
+
+    if (
+      state.summary.total > 500
+    ) {
+      await loadClusters();
+      return;
+    }
+
+    const requestId =
+      ++state.userSearchPage
+        .requestId;
+    const params =
+      currentFilterParams();
+    params.set("limit", "500");
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/users?${params.toString()}`
+    );
+    if (
+      requestId !==
+        state.userSearchPage
+          .requestId ||
+      search.value.trim()
+    ) {
+      return;
+    }
+
+    state.users =
+      payload.users || [];
+    state.clusters = [];
+    state.useClusters = false;
+    applyFilters();
+    updateUserSearchPager();
     return;
   }
 
+  const queryKey =
+    userSearchQueryKey();
+  if (
+    state.userSearchPage
+      .queryKey !== queryKey
+  ) {
+    resetUserSearchPaging();
+    state.userSearchPage
+      .queryKey = queryKey;
+  }
+
+  const page =
+    state.userSearchPage;
+  const requestId =
+    ++page.requestId;
   const params =
     currentFilterParams();
-  params.set("limit", "500");
-
-  const payload = await api(
-    `/v1/admin/projects/${project.id}/users?${params.toString()}`
+  params.set(
+    "limit",
+    String(page.pageSize)
   );
-  state.users = payload.users || [];
-  state.clusters = [];
-  state.useClusters = false;
-  applyFilters();
-
-  if (payload.nextCursor) {
-    setText(
-      "projectState",
-      `${project.status.toUpperCase()} · ${project.role} · 500+ MATCHES`
+  if (page.cursor) {
+    params.set(
+      "cursor",
+      page.cursor
     );
+  }
+
+  page.loading = true;
+  updateUserSearchPager();
+
+  try {
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/users?${params.toString()}`
+    );
+    if (
+      requestId !==
+        state.userSearchPage
+          .requestId ||
+      queryKey !==
+        userSearchQueryKey()
+    ) {
+      return;
+    }
+
+    state.users =
+      payload.users || [];
+    state.clusters = [];
+    state.useClusters = false;
+    page.nextCursor =
+      payload.nextCursor || null;
+    applyFilters();
+  } finally {
+    if (
+      requestId ===
+      state.userSearchPage
+        .requestId
+    ) {
+      state.userSearchPage
+        .loading = false;
+      updateUserSearchPager();
+    }
   }
 }
 
+async function goUserSearchPage(
+  direction
+) {
+  const page =
+    state.userSearchPage;
+  if (
+    page.loading ||
+    !search.value.trim()
+  ) {
+    return;
+  }
+
+  const snapshot = {
+    page: page.page,
+    cursor: page.cursor,
+    nextCursor:
+      page.nextCursor,
+    previousCursors: [
+      ...page.previousCursors
+    ]
+  };
+
+  if (direction === "next") {
+    if (!page.nextCursor) {
+      return;
+    }
+    page.previousCursors.push(
+      page.cursor
+    );
+    page.cursor =
+      page.nextCursor;
+    page.page += 1;
+    page.nextCursor = null;
+  } else if (
+    direction === "previous"
+  ) {
+    if (page.page <= 1) {
+      return;
+    }
+    page.cursor =
+      page.previousCursors
+        .pop() || "";
+    page.page -= 1;
+    page.nextCursor = null;
+  } else {
+    return;
+  }
+
+  updateUserSearchPager();
+  try {
+    await refreshMapData();
+  } catch (error) {
+    page.page =
+      snapshot.page;
+    page.cursor =
+      snapshot.cursor;
+    page.nextCursor =
+      snapshot.nextCursor;
+    page.previousCursors =
+      snapshot.previousCursors;
+    page.loading = false;
+    updateUserSearchPager();
+    setText(
+      "lastUpdated",
+      `Search page failed: ${error.code || "request_failed"}`
+    );
+  }
+}
 function scheduleFilterRefresh(
   delay = 250
 ) {
@@ -637,16 +917,43 @@ function applyRealtimeLocation(message) {
   };
   if (!user.userId) return;
 
-  const index = state.users.findIndex(
-    (item) => item.userId === user.userId
-  );
-  if (index >= 0) {
-    state.users[index] = {
-      ...state.users[index],
-      ...user
-    };
-  } else if (state.users.length < 500) {
-    state.users.unshift(user);
+  const hasServerFilters =
+    Boolean(
+      search.value.trim() ||
+      state.activeStatus ||
+      document.querySelector(
+        "#country"
+      ).value ||
+      document.querySelector(
+        "#state"
+      ).value ||
+      document.querySelector(
+        "#city"
+      ).value
+    );
+
+  if (
+    !state.useClusters &&
+    !hasServerFilters
+  ) {
+    const index =
+      state.users.findIndex(
+        (item) =>
+          item.userId ===
+          user.userId
+      );
+    if (index >= 0) {
+      state.users[index] = {
+        ...state.users[index],
+        ...user
+      };
+    } else if (
+      state.users.length < 500
+    ) {
+      state.users.unshift(
+        user
+      );
+    }
   }
 
   if (
@@ -893,6 +1200,7 @@ projectSelect.addEventListener("change", () => {
   stopRealtime({ resetSequence: true });
   cancelGeofenceEditor();
   resetAutomationHistoryFilters();
+  resetUserSearchPaging();
   state.projectId = projectSelect.value;
   state.geofenceOverlayProjectId = "";
   state.automation.geofences = [];
@@ -6139,9 +6447,29 @@ document.querySelector("#reset").addEventListener("click", () => {
   document.querySelectorAll(".status-filter").forEach((item, index) => {
     item.classList.toggle("active", index === 0);
   });
+  resetUserSearchPaging();
   scheduleFilterRefresh(0);
 });
 
+document.querySelector(
+  "#searchPrev"
+).addEventListener(
+  "click",
+  () =>
+    goUserSearchPage(
+      "previous"
+    )
+);
+
+document.querySelector(
+  "#searchNext"
+).addEventListener(
+  "click",
+  () =>
+    goUserSearchPage(
+      "next"
+    )
+);
 
 document.querySelector("#pause").onclick = () => {
   if (state.geofenceEditor.active) {

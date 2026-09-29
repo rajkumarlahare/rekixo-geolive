@@ -127,6 +127,17 @@
           <strong>Select a project</strong>
           <span>Live project users will appear here.</span>
         </div>
+        <div class="search-pager" id="searchPager" hidden aria-live="polite">
+          <div class="search-pager-copy">
+            <small>SEARCH RESULTS</small>
+            <strong id="searchPageLabel">Page 1</strong>
+            <span id="searchPageRange">0 matches shown</span>
+          </div>
+          <div class="search-pager-actions">
+            <button type="button" class="text-button" id="searchPrev">← Previous</button>
+            <button type="button" class="text-button" id="searchNext">Next →</button>
+          </div>
+        </div>
         <div class="globe-footer">
           <span>Showing <b id="showingCount">0</b> users</span>
           <span id="projectState">No project selected</span>

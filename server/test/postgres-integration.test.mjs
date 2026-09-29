@@ -86,6 +86,90 @@ test("Postgres store persists and isolates project live state", {
       facetsA.cities,
       ["Raipur"]
     );
+
+    for (
+      let index = 0;
+      index < 3;
+      index += 1
+    ) {
+      const receivedAt =
+        new Date(
+          Date.now() -
+          (
+            index + 1
+          ) *
+            1000
+        ).toISOString();
+      await store.upsertLocation(
+        a.rows[0].id,
+        {
+          userId:
+            `worker-${index}`,
+          name:
+            `Worker ${index}`,
+          latitude:
+            21.25 + index / 100,
+          longitude:
+            81.63 + index / 100,
+          receivedAt,
+          capturedAt:
+            receivedAt,
+          city: "Raipur",
+          state:
+            "Chhattisgarh",
+          country: "India"
+        }
+      );
+    }
+
+    const firstSearchPage =
+      await store.listUsersPage(
+        a.rows[0].id,
+        {
+          search: "worker",
+          limit: 2
+        }
+      );
+    assert.equal(
+      firstSearchPage.users.length,
+      2
+    );
+    assert.ok(
+      firstSearchPage.nextCursor
+    );
+
+    const secondSearchPage =
+      await store.listUsersPage(
+        a.rows[0].id,
+        {
+          search: "worker",
+          limit: 2,
+          cursor:
+            firstSearchPage
+              .nextCursor
+        }
+      );
+    assert.equal(
+      secondSearchPage
+        .users.length,
+      1
+    );
+    assert.equal(
+      secondSearchPage
+        .nextCursor,
+      null
+    );
+
+    const searchIds = [
+      ...firstSearchPage.users,
+      ...secondSearchPage.users
+    ].map(
+      (user) => user.userId
+    );
+    assert.equal(
+      new Set(searchIds).size,
+      3
+    );
   } finally {
     await pool.query("DELETE FROM accounts WHERE id = $1", [account.rows[0].id]);
     await store.close();
