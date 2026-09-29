@@ -127,7 +127,14 @@ async function handlePublic(request, env, ctx) {
     const target = new URL("https://realtime.internal/socket");
     target.searchParams.set("projectId",projectId);
     target.searchParams.set("mode","integration");
-    return room(env,projectId).fetch(new Request(target, request));
+    const headers = new Headers();
+    headers.set("Upgrade","websocket");
+    const origin = request.headers.get("origin");
+    if (origin) headers.set("x-geolive-client-origin",origin);
+    return room(env,projectId).fetch(new Request(target,{
+      method:"GET",
+      headers
+    }));
   }
 
   if (path === "/v1/locations" && request.method === "POST") {
