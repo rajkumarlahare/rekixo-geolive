@@ -19,6 +19,10 @@ test("demo mode activates only explicitly or on Pages hosts", () => {
     demoModeEnabled({ search: "", hostname: "geolive.rekixo.com" }),
     false
   );
+  assert.equal(
+    demoModeEnabled({ search: "?demo=1", hostname: "geolive.rekixo.com" }),
+    false
+  );
 });
 
 test("demo session is read-only and project scoped", async () => {
