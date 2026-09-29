@@ -4,6 +4,18 @@
   "main": "src/index.mjs",
   "compatibility_date": "2026-09-29",
   "workers_dev": true,
+  "assets": {
+    "directory": "../dist-cloudflare",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/",
+      "/health",
+      "/ready",
+      "/internal/*",
+      "/v1/*",
+      "/dashboard/*"
+    ]
+  },
   "observability": {
     "enabled": true
   },
