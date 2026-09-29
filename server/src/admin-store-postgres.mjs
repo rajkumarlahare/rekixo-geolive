@@ -396,7 +396,15 @@ export class PostgresAdminStore {
     return mapProject(row);
   }
 
-  async createProject(userId, { accountId, slug, name }) {
+  async createProject(
+    userId,
+    {
+      accountId,
+      slug,
+      name,
+      maxProjects = null
+    }
+  ) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -408,9 +416,60 @@ export class PostgresAdminStore {
           FOR SHARE`,
         [accountId, userId]
       );
-      if (!membership.rows.length) throw new AdminStoreError("account_not_found", 404);
-      if (!["owner", "admin"].includes(membership.rows[0].role)) {
-        throw new AdminStoreError("project_write_forbidden", 403);
+      if (!membership.rows.length) {
+        throw new AdminStoreError(
+          "account_not_found",
+          404
+        );
+      }
+      if (
+        !["owner", "admin"].includes(
+          membership.rows[0].role
+        )
+      ) {
+        throw new AdminStoreError(
+          "project_write_forbidden",
+          403
+        );
+      }
+
+      if (
+        maxProjects !== null &&
+        maxProjects !== undefined
+      ) {
+        const limit = Number(maxProjects);
+        if (
+          !Number.isSafeInteger(limit) ||
+          limit < 1
+        ) {
+          throw new AdminStoreError(
+            "invalid_project_entitlement",
+            500
+          );
+        }
+
+        // Serialize project-count enforcement per account so
+        // concurrent creates cannot both consume the last slot.
+        await client.query(
+          "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+          [accountId]
+        );
+        const count = await client.query(
+          `SELECT count(*)::int AS count
+             FROM projects
+            WHERE account_id = $1
+              AND status <> 'deleted'`,
+          [accountId]
+        );
+        if (
+          Number(count.rows[0]?.count || 0) >=
+          limit
+        ) {
+          throw new AdminStoreError(
+            "project_entitlement_exceeded",
+            402
+          );
+        }
       }
 
       const inserted = await client.query(
@@ -442,9 +501,14 @@ export class PostgresAdminStore {
         })
       };
     } catch (error) {
-      try { await client.query("ROLLBACK"); } catch {}
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
       if (error?.code === "23505") {
-        throw new AdminStoreError("project_slug_exists", 409);
+        throw new AdminStoreError(
+          "project_slug_exists",
+          409
+        );
       }
       throw error;
     } finally {
@@ -452,20 +516,43 @@ export class PostgresAdminStore {
     }
   }
 
-  async updateProject(userId, projectId, { slug, name, status }) {
-    const current = await this.authorizeProject(userId, projectId, { write: true });
-    if (current.status === "deleted") throw new AdminStoreError("project_not_found", 404);
+  async updateProject(
+    userId,
+    projectId,
+    { slug, name, status }
+  ) {
+    const current =
+      await this.authorizeProject(
+        userId,
+        projectId,
+        { write: true }
+      );
+    if (current.status === "deleted") {
+      throw new AdminStoreError(
+        "project_not_found",
+        404
+      );
+    }
 
     const nextSlug = slug ?? current.slug;
     const nextName = name ?? current.name;
     const nextStatus = status ?? current.status;
 
-    if (!["active", "suspended"].includes(nextStatus)) {
-      throw new AdminStoreError("invalid_project_status", 400);
+    if (
+      !["active", "suspended"].includes(
+        nextStatus
+      )
+    ) {
+      throw new AdminStoreError(
+        "invalid_project_status",
+        400
+      );
     }
 
+    const client = await this.pool.connect();
     try {
-      const result = await this.pool.query(
+      await client.query("BEGIN");
+      const result = await client.query(
         `UPDATE projects
             SET slug = $2,
                 name = $3,
@@ -473,10 +560,15 @@ export class PostgresAdminStore {
                 updated_at = now()
           WHERE id = $1
           RETURNING id, account_id, slug, name, status, created_at, updated_at`,
-        [projectId, nextSlug, nextName, nextStatus]
+        [
+          projectId,
+          nextSlug,
+          nextName,
+          nextStatus
+        ]
       );
 
-      await this.pool.query(
+      await client.query(
         `INSERT INTO audit_log (
           admin_user_id, account_id, project_id, action, details
         ) VALUES ($1, $2, $3, 'project.update', $4::jsonb)`,
@@ -485,46 +577,84 @@ export class PostgresAdminStore {
           current.accountId,
           projectId,
           JSON.stringify({
-            before: { slug: current.slug, name: current.name, status: current.status },
-            after: { slug: nextSlug, name: nextName, status: nextStatus }
+            before: {
+              slug: current.slug,
+              name: current.name,
+              status: current.status
+            },
+            after: {
+              slug: nextSlug,
+              name: nextName,
+              status: nextStatus
+            }
           })
         ]
       );
 
+      await client.query("COMMIT");
       return mapProject({
         ...result.rows[0],
         account_name: current.accountName,
         role: current.role
       });
     } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
       if (error?.code === "23505") {
-        throw new AdminStoreError("project_slug_exists", 409);
+        throw new AdminStoreError(
+          "project_slug_exists",
+          409
+        );
       }
       throw error;
+    } finally {
+      client.release();
     }
   }
 
   async deleteProject(userId, projectId) {
-    const current = await this.authorizeProject(userId, projectId, { write: true });
-
-    await this.pool.query(
-      `UPDATE projects
-          SET status = 'deleted',
-              updated_at = now()
-        WHERE id = $1`,
-      [projectId]
-    );
-
-    await this.pool.query(
-      `INSERT INTO audit_log (
-        admin_user_id, account_id, project_id, action, details
-      ) VALUES ($1, $2, $3, 'project.delete', $4::jsonb)`,
-      [
+    const current =
+      await this.authorizeProject(
         userId,
-        current.accountId,
         projectId,
-        JSON.stringify({ slug: current.slug, name: current.name })
-      ]
-    );
+        { write: true }
+      );
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE projects
+            SET status = 'deleted',
+                updated_at = now()
+          WHERE id = $1`,
+        [projectId]
+      );
+
+      await client.query(
+        `INSERT INTO audit_log (
+          admin_user_id, account_id, project_id, action, details
+        ) VALUES ($1, $2, $3, 'project.delete', $4::jsonb)`,
+        [
+          userId,
+          current.accountId,
+          projectId,
+          JSON.stringify({
+            slug: current.slug,
+            name: current.name
+          })
+        ]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
   }
+
 }
