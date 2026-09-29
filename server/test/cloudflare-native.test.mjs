@@ -319,10 +319,19 @@ test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy 
   );
 });
 
-test("GeoLive brand eye is code-drawn and raster-free", async () => {
-  const [html, css] = await Promise.all([
+test("GeoLive eye branding is code-drawn across header, profile and favicon", async () => {
+  const [
+    html,
+    css,
+    favicon,
+    cloudflareBuild,
+    demoBuild
+  ] = await Promise.all([
     readFile("dashboard/index.html", "utf8"),
-    readFile("dashboard/styles.css", "utf8")
+    readFile("dashboard/styles.css", "utf8"),
+    readFile("dashboard/geolive-favicon.svg", "utf8"),
+    readFile("scripts/build-cloudflare-production.mjs", "utf8"),
+    readFile("scripts/build-public-demo.mjs", "utf8")
   ]);
 
   assert.match(
@@ -331,7 +340,15 @@ test("GeoLive brand eye is code-drawn and raster-free", async () => {
   );
   assert.equal(
     (html.match(/href="#geolive-eye-mark"/g) || []).length,
-    2
+    3
+  );
+  assert.match(
+    html,
+    /href="\.\/geolive-favicon\.svg"/
+  );
+  assert.match(
+    html,
+    /class="geolive-mark profile-eye-mark"/
   );
   assert.match(
     css,
@@ -341,13 +358,88 @@ test("GeoLive brand eye is code-drawn and raster-free", async () => {
     css,
     /\.auth-logo \.geolive-mark\{width:52px;height:32px\}/
   );
+  assert.match(
+    css,
+    /\.profile-icon \.profile-eye-mark\{width:38px;height:24px\}/
+  );
+  assert.match(
+    favicon,
+    /<svg[^>]+viewBox="0 0 120 74"/
+  );
+  assert.match(
+    favicon,
+    /stroke="#12eee7"/
+  );
+  assert.match(
+    cloudflareBuild,
+    /"geolive-favicon\.svg"/
+  );
+  assert.match(
+    demoBuild,
+    /"geolive-favicon\.svg"/
+  );
 
-  const brandMarkup =
-    html.match(/<div class="brand">[\s\S]*?<\/div>/)?.[0] || "";
-  const authMarkup =
-    html.match(/<div class="auth-logo"[\s\S]*?<\/div>/)?.[0] || "";
-  assert.doesNotMatch(brandMarkup, /<img\b|\.png|\.jpe?g|\.webp/i);
-  assert.doesNotMatch(authMarkup, /<img\b|\.png|\.jpe?g|\.webp/i);
+  const brandedMarkup =
+    [
+      html.match(/<div class="brand">[\s\S]*?<\/div>/)?.[0] || "",
+      html.match(/<div class="profile-icon"[\s\S]*?<\/div>/)?.[0] || "",
+      html.match(/<div class="auth-logo"[\s\S]*?<\/div>/)?.[0] || ""
+    ].join("\n");
+  assert.doesNotMatch(
+    brandedMarkup,
+    /<img\b|\.png|\.jpe?g|\.webp/i
+  );
+});
+
+test("Photorealistic globe drag sensitivity decreases with deep zoom", async () => {
+  const [renderer, globe, app] =
+    await Promise.all([
+      readFile(
+        "dashboard/photorealistic-earth.js",
+        "utf8"
+      ),
+      readFile(
+        "dashboard/globe-webgl.js",
+        "utf8"
+      ),
+      readFile(
+        "dashboard/app.js",
+        "utf8"
+      )
+    ]);
+
+  assert.match(
+    renderer,
+    /dragSensitivity\(/
+  );
+  assert.match(
+    renderer,
+    /cameraHeightForZoom/
+  );
+  assert.match(
+    renderer,
+    /groundMetersPerPixel/
+  );
+  assert.match(
+    renderer,
+    /0\.000015/
+  );
+  assert.match(
+    globe,
+    /dragSensitivity\(/
+  );
+  assert.match(
+    app,
+    /globeRenderer\s*\.dragSensitivity/
+  );
+  assert.doesNotMatch(
+    app,
+    /deltaX \* 0\.35/
+  );
+  assert.doesNotMatch(
+    app,
+    /deltaY \* 0\.22/
+  );
 });
 
 test("Cloudflare production config keeps runtime secret values out of committed vars", async () => {

@@ -446,6 +446,58 @@ export class PhotorealisticEarthRenderer {
     return 0.6;
   }
 
+  dragSensitivity(
+    zoom,
+    viewportHeight = 600
+  ) {
+    if (!this.active) {
+      return null;
+    }
+
+    const height =
+      cameraHeightForZoom(
+        zoom
+      );
+    const fovy =
+      Number(
+        this.viewer?.camera
+          ?.frustum?.fovy
+      ) ||
+      Math.PI / 3;
+    const pixels =
+      Math.max(
+        240,
+        Number(
+          viewportHeight
+        ) || 600
+      );
+
+    const groundMetersPerPixel =
+      (
+        2 *
+        height *
+        Math.tan(
+          fovy / 2
+        )
+      ) /
+      pixels;
+    const degreesPerPixel =
+      clamp(
+        groundMetersPerPixel /
+          111_320,
+        0.000015,
+        0.35
+      );
+
+    return {
+      longitude:
+        degreesPerPixel,
+      latitude:
+        degreesPerPixel *
+        0.64
+    };
+  }
+
   async initialize() {
     if (
       !this.configured ||
