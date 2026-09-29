@@ -5312,7 +5312,8 @@ canvas.addEventListener(
   (event) => {
     if (
       event.button !== 0 ||
-      globeDrag.active
+      globeDrag.active ||
+      state.geofenceEditor.active
     ) {
       return;
     }
@@ -5444,6 +5445,370 @@ function projectPoint(lat, lng, cx, cy, radius) {
   return { x: cx + x * radius, y: cy - y * radius, z };
 }
 
+function geofenceRenderPoints(
+  geofence
+) {
+  if (
+    geofence.shapeType ===
+    "circle"
+  ) {
+    if (
+      !Array.isArray(
+        geofence.__renderPoints
+      )
+    ) {
+      geofence.__renderPoints =
+        circlePoints(
+          {
+            latitude:
+              Number(
+                geofence.latitude
+              ),
+            longitude:
+              Number(
+                geofence.longitude
+              )
+          },
+          Number(
+            geofence.radiusM
+          ),
+          72
+        );
+    }
+    return geofence.__renderPoints;
+  }
+
+  return closePolygon(
+    geofence.points || []
+  );
+}
+
+function drawProjectedGeofencePath(
+  points,
+  cx,
+  cy,
+  radius,
+  {
+    strokeStyle,
+    lineWidth = 2,
+    dash = []
+  }
+) {
+  if (
+    !Array.isArray(points) ||
+    points.length < 2
+  ) {
+    return;
+  }
+
+  ctx.save();
+  ctx.strokeStyle =
+    strokeStyle;
+  ctx.lineWidth =
+    lineWidth;
+  ctx.setLineDash(dash);
+  ctx.shadowColor =
+    strokeStyle;
+  ctx.shadowBlur = 8;
+
+  ctx.beginPath();
+  let started = false;
+  for (const point of points) {
+    const projected =
+      projectPoint(
+        Number(point[1]),
+        Number(point[0]),
+        cx,
+        cy,
+        radius
+      );
+
+    if (
+      projected.z <= 0
+    ) {
+      started = false;
+      continue;
+    }
+
+    if (!started) {
+      ctx.moveTo(
+        projected.x,
+        projected.y
+      );
+      started = true;
+    } else {
+      ctx.lineTo(
+        projected.x,
+        projected.y
+      );
+    }
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function geofenceLabelPoint(
+  geofence
+) {
+  if (
+    geofence.shapeType ===
+    "circle"
+  ) {
+    return {
+      latitude:
+        Number(
+          geofence.latitude
+        ),
+      longitude:
+        Number(
+          geofence.longitude
+        )
+    };
+  }
+
+  const points =
+    (geofence.points || [])
+      .filter(
+        (point) =>
+          Array.isArray(point) &&
+          point.length === 2
+      );
+  if (!points.length) {
+    return null;
+  }
+
+  const usable =
+    points.length > 1 &&
+    points[0][0] ===
+      points.at(-1)[0] &&
+    points[0][1] ===
+      points.at(-1)[1]
+      ? points.slice(0, -1)
+      : points;
+  if (!usable.length) {
+    return null;
+  }
+
+  return {
+    latitude:
+      usable.reduce(
+        (sum, point) =>
+          sum +
+          Number(point[1]),
+        0
+      ) /
+      usable.length,
+    longitude:
+      usable.reduce(
+        (sum, point) =>
+          sum +
+          Number(point[0]),
+        0
+      ) /
+      usable.length
+  };
+}
+
+function drawGeofenceOverlays(
+  cx,
+  cy,
+  radius
+) {
+  for (
+    const geofence of
+    state.automation.geofences
+  ) {
+    if (
+      state.geofenceEditor
+        .active &&
+      state.geofenceEditor
+        .mode === "edit" &&
+      state.geofenceEditor
+        .geofenceId ===
+        geofence.id
+    ) {
+      continue;
+    }
+
+    const active =
+      geofence.status ===
+      "active";
+    const color =
+      active
+        ? "rgba(72,220,182,.92)"
+        : "rgba(255,198,77,.72)";
+
+    drawProjectedGeofencePath(
+      geofenceRenderPoints(
+        geofence
+      ),
+      cx,
+      cy,
+      radius,
+      {
+        strokeStyle: color,
+        lineWidth:
+          active ? 2 : 1.5,
+        dash:
+          active
+            ? []
+            : [6, 5]
+      }
+    );
+
+    const labelPoint =
+      geofenceLabelPoint(
+        geofence
+      );
+    if (!labelPoint) continue;
+    const projected =
+      projectPoint(
+        labelPoint.latitude,
+        labelPoint.longitude,
+        cx,
+        cy,
+        radius
+      );
+    if (
+      projected.z <= 0
+    ) {
+      continue;
+    }
+
+    ctx.save();
+    ctx.font =
+      "600 10px sans-serif";
+    ctx.textAlign =
+      "center";
+    ctx.textBaseline =
+      "bottom";
+    ctx.fillStyle =
+      active
+        ? "#8ff4d5"
+        : "#ffd36a";
+    ctx.shadowColor =
+      "rgba(0,0,0,.85)";
+    ctx.shadowBlur = 4;
+    ctx.fillText(
+      geofence.name,
+      projected.x,
+      projected.y - 7
+    );
+    ctx.restore();
+  }
+}
+
+function drawGeofenceEditorDraft(
+  cx,
+  cy,
+  radius
+) {
+  const editor =
+    state.geofenceEditor;
+  if (!editor.active) {
+    return;
+  }
+
+  const shapeType =
+    currentGeofenceEditorShape();
+  let points = [];
+
+  if (
+    shapeType === "circle" &&
+    editor.center &&
+    Number.isFinite(
+      Number(editor.radiusM)
+    )
+  ) {
+    points =
+      circlePoints(
+        editor.center,
+        editor.radiusM,
+        96
+      );
+  } else if (
+    shapeType === "polygon" &&
+    editor.points.length
+  ) {
+    points =
+      editor.finished
+        ? closePolygon(
+            editor.points
+          )
+        : editor.points;
+  }
+
+  if (points.length > 1) {
+    drawProjectedGeofencePath(
+      points,
+      cx,
+      cy,
+      radius,
+      {
+        strokeStyle:
+          "rgba(76,210,255,.98)",
+        lineWidth: 3,
+        dash:
+          editor.finished
+            ? []
+            : [8, 5]
+      }
+    );
+  }
+
+  const vertices =
+    shapeType === "circle"
+      ? editor.center
+        ? [[
+            editor.center.longitude,
+            editor.center.latitude
+          ]]
+        : []
+      : editor.points;
+
+  for (
+    let index = 0;
+    index < vertices.length;
+    index += 1
+  ) {
+    const point =
+      vertices[index];
+    const projected =
+      projectPoint(
+        Number(point[1]),
+        Number(point[0]),
+        cx,
+        cy,
+        radius
+      );
+    if (
+      projected.z <= 0
+    ) {
+      continue;
+    }
+
+    ctx.beginPath();
+    ctx.arc(
+      projected.x,
+      projected.y,
+      index === 0
+        ? 5
+        : 4,
+      0,
+      Math.PI * 2
+    );
+    ctx.fillStyle =
+      index === 0
+        ? "#ffffff"
+        : "#4cd2ff";
+    ctx.strokeStyle =
+      "#052334";
+    ctx.lineWidth = 2;
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
 function starfield(width, height) {
   ctx.fillStyle = "rgba(255,255,255,.7)";
   for (let i = 0; i < 80; i++) {
@@ -5573,6 +5938,12 @@ function draw() {
     }
     ctx.stroke();
   }
+
+  drawGeofenceOverlays(
+    cx,
+    cy,
+    radius
+  );
 
   if (state.heatmapCells.length) {
     const maxCount = Math.max(
@@ -5759,6 +6130,12 @@ function draw() {
     };
   }
 
+  drawGeofenceEditorDraft(
+    cx,
+    cy,
+    radius
+  );
+
   ctx.restore();
   if (!state.paused) state.rotation = (state.rotation + .025) % 360;
   requestAnimationFrame(draw);
@@ -5769,6 +6146,15 @@ draw();
 canvas.addEventListener("click", (event) => {
   if (suppressGlobeClick) {
     suppressGlobeClick = false;
+    return;
+  }
+
+  if (
+    state.geofenceEditor.active
+  ) {
+    handleGeofenceEditorClick(
+      event
+    );
     return;
   }
 
