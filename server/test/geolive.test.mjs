@@ -171,3 +171,70 @@ test("public readiness response does not expose sensitive deployment metadata", 
   }
 });
 
+test("P4C serves self-hosted WebGL globe assets with safe content types", async () => {
+  const config = loadConfig({
+    NODE_ENV: "test",
+    GEOLIVE_PERSISTENCE: "memory"
+  });
+  const server = createGeoLiveServer({
+    config,
+    store: new MemoryGeoLiveStore()
+  });
+
+  await new Promise((resolve) => {
+    server.listen(
+      0,
+      "127.0.0.1",
+      resolve
+    );
+  });
+
+  try {
+    const address = server.address();
+    const base =
+      `http://127.0.0.1:${address.port}`;
+
+    const moduleResponse =
+      await fetch(
+        `${base}/dashboard/globe-webgl.js`
+      );
+    assert.equal(
+      moduleResponse.status,
+      200
+    );
+    assert.match(
+      moduleResponse.headers.get(
+        "content-type"
+      ) || "",
+      /^text\/javascript/
+    );
+    assert.match(
+      await moduleResponse.text(),
+      /GeoGlobeRenderer/
+    );
+
+    const textureResponse =
+      await fetch(
+        `${base}/dashboard/earth-dark.svg`
+      );
+    assert.equal(
+      textureResponse.status,
+      200
+    );
+    assert.equal(
+      textureResponse.headers.get(
+        "content-type"
+      ),
+      "image/svg+xml"
+    );
+    assert.match(
+      await textureResponse.text(),
+      /<svg/
+    );
+  } finally {
+    await new Promise((resolve) =>
+      server.close(resolve)
+    );
+  }
+});
+
