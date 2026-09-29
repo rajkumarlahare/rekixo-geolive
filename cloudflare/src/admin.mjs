@@ -350,33 +350,198 @@ async function projectMetrics(env, projectId, hours) {
   };
 }
 
-async function listGeofences(env, projectId) {
-  const result = await env.DB.prepare(
-    `SELECT id,project_id,name,status,shape_type,center_lat,center_lng,radius_m,
-      polygon_json,dwell_seconds,metadata_json,created_at,updated_at
-     FROM geofences
-     WHERE project_id=? AND deleted_at IS NULL
-     ORDER BY created_at DESC`
-  ).bind(projectId).all();
+function boundedInteger(value, fallback, min, max) {
+  const n = Number(value ?? fallback);
+  if (!Number.isInteger(n) || n < min || n > max) {
+    throw Object.assign(new Error("invalid_limit"), {
+      code: "invalid_limit",
+      status: 400
+    });
+  }
+  return n;
+}
+
+async function getProjectLimits(env, projectId) {
+  const row = await env.DB.prepare(
+    `SELECT *
+     FROM project_limits
+     WHERE project_id=?`
+  ).bind(projectId).first();
+  const source = row || {};
   return {
-    geofences: (result.results || []).map((row) => ({
-      id: row.id,
-      projectId: row.project_id,
-      name: row.name,
-      status: row.status,
-      shapeType: row.shape_type,
-      center: row.center_lat == null ? null : {
-        latitude: Number(row.center_lat),
-        longitude: Number(row.center_lng)
-      },
-      radiusM: row.radius_m == null ? null : Number(row.radius_m),
-      polygon: row.polygon_json ? JSON.parse(row.polygon_json) : null,
-      dwellSeconds: Number(row.dwell_seconds || 0),
-      metadata: row.metadata_json ? JSON.parse(row.metadata_json) : {},
-      createdAt: row.created_at,
-      updatedAt: row.updated_at
+    ingestRequestsPerMinute:
+      Number(source.ingest_requests_per_minute || 6000),
+    readRequestsPerMinute:
+      Number(source.read_requests_per_minute || 3000),
+    dailyIngestQuota:
+      Number(source.daily_ingest_quota || 10000000),
+    maxLiveUsers:
+      Number(source.max_live_users || 100000),
+    historyRetentionDays:
+      Number(source.history_retention_days || 30),
+    securityEventRetentionDays:
+      Number(source.security_event_retention_days || 30),
+    metricsRetentionDays:
+      Number(source.metrics_retention_days || 90),
+    realtimeEventRetentionHours:
+      Number(source.realtime_retention_hours || 24),
+    geofenceEventRetentionDays:
+      Number(source.geofence_event_retention_days || 90),
+    webhookDeliveryRetentionDays:
+      Number(source.webhook_delivery_retention_days || 30)
+  };
+}
+
+async function updateProjectLimits(request, env, projectId) {
+  const body = await request.json();
+  let limits;
+  try {
+    limits = {
+      ingestRequestsPerMinute:
+        boundedInteger(body.ingestRequestsPerMinute, 6000, 1, 1000000),
+      readRequestsPerMinute:
+        boundedInteger(body.readRequestsPerMinute, 3000, 1, 1000000),
+      dailyIngestQuota:
+        boundedInteger(body.dailyIngestQuota, 10000000, 1, 1000000000),
+      maxLiveUsers:
+        boundedInteger(body.maxLiveUsers, 100000, 1, 10000000),
+      historyRetentionDays:
+        boundedInteger(body.historyRetentionDays, 30, 1, 3650),
+      securityEventRetentionDays:
+        boundedInteger(body.securityEventRetentionDays, 30, 1, 3650),
+      metricsRetentionDays:
+        boundedInteger(body.metricsRetentionDays, 90, 1, 3650),
+      realtimeEventRetentionHours:
+        boundedInteger(body.realtimeEventRetentionHours, 24, 1, 720),
+      geofenceEventRetentionDays:
+        boundedInteger(body.geofenceEventRetentionDays, 90, 7, 3650),
+      webhookDeliveryRetentionDays:
+        boundedInteger(body.webhookDeliveryRetentionDays, 30, 7, 3650)
+    };
+  } catch (error) {
+    return json({ error: error.code || "invalid_limit" }, error.status || 400);
+  }
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO project_limits(
+      project_id,ingest_requests_per_minute,read_requests_per_minute,
+      daily_ingest_quota,max_live_users,history_retention_days,
+      security_event_retention_days,metrics_retention_days,
+      realtime_retention_hours,geofence_event_retention_days,
+      webhook_delivery_retention_days,updated_at
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(project_id)
+    DO UPDATE SET
+      ingest_requests_per_minute=excluded.ingest_requests_per_minute,
+      read_requests_per_minute=excluded.read_requests_per_minute,
+      daily_ingest_quota=excluded.daily_ingest_quota,
+      max_live_users=excluded.max_live_users,
+      history_retention_days=excluded.history_retention_days,
+      security_event_retention_days=excluded.security_event_retention_days,
+      metrics_retention_days=excluded.metrics_retention_days,
+      realtime_retention_hours=excluded.realtime_retention_hours,
+      geofence_event_retention_days=excluded.geofence_event_retention_days,
+      webhook_delivery_retention_days=excluded.webhook_delivery_retention_days,
+      updated_at=excluded.updated_at`
+  ).bind(
+    projectId,
+    limits.ingestRequestsPerMinute,
+    limits.readRequestsPerMinute,
+    limits.dailyIngestQuota,
+    limits.maxLiveUsers,
+    limits.historyRetentionDays,
+    limits.securityEventRetentionDays,
+    limits.metricsRetentionDays,
+    limits.realtimeEventRetentionHours,
+    limits.geofenceEventRetentionDays,
+    limits.webhookDeliveryRetentionDays,
+    now
+  ).run();
+  return json({ limits });
+}
+
+async function securityEvents(env, projectId, limit = 25) {
+  const bounded = Math.min(Math.max(Number(limit) || 25, 1), 100);
+  const result = await env.DB.prepare(
+    `SELECT id,key_ref,event_type,severity,metadata_json,created_at
+     FROM security_events
+     WHERE project_id=?
+     ORDER BY id DESC
+     LIMIT ?`
+  ).bind(projectId,bounded).all();
+  return {
+    events: (result.results || []).map((row) => ({
+      id: String(row.id),
+      keyRef: row.key_ref || null,
+      eventType: row.event_type,
+      severity: row.severity,
+      metadata: JSON.parse(row.metadata_json || "{}"),
+      createdAt: row.created_at
     }))
   };
+}
+
+async function getClientSecurity(env, projectId) {
+  const row = await env.DB.prepare(
+    "SELECT * FROM client_security_policy WHERE project_id=?"
+  ).bind(projectId).first();
+  return {
+    policy: {
+      clientTokenTtlSeconds:
+        Number(row?.client_token_ttl_seconds || 300),
+      requestMaxAgeSeconds:
+        Number(row?.request_max_age_seconds || 120),
+      tokenExchangeRequestsPerMinute:
+        Number(row?.token_exchange_requests_per_minute || 120),
+      requireRequestProof:
+        row ? Boolean(row.require_request_proof) : true,
+      androidAttestationMode:
+        row?.android_attestation_mode || "off"
+    },
+    clientTokensConfigured: false,
+    playIntegrityConfiguredPackages: [],
+    runtimeNote:
+      "Cloudflare client-token exchange is not enabled yet; long-lived restricted integration keys remain active."
+  };
+}
+
+async function updateClientSecurity(request, env, projectId) {
+  const body = await request.json();
+  let ttl;
+  let maxAge;
+  let rpm;
+  try {
+    ttl = boundedInteger(body.clientTokenTtlSeconds, 300, 60, 3600);
+    maxAge = boundedInteger(body.requestMaxAgeSeconds, 120, 30, 600);
+    rpm = boundedInteger(body.tokenExchangeRequestsPerMinute, 120, 1, 10000);
+  } catch (error) {
+    return json({ error: error.code || "invalid_client_security" }, 400);
+  }
+  const mode = String(body.androidAttestationMode || "off");
+  if (!["off","optional","required"].includes(mode)) {
+    return json({ error: "invalid_attestation_mode" }, 400);
+  }
+  const now = new Date().toISOString();
+  await env.DB.prepare(
+    `INSERT INTO client_security_policy(
+      project_id,client_token_ttl_seconds,request_max_age_seconds,
+      token_exchange_requests_per_minute,require_request_proof,
+      android_attestation_mode,updated_at
+    ) VALUES(?,?,?,?,?,?,?)
+    ON CONFLICT(project_id)
+    DO UPDATE SET
+      client_token_ttl_seconds=excluded.client_token_ttl_seconds,
+      request_max_age_seconds=excluded.request_max_age_seconds,
+      token_exchange_requests_per_minute=excluded.token_exchange_requests_per_minute,
+      require_request_proof=excluded.require_request_proof,
+      android_attestation_mode=excluded.android_attestation_mode,
+      updated_at=excluded.updated_at`
+  ).bind(
+    projectId,ttl,maxAge,rpm,
+    body.requireRequestProof === false ? 0 : 1,
+    mode,now
+  ).run();
+  return json(await getClientSecurity(env,projectId));
 }
 
 async function createProject(request, env, auth) {
@@ -425,6 +590,14 @@ async function listKeys(env, projectId) {
       allowedPackages: JSON.parse(row.allowed_packages_json || "[]"),
       expiresAt: row.expires_at,
       revokedAt: row.revoked_at,
+      status:
+        row.revoked_at
+          ? "revoked"
+          : row.expires_at &&
+              new Date(row.expires_at).getTime() <= Date.now()
+            ? "expired"
+            : "active",
+      lastUsedAt: null,
       createdAt: row.created_at,
       updatedAt: row.updated_at
     }))
@@ -514,6 +687,14 @@ export async function handleAdmin(request, env, thresholds) {
     return json({ project: { ...project, ...body } });
   }
 
+  if (!resource && request.method === "DELETE") {
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "UPDATE projects SET status='deleted',updated_at=? WHERE id=?"
+    ).bind(now,projectId).run();
+    return json({ ok: true });
+  }
+
   const automationResponse = await handleAutomationAdmin({
     request,
     env,
@@ -551,8 +732,23 @@ export async function handleAdmin(request, env, thresholds) {
       thresholds
     })});
   }
+  if (resource === "operations/limits" && request.method === "GET") {
+    return json({ limits: await getProjectLimits(env,projectId) });
+  }
+  if (resource === "operations/limits" && request.method === "PATCH") {
+    return updateProjectLimits(request,env,projectId);
+  }
   if (resource === "operations/metrics" && request.method === "GET") {
     return json(await projectMetrics(env,projectId,url.searchParams.get("hours")||24));
+  }
+  if (resource === "operations/security-events" && request.method === "GET") {
+    return json(await securityEvents(env,projectId,url.searchParams.get("limit")||25));
+  }
+  if (resource === "client-security" && request.method === "GET") {
+    return json(await getClientSecurity(env,projectId));
+  }
+  if (resource === "client-security" && request.method === "PATCH") {
+    return updateClientSecurity(request,env,projectId);
   }
   if (resource === "history" && request.method === "GET") {
     const userId=String(url.searchParams.get("userId")||"").trim();
