@@ -674,6 +674,8 @@ export async function cleanupRetention(env) {
   const projects = await env.DB.prepare(
     `SELECT p.id,
       COALESCE(l.history_retention_days,30) AS history_days,
+      COALESCE(l.security_event_retention_days,30) AS security_days,
+      COALESCE(l.metrics_retention_days,90) AS metrics_days,
       COALESCE(l.realtime_retention_hours,24) AS realtime_hours,
       COALESCE(l.geofence_event_retention_days,90) AS geofence_days,
       COALESCE(l.webhook_delivery_retention_days,30) AS webhook_days
@@ -687,13 +689,15 @@ export async function cleanupRetention(env) {
     const realtimeBefore = new Date(now - Number(p.realtime_hours)*3600000).toISOString();
     const geofenceBefore = new Date(now - Number(p.geofence_days)*86400000).toISOString();
     const webhookBefore = new Date(now - Number(p.webhook_days)*86400000).toISOString();
-    const metricsBefore = new Date(now - 90 * 86400000).toISOString().slice(0,10);
+    const securityBefore = new Date(now - Number(p.security_days)*86400000).toISOString();
+    const metricsBefore = new Date(now - Number(p.metrics_days)*86400000).toISOString().slice(0,10);
     const limiterBefore = new Date(now - 10 * 60000).toISOString();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM location_history WHERE project_id=? AND received_at<?").bind(p.id,historyBefore),
       env.DB.prepare("DELETE FROM realtime_events WHERE project_id=? AND created_at<?").bind(p.id,realtimeBefore),
       env.DB.prepare("DELETE FROM webhook_deliveries WHERE project_id=? AND created_at<?").bind(p.id,webhookBefore),
       env.DB.prepare("DELETE FROM geofence_events WHERE project_id=? AND created_at<?").bind(p.id,geofenceBefore),
+      env.DB.prepare("DELETE FROM security_events WHERE project_id=? AND created_at<?").bind(p.id,securityBefore),
       env.DB.prepare("DELETE FROM usage_daily WHERE project_id=? AND usage_date<?").bind(p.id,metricsBefore),
       env.DB.prepare("DELETE FROM rate_limit_windows WHERE project_id=? AND window_start<?").bind(p.id,limiterBefore)
     ]);
