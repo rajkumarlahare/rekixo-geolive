@@ -283,6 +283,12 @@ export function loadConfig(env = process.env) {
         1,
         100
       ),
+      deliveryPollMs: boundedNumber(
+        env.GEOLIVE_WEBHOOK_DELIVERY_POLL_MS,
+        5000,
+        1000,
+        60000
+      ),
       dwellPollMs: boundedNumber(
         env.GEOLIVE_DWELL_POLL_MS,
         15000,
