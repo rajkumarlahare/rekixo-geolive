@@ -84,6 +84,10 @@ console.log(
   path.relative(root, output)
 );
 console.log(
+  "GeoLive public demo build:",
+  "0.16.0-photorealistic"
+);
+console.log(
   "Photorealistic Earth:",
   googleMapsApiKey
     ? "configured"
