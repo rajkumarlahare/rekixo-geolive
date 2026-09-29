@@ -224,21 +224,31 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
 });
 
-test("Cloudflare production config never stores deployment secrets", async () => {
-  const config = await readFile(
+test("Cloudflare production declares required secrets without committing values", async () => {
+  const configText = await readFile(
     "cloudflare/wrangler.jsonc",
     "utf8"
   );
-
-  for (const secretName of [
-    "GEOLIVE_BOOTSTRAP_TOKEN",
-    "GEOLIVE_WEBHOOK_SIGNING_SECRET",
-    "GEOLIVE_GOOGLE_MAPS_API_KEY"
-  ]) {
+  const config = JSON.parse(configText);
+  assert.deepEqual(
+    config.secrets?.required,
+    [
+      "GEOLIVE_BOOTSTRAP_TOKEN",
+      "GEOLIVE_WEBHOOK_SIGNING_SECRET",
+      "GEOLIVE_GOOGLE_MAPS_API_KEY"
+    ]
+  );
+  const committedVars =
+    config.vars || {};
+  for (const secretName of
+    config.secrets.required) {
     assert.equal(
-      config.includes(secretName),
+      Object.hasOwn(
+        committedVars,
+        secretName
+      ),
       false,
-      `${secretName} must be set with Worker secrets, not committed vars`
+      `${secretName} must not have a committed value`
     );
   }
 });
