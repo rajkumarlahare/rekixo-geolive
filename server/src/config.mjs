@@ -243,7 +243,9 @@ export function loadConfig(env = process.env) {
     admin: {
       sessionHours: boundedNumber(env.GEOLIVE_ADMIN_SESSION_HOURS, 12, 1, 168),
       maxFailedLogins: boundedNumber(env.GEOLIVE_ADMIN_MAX_FAILED_LOGINS, 5, 3, 20),
-      lockMinutes: boundedNumber(env.GEOLIVE_ADMIN_LOCK_MINUTES, 15, 1, 1440)
+      lockMinutes: boundedNumber(env.GEOLIVE_ADMIN_LOCK_MINUTES, 15, 1, 1440),
+      trustProxy:
+        String(env.GEOLIVE_TRUST_PROXY || "").toLowerCase() === "true"
     },
     clientTokens: {
       required:
