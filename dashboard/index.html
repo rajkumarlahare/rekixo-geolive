@@ -424,16 +424,102 @@
         </section>
       </div>
 
-      <div class="automation-columns">
+      <section class="automation-observability">
+        <div class="key-list-head">
+          <div>
+            <small>OBSERVABILITY</small>
+            <h3>Recent automation health</h3>
+          </div>
+          <small id="automationHistoryScope">Loaded history · newest first</small>
+        </div>
+        <div class="automation-health-grid">
+          <article><small>Events loaded</small><strong id="obsEvents">0</strong><span id="obsEventMix">Enter 0 · Exit 0 · Dwell 0</span></article>
+          <article><small>Delivered</small><strong id="obsDelivered">0</strong><span id="obsDeliveryRate">0% of loaded deliveries</span></article>
+          <article><small>Needs attention</small><strong id="obsAttention">0</strong><span>Pending + retry</span></article>
+          <article><small>Dead letters</small><strong id="obsDead">0</strong><span id="obsDeadHint">No terminal failures loaded</span></article>
+        </div>
+      </section>
+
+      <div class="automation-columns automation-history-columns">
         <section>
-          <div class="key-list-head"><h3>Recent geofence events</h3></div>
-          <div id="geofenceEventList" class="commercial-list"></div>
+          <div class="key-list-head">
+            <h3>Geofence events</h3>
+            <button type="button" class="text-button" id="refreshEventHistory">Refresh</button>
+          </div>
+          <div class="automation-history-filters">
+            <label>Type
+              <select id="eventTypeFilter">
+                <option value="">All event types</option>
+                <option value="enter">Enter</option>
+                <option value="exit">Exit</option>
+                <option value="dwell">Dwell</option>
+              </select>
+            </label>
+            <label>Geofence<select id="eventGeofenceFilter"><option value="">All geofences</option></select></label>
+            <label>User ID<input id="eventUserFilter" maxlength="200" placeholder="Exact user ID" /></label>
+          </div>
+          <div id="geofenceEventList" class="commercial-list automation-history-list"></div>
+          <button type="button" class="text-button automation-load-more" id="loadMoreEvents" hidden>Load older events</button>
         </section>
         <section>
-          <div class="key-list-head"><h3>Webhook deliveries</h3></div>
-          <div id="webhookDeliveryList" class="commercial-list"></div>
+          <div class="key-list-head">
+            <h3>Webhook deliveries</h3>
+            <button type="button" class="text-button" id="refreshDeliveryHistory">Refresh</button>
+          </div>
+          <div class="automation-history-filters">
+            <label>Status
+              <select id="deliveryStatusFilter">
+                <option value="">All statuses</option>
+                <option value="delivered">Delivered</option>
+                <option value="pending">Pending</option>
+                <option value="retry">Retrying</option>
+                <option value="dead">Dead letter</option>
+              </select>
+            </label>
+            <label>Endpoint<select id="deliveryEndpointFilter"><option value="">All endpoints</option></select></label>
+            <label>Event
+              <select id="deliveryEventTypeFilter">
+                <option value="">All event types</option>
+                <option value="enter">Enter</option>
+                <option value="exit">Exit</option>
+                <option value="dwell">Dwell</option>
+              </select>
+            </label>
+          </div>
+          <div id="webhookDeliveryList" class="commercial-list automation-history-list"></div>
+          <button type="button" class="text-button automation-load-more" id="loadMoreDeliveries" hidden>Load older deliveries</button>
         </section>
       </div>
+
+      <section id="webhookDeliveryDetail" class="automation-delivery-detail" hidden>
+        <div class="key-list-head">
+          <div>
+            <small>DELIVERY INSPECTOR</small>
+            <h3 id="deliveryDetailTitle">Webhook delivery</h3>
+          </div>
+          <button type="button" class="text-button" id="deliveryDetailClose">Close</button>
+        </div>
+        <div class="automation-detail-grid">
+          <p><span>Status</span><strong id="deliveryDetailStatus">—</strong></p>
+          <p><span>Delivery ID</span><code id="deliveryDetailId">—</code></p>
+          <p><span>Endpoint</span><strong id="deliveryDetailEndpoint">—</strong></p>
+          <p><span>Endpoint URL</span><code id="deliveryDetailUrl">—</code></p>
+          <p><span>Event</span><strong id="deliveryDetailEvent">—</strong></p>
+          <p><span>User</span><code id="deliveryDetailUser">—</code></p>
+          <p><span>Geofence</span><strong id="deliveryDetailGeofence">—</strong></p>
+          <p><span>Alert rule</span><strong id="deliveryDetailRule">—</strong></p>
+          <p><span>Created</span><strong id="deliveryDetailCreated">—</strong></p>
+          <p><span>Schedule</span><strong id="deliveryDetailSchedule">—</strong></p>
+          <p><span>Latest response</span><strong id="deliveryDetailResponse">—</strong></p>
+          <p><span>Latest error</span><code id="deliveryDetailError">—</code></p>
+        </div>
+        <div class="automation-response-block">
+          <div class="key-list-head"><h3>Latest response excerpt</h3></div>
+          <pre id="deliveryResponseBody">No response body captured.</pre>
+        </div>
+        <div class="key-list-head"><h3>Attempt timeline</h3><small id="deliveryAttemptCount">0 attempts</small></div>
+        <div id="webhookAttemptTimeline" class="webhook-attempt-timeline"></div>
+      </section>
     </section>
   </div>
 
