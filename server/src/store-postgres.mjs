@@ -1046,6 +1046,9 @@ export class PostgresGeoLiveStore {
       `SELECT
         count(*)::int AS total,
         count(*) FILTER (
+          WHERE received_at >= date_trunc('day', now())
+        )::int AS today_active,
+        count(*) FILTER (
           WHERE received_at >=
             now() - (
               $2::double precision * interval '1 second'
@@ -1090,6 +1093,7 @@ export class PostgresGeoLiveStore {
     const row = result.rows[0];
     return {
       total: Number(row.total),
+      todayActive: Number(row.today_active),
       online: Number(row.online),
       recent: Number(row.recent),
       offline: Number(row.offline),
