@@ -149,7 +149,7 @@ test("public readiness response does not expose sensitive deployment metadata", 
     assert.deepEqual(payload, {
       ready: true,
       service: "rekixo-geolive",
-      version: "0.11.0",
+      version: "0.12.0",
       persistence: "memory"
     });
     assert.equal(
@@ -211,6 +211,25 @@ test("P4C serves self-hosted WebGL globe assets with safe content types", async 
     assert.match(
       await moduleResponse.text(),
       /GeoGlobeRenderer/
+    );
+
+    const editorResponse =
+      await fetch(
+        `${base}/dashboard/geofence-editor.js`
+      );
+    assert.equal(
+      editorResponse.status,
+      200
+    );
+    assert.match(
+      editorResponse.headers.get(
+        "content-type"
+      ) || "",
+      /^text\/javascript/
+    );
+    assert.match(
+      await editorResponse.text(),
+      /screenToGeo/
     );
 
     const textureResponse =
