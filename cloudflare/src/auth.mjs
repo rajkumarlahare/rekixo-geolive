@@ -23,6 +23,20 @@ function parseJsonArray(value) {
   }
 }
 
+function csv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function originAllowed(origin, keyAllowed, globalAllowed) {
+  if (!origin) return true;
+  if (keyAllowed.length) return keyAllowed.includes(origin);
+  if (globalAllowed.length) return globalAllowed.includes(origin);
+  return false;
+}
+
 function safeHashEqual(a, b) {
   if (!/^[a-f0-9]{64}$/i.test(String(a)) || !/^[a-f0-9]{64}$/i.test(String(b))) {
     return false;
@@ -63,9 +77,18 @@ export async function authenticateIntegration(env, request, requiredScope) {
   }
 
   const allowedOrigins = parseJsonArray(row.allowed_origins_json);
+  const globalOrigins = csv(env.GEOLIVE_ALLOWED_ORIGINS);
   const origin = String(request.headers.get("origin") || "").trim();
-  if (origin && allowedOrigins.length && !allowedOrigins.includes(origin)) {
-    return { ok: false, status: 403, error: "origin_not_allowed" };
+  if (!originAllowed(origin, allowedOrigins, globalOrigins)) {
+    return {
+      ok: false,
+      status: 403,
+      error: "origin_not_allowed",
+      key: {
+        id: row.id,
+        projectId: row.project_id
+      }
+    };
   }
 
   const allowedPackages = parseJsonArray(row.allowed_packages_json);
@@ -84,13 +107,14 @@ export async function authenticateIntegration(env, request, requiredScope) {
       scopes,
       allowedOrigins,
       allowedPackages
-    }
+    },
+    corsOrigin: origin || ""
   };
 }
 
 export function corsHeaders(request, auth) {
   const origin = String(request.headers.get("origin") || "").trim();
-  if (!origin || !auth?.key?.allowedOrigins?.includes(origin)) return {};
+  if (!origin || auth?.corsOrigin !== origin) return {};
   return {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET,POST,OPTIONS",
