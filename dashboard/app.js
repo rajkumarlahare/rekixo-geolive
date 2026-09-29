@@ -1990,7 +1990,7 @@ function renderAutomation() {
     automationEmpty(
       events,
       state.automation.geofencesEnabled
-        ? "No geofence events yet."
+        ? "No geofence events match the current filters."
         : "Geofence event history is not enabled for this account."
     );
   }
@@ -1998,10 +1998,23 @@ function renderAutomation() {
     const event of
     state.automation.events
   ) {
+    const location =
+      event.payload?.location;
+    const locationLine =
+      location &&
+      Number.isFinite(
+        Number(location.latitude)
+      ) &&
+      Number.isFinite(
+        Number(location.longitude)
+      )
+        ? `Location: ${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)}`
+        : "Location: not captured";
+
     events.appendChild(
       automationItem({
         title:
-          `${event.eventType.toUpperCase()} · ${event.geofenceName || event.geofenceId}`,
+          `${String(event.eventType || "").toUpperCase()} · ${event.geofenceName || event.geofenceId}`,
         status:
           event.eventType ===
           "exit"
@@ -2009,9 +2022,11 @@ function renderAutomation() {
             : "active",
         lines: [
           `User: ${event.userId}`,
-          new Date(
+          locationLine,
+          `Event ID: ${event.eventId}`,
+          safeLocalTime(
             event.occurredAt
-          ).toLocaleString()
+          )
         ]
       })
     );
@@ -2028,7 +2043,7 @@ function renderAutomation() {
     automationEmpty(
       deliveries,
       state.automation.webhooksEnabled
-        ? "No webhook deliveries yet."
+        ? "No webhook deliveries match the current filters."
         : "Webhook delivery history is not enabled for this account."
     );
   }
@@ -2036,6 +2051,58 @@ function renderAutomation() {
     const delivery of
     state.automation.deliveries
   ) {
+    const actions = [
+      {
+        label: "Details",
+        className:
+          "inspect-button",
+        onClick:
+          () =>
+            openWebhookDeliveryDetail(
+              delivery.deliveryId
+            )
+      }
+    ];
+
+    if (
+      webhookWritable &&
+      delivery.status === "dead"
+    ) {
+      actions.push({
+        label: "Retry",
+        onClick:
+          async () => {
+            const project =
+              projectById();
+            if (!project) return;
+            try {
+              await api(
+                `/v1/admin/projects/${project.id}/webhook-deliveries/${delivery.deliveryId}/retry`,
+                {
+                  method: "POST",
+                  mutate: true
+                }
+              );
+              if (
+                state.automation
+                  .selectedDeliveryId ===
+                delivery.deliveryId
+              ) {
+                closeWebhookDeliveryDetail();
+              }
+              await loadAutomation();
+            } catch (error) {
+              setText(
+                "automationError",
+                automationErrorText(
+                  error
+                )
+              );
+            }
+          }
+      });
+    }
+
     deliveries.appendChild(
       automationItem({
         title:
@@ -2044,50 +2111,29 @@ function renderAutomation() {
         status:
           delivery.status,
         lines: [
+          delivery.eventType
+            ? `${delivery.eventType.toUpperCase()} · ${delivery.geofenceName || delivery.geofenceId || "Geofence"}`
+            : "Event details unavailable",
           `Attempts: ${delivery.attemptCount}`,
           delivery.responseStatus
             ? `HTTP ${delivery.responseStatus}`
             : delivery.lastError ||
-              "Awaiting delivery",
-          new Date(
+              (
+                delivery.status ===
+                  "pending"
+                  ? "Awaiting first attempt"
+                  : "Awaiting delivery"
+              ),
+          safeLocalTime(
             delivery.createdAt
-          ).toLocaleString()
+          )
         ],
-        actions:
-          webhookWritable &&
-          delivery.status === "dead"
-            ? [
-                {
-                  label: "Retry",
-                  onClick:
-                    async () => {
-                      const project =
-                        projectById();
-                      if (!project) return;
-                      try {
-                        await api(
-                          `/v1/admin/projects/${project.id}/webhook-deliveries/${delivery.deliveryId}/retry`,
-                          {
-                            method: "POST",
-                            mutate: true
-                          }
-                        );
-                        await loadAutomation();
-                      } catch (error) {
-                        setText(
-                          "automationError",
-                          automationErrorText(
-                            error
-                          )
-                        );
-                      }
-                    }
-                }
-              ]
-            : []
+        actions
       })
     );
   }
+
+  renderAutomationObservability();
 }
 
 async function loadAutomation() {
