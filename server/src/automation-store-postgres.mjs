@@ -768,24 +768,27 @@ export class PostgresAutomationStore {
             CASE
               WHEN $4 = 'circle'
               THEN ST_SetSRID(
-                ST_MakePoint($6,$5),
+                ST_MakePoint(
+                  $6::double precision,
+                  $5::double precision
+                ),
                 4326
               )::geography
               ELSE NULL
             END,
             CASE
               WHEN $4 = 'circle'
-              THEN $7
+              THEN $7::double precision
               ELSE NULL
             END,
             CASE
               WHEN $4 = 'polygon'
               THEN ST_GeomFromGeoJSON(
-                $8
+                $8::text
               )::geometry(Polygon,4326)
               ELSE NULL
             END,
-            $9,$10::jsonb,$11,$11
+            $9::integer,$10::jsonb,$11,$11
           )
           RETURNING id`,
           [
@@ -967,24 +970,27 @@ export class PostgresAutomationStore {
           center = CASE
             WHEN $5 = 'circle'
             THEN ST_SetSRID(
-              ST_MakePoint($7,$6),
+              ST_MakePoint(
+                $7::double precision,
+                $6::double precision
+              ),
               4326
             )::geography
             ELSE NULL
           END,
           radius_m = CASE
             WHEN $5 = 'circle'
-              THEN $8
+              THEN $8::double precision
             ELSE NULL
           END,
           polygon = CASE
             WHEN $5 = 'polygon'
             THEN ST_GeomFromGeoJSON(
-              $9
+              $9::text
             )::geometry(Polygon,4326)
             ELSE NULL
           END,
-          dwell_seconds = $10,
+          dwell_seconds = $10::integer,
           metadata = $11::jsonb,
           updated_by_admin_user_id =
             $12,
