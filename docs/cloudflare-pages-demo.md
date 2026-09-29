@@ -15,6 +15,10 @@ For a local static-server preview, open the generated site with `?demo=1`. On a 
 
 ## Cloudflare Pages settings
 
+Automatic deployments are expected to be enabled. After changing a build-time variable such as `GOOGLE_MAPS_API_KEY`, any new commit to `main` triggers a fresh Pages build using the updated environment.
+
+
+
 Create a Pages project from the GitHub repository and use:
 
 | Setting | Value |
