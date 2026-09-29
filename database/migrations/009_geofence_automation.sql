@@ -32,6 +32,7 @@ CREATE TABLE geofences (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
+  UNIQUE (project_id, id),
   CHECK (
     (
       shape_type = 'circle'
@@ -78,7 +79,8 @@ CREATE TABLE webhook_endpoints (
     REFERENCES admin_users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  deleted_at timestamptz
+  deleted_at timestamptz,
+  UNIQUE (project_id, id)
 );
 
 CREATE INDEX webhook_endpoints_project_status_idx
@@ -88,10 +90,8 @@ CREATE TABLE alert_rules (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id uuid NOT NULL
     REFERENCES projects(id) ON DELETE CASCADE,
-  geofence_id uuid
-    REFERENCES geofences(id) ON DELETE CASCADE,
-  webhook_endpoint_id uuid NOT NULL
-    REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
+  geofence_id uuid,
+  webhook_endpoint_id uuid NOT NULL,
   name text NOT NULL,
   enabled boolean NOT NULL DEFAULT true,
   event_types text[] NOT NULL DEFAULT ARRAY['enter','exit','dwell']::text[],
@@ -102,6 +102,13 @@ CREATE TABLE alert_rules (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   deleted_at timestamptz,
+  UNIQUE (project_id, id),
+  FOREIGN KEY (project_id, geofence_id)
+    REFERENCES geofences(project_id, id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (project_id, webhook_endpoint_id)
+    REFERENCES webhook_endpoints(project_id, id)
+    ON DELETE CASCADE,
   CHECK (
     cardinality(event_types) BETWEEN 1 AND 3
     AND event_types <@ ARRAY['enter','exit','dwell']::text[]
@@ -116,8 +123,7 @@ CREATE INDEX alert_rules_geofence_idx
 
 CREATE TABLE geofence_user_state (
   project_id uuid NOT NULL,
-  geofence_id uuid NOT NULL
-    REFERENCES geofences(id) ON DELETE CASCADE,
+  geofence_id uuid NOT NULL,
   external_user_id text NOT NULL,
   is_inside boolean NOT NULL DEFAULT false,
   entered_at timestamptz,
@@ -130,6 +136,9 @@ CREATE TABLE geofence_user_state (
     geofence_id,
     external_user_id
   ),
+  FOREIGN KEY (project_id, geofence_id)
+    REFERENCES geofences(project_id, id)
+    ON DELETE CASCADE,
   FOREIGN KEY (project_id, external_user_id)
     REFERENCES users(project_id, external_user_id)
     ON DELETE CASCADE
@@ -146,8 +155,7 @@ CREATE TABLE geofence_events (
   event_id uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
   project_id uuid NOT NULL
     REFERENCES projects(id) ON DELETE CASCADE,
-  geofence_id uuid NOT NULL
-    REFERENCES geofences(id) ON DELETE CASCADE,
+  geofence_id uuid NOT NULL,
   external_user_id text NOT NULL,
   source_history_id bigint
     REFERENCES location_history(id) ON DELETE SET NULL,
@@ -156,6 +164,10 @@ CREATE TABLE geofence_events (
   occurred_at timestamptz NOT NULL,
   payload jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (project_id, id),
+  FOREIGN KEY (project_id, geofence_id)
+    REFERENCES geofences(project_id, id)
+    ON DELETE CASCADE,
   FOREIGN KEY (project_id, external_user_id)
     REFERENCES users(project_id, external_user_id)
     ON DELETE CASCADE
@@ -186,12 +198,9 @@ CREATE TABLE webhook_deliveries (
   delivery_id uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
   project_id uuid NOT NULL
     REFERENCES projects(id) ON DELETE CASCADE,
-  webhook_endpoint_id uuid NOT NULL
-    REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
-  alert_rule_id uuid NOT NULL
-    REFERENCES alert_rules(id) ON DELETE CASCADE,
-  geofence_event_id bigint NOT NULL
-    REFERENCES geofence_events(id) ON DELETE CASCADE,
+  webhook_endpoint_id uuid NOT NULL,
+  alert_rule_id uuid NOT NULL,
+  geofence_event_id bigint NOT NULL,
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending','retry','delivered','dead')),
   attempt_count integer NOT NULL DEFAULT 0
@@ -205,7 +214,16 @@ CREATE TABLE webhook_deliveries (
   delivered_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (alert_rule_id, geofence_event_id)
+  UNIQUE (alert_rule_id, geofence_event_id),
+  FOREIGN KEY (project_id, webhook_endpoint_id)
+    REFERENCES webhook_endpoints(project_id, id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (project_id, alert_rule_id)
+    REFERENCES alert_rules(project_id, id)
+    ON DELETE CASCADE,
+  FOREIGN KEY (project_id, geofence_event_id)
+    REFERENCES geofence_events(project_id, id)
+    ON DELETE CASCADE
 );
 
 CREATE INDEX webhook_deliveries_due_idx
