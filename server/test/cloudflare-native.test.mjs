@@ -157,14 +157,6 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
     config.vars?.GEOLIVE_ALLOWED_ORIGINS,
     "https://geolive.rekixo.com"
   );
-  assert.deepEqual(
-    config.secrets?.required,
-    [
-      "GEOLIVE_BOOTSTRAP_TOKEN",
-      "GEOLIVE_WEBHOOK_SIGNING_SECRET",
-      "GEOLIVE_GOOGLE_MAPS_API_KEY"
-    ]
-  );
 
   for (const table of [
     "accounts",
@@ -326,7 +318,7 @@ test("GeoLive brand eye is code-drawn and raster-free", async () => {
   assert.doesNotMatch(authMarkup, /<img\b|\.png|\.jpe?g|\.webp/i);
 });
 
-test("Cloudflare production config is first-deploy safe and keeps secrets out of vars", async () => {
+test("Cloudflare production config keeps runtime secret values out of committed vars", async () => {
   const configText = await readFile(
     "cloudflare/wrangler.jsonc",
     "utf8"

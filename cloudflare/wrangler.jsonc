@@ -20,13 +20,6 @@
   "observability": {
     "enabled": true
   },
-  "secrets": {
-    "required": [
-      "GEOLIVE_BOOTSTRAP_TOKEN",
-      "GEOLIVE_WEBHOOK_SIGNING_SECRET",
-      "GEOLIVE_GOOGLE_MAPS_API_KEY"
-    ]
-  },
   "vars": {
     "GEOLIVE_ADMIN_SESSION_HOURS": "12",
     "GEOLIVE_ADMIN_MAX_FAILED_LOGINS": "5",
