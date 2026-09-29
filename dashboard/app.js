@@ -2184,10 +2184,9 @@ async function loadAutomation() {
     "automationError",
     ""
   );
+  closeWebhookDeliveryDetail();
 
-  const selectedDeliveryId =
-    state.automation
-      .selectedDeliveryId || "";
+  const selectedDeliveryId = "";
   const base =
     `/v1/admin/projects/${project.id}`;
   const eventParams =
@@ -2349,6 +2348,12 @@ async function loadAutomationHistory(
 
   const isEvents =
     kind === "events";
+  if (
+    !append &&
+    !isEvents
+  ) {
+    closeWebhookDeliveryDetail();
+  }
   const cursor =
     append
       ? isEvents
