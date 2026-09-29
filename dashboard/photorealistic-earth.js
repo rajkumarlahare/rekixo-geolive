@@ -350,6 +350,15 @@ export class PhotorealisticEarthRenderer {
     ) {
       return "Google 3D retrying";
     }
+    if (
+      this.configured &&
+      this.status === "error"
+    ) {
+      return this.failureReason ===
+        "google_tiles_auth_or_referrer"
+        ? "Google 3D blocked"
+        : "Google 3D unavailable";
+    }
     return "";
   }
 
@@ -578,7 +587,11 @@ export class PhotorealisticEarthRenderer {
         this.status = "error";
         emitRendererStatus({
           mode: "fallback",
-          label: "",
+          label:
+            this.failureReason ===
+            "google_tiles_auth_or_referrer"
+              ? "Google 3D blocked"
+              : "Google 3D unavailable",
           reason:
             this.failureReason
         });
