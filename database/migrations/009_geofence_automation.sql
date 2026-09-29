@@ -10,6 +10,18 @@ ALTER TABLE retention_runs
   ADD COLUMN geofence_events_deleted bigint NOT NULL DEFAULT 0,
   ADD COLUMN webhook_deliveries_deleted bigint NOT NULL DEFAULT 0;
 
+ALTER TABLE realtime_events
+  DROP CONSTRAINT realtime_events_event_type_check,
+  ADD CONSTRAINT realtime_events_event_type_check
+    CHECK (
+      event_type IN (
+        'location',
+        'geofence.enter',
+        'geofence.exit',
+        'geofence.dwell'
+      )
+    );
+
 CREATE TABLE geofences (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id uuid NOT NULL
