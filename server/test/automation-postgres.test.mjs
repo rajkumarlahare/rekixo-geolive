@@ -255,6 +255,27 @@ test("P4B Postgres geofence enter/dwell/exit schedules idempotent webhook delive
       ]
     );
 
+    const enterEvents =
+      await automation.listEvents(
+        project.id,
+        {
+          limit: 20,
+          eventType: "enter",
+          geofenceId:
+            geofence.id,
+          userId: "user-1"
+        }
+      );
+    assert.equal(
+      enterEvents.events.length,
+      1
+    );
+    assert.equal(
+      enterEvents.events[0]
+        .eventType,
+      "enter"
+    );
+
     const realtime =
       await pool.query(
         `SELECT id, event_type
@@ -295,6 +316,111 @@ test("P4B Postgres geofence enter/dwell/exit schedules idempotent webhook delive
           "pending"
       ),
       true
+    );
+
+    const enterDeliveries =
+      await automation
+        .listDeliveries(
+          project.id,
+          {
+            limit: 20,
+            status: "pending",
+            endpointId:
+              createdEndpoint
+                .endpoint.id,
+            eventType: "enter"
+          }
+        );
+    assert.equal(
+      enterDeliveries
+        .deliveries.length,
+      1
+    );
+    assert.equal(
+      enterDeliveries
+        .deliveries[0]
+        .eventType,
+      "enter"
+    );
+    assert.equal(
+      enterDeliveries
+        .deliveries[0]
+        .geofenceName,
+      "CI Circle"
+    );
+
+    const observedDelivery =
+      enterDeliveries
+        .deliveries[0];
+    await pool.query(
+      `INSERT INTO webhook_delivery_attempts (
+        webhook_delivery_id,
+        attempt_number,
+        started_at,
+        completed_at,
+        response_status,
+        latency_ms,
+        error_text
+      ) VALUES (
+        $1,1,now(),now(),503,42,
+        'http_503'
+      )`,
+      [observedDelivery.id]
+    );
+
+    const details =
+      await automation
+        .getDeliveryDetails(
+          project.id,
+          observedDelivery
+            .deliveryId
+        );
+    assert.equal(
+      details.delivery.eventType,
+      "enter"
+    );
+    assert.equal(
+      details.delivery.endpointName,
+      "CI Hook"
+    );
+    assert.equal(
+      details.attempts.length,
+      1
+    );
+    assert.deepEqual(
+      {
+        attemptNumber:
+          details.attempts[0]
+            .attemptNumber,
+        responseStatus:
+          details.attempts[0]
+            .responseStatus,
+        latencyMs:
+          details.attempts[0]
+            .latencyMs,
+        errorText:
+          details.attempts[0]
+            .errorText
+      },
+      {
+        attemptNumber: 1,
+        responseStatus: 503,
+        latencyMs: 42,
+        errorText: "http_503"
+      }
+    );
+    await assert.rejects(
+      () =>
+        automation
+          .getDeliveryDetails(
+            otherRow.rows[0].id,
+            observedDelivery
+              .deliveryId
+          ),
+      (error) =>
+        error.code ===
+          "webhook_delivery_not_found" &&
+        error.status === 404
     );
 
     await automation

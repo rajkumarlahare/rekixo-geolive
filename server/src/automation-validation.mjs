@@ -477,6 +477,45 @@ export function validateAlertRule(
   return out;
 }
 
+function optionalUuid(
+  searchParams,
+  name,
+  code
+) {
+  const value =
+    String(
+      searchParams.get(name) ||
+        ""
+    ).trim();
+  if (!value) return "";
+  if (
+    !/^[0-9a-f-]{36}$/i.test(
+      value
+    )
+  ) {
+    fail(code);
+  }
+  return value;
+}
+
+function optionalChoice(
+  searchParams,
+  name,
+  allowed,
+  code
+) {
+  const value =
+    String(
+      searchParams.get(name) ||
+        ""
+    ).trim();
+  if (!value) return "";
+  if (!allowed.includes(value)) {
+    fail(code);
+  }
+  return value;
+}
+
 export function parseAutomationListQuery(
   searchParams
 ) {
@@ -490,12 +529,60 @@ export function parseAutomationListQuery(
   ) {
     fail("invalid_automation_limit");
   }
+
+  const userId =
+    String(
+      searchParams.get("userId") ||
+        ""
+    ).trim();
+  if (userId.length > 200) {
+    fail(
+      "invalid_automation_user_id"
+    );
+  }
+
   return {
     limit,
     cursor:
       String(
         searchParams.get("cursor") ||
           ""
-      )
+      ),
+    eventType:
+      optionalChoice(
+        searchParams,
+        "eventType",
+        [
+          "enter",
+          "exit",
+          "dwell"
+        ],
+        "invalid_automation_event_type"
+      ),
+    status:
+      optionalChoice(
+        searchParams,
+        "status",
+        [
+          "pending",
+          "retry",
+          "delivered",
+          "dead"
+        ],
+        "invalid_webhook_delivery_status"
+      ),
+    geofenceId:
+      optionalUuid(
+        searchParams,
+        "geofenceId",
+        "invalid_geofence_id"
+      ),
+    endpointId:
+      optionalUuid(
+        searchParams,
+        "endpointId",
+        "invalid_webhook_endpoint_id"
+      ),
+    userId
   };
 }

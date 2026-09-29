@@ -71,7 +71,10 @@ const state = {
     endpoints: [],
     rules: [],
     events: [],
-    deliveries: []
+    deliveries: [],
+    eventsNextCursor: null,
+    deliveriesNextCursor: null,
+    selectedDeliveryId: ""
   },
   geofenceOverlayProjectId: "",
   geofenceEditor: {
@@ -249,9 +252,13 @@ function resetData() {
     endpoints: [],
     rules: [],
     events: [],
-    deliveries: []
+    deliveries: [],
+    eventsNextCursor: null,
+    deliveriesNextCursor: null,
+    selectedDeliveryId: ""
   };
   state.geofenceOverlayProjectId = "";
+  resetAutomationHistoryFilters();
   state.facets = {
     countries: [],
     states: [],
@@ -885,6 +892,7 @@ document.querySelector("#logout").addEventListener("click", async () => {
 projectSelect.addEventListener("change", () => {
   stopRealtime({ resetSequence: true });
   cancelGeofenceEditor();
+  resetAutomationHistoryFilters();
   state.projectId = projectSelect.value;
   state.geofenceOverlayProjectId = "";
   state.automation.geofences = [];
@@ -917,6 +925,32 @@ document.querySelector("#projectCancel").addEventListener("click", closeProjectM
 document.querySelector("#keyModalClose").addEventListener("click", closeKeyModal);
 document.querySelector("#refreshKeys").addEventListener("click", loadKeys);
 
+function resetAutomationHistoryFilters() {
+  for (const id of [
+    "eventTypeFilter",
+    "eventGeofenceFilter",
+    "deliveryStatusFilter",
+    "deliveryEndpointFilter",
+    "deliveryEventTypeFilter"
+  ]) {
+    const element =
+      document.querySelector(
+        "#" + id
+      );
+    if (element) {
+      element.value = "";
+    }
+  }
+  const user =
+    document.querySelector(
+      "#eventUserFilter"
+    );
+  if (user) {
+    user.value = "";
+  }
+  closeWebhookDeliveryDetail();
+}
+
 function automationErrorText(error) {
   const messages = {
     feature_not_entitled:
@@ -943,6 +977,18 @@ function automationErrorText(error) {
       "Complete the new shape geometry before saving.",
     webhook_endpoint_not_found:
       "The selected webhook endpoint no longer exists.",
+    webhook_delivery_not_found:
+      "That webhook delivery is no longer available.",
+    webhook_delivery_not_retryable:
+      "Only dead-letter deliveries can be manually retried.",
+    invalid_automation_event_type:
+      "Choose a valid geofence event type.",
+    invalid_webhook_delivery_status:
+      "Choose a valid webhook delivery status.",
+    invalid_automation_user_id:
+      "The user ID filter is too long.",
+    invalid_cursor:
+      "This history page cursor expired. Refresh the history.",
     alert_rule_not_found:
       "The selected alert rule no longer exists."
   };
@@ -1060,9 +1106,14 @@ function automationItem({
         document.createElement("button");
       button.type = "button";
       button.className =
-        action.danger
-          ? "danger-button"
-          : "text-button";
+        [
+          action.danger
+            ? "danger-button"
+            : "text-button",
+          action.className || ""
+        ]
+          .filter(Boolean)
+          .join(" ");
       button.textContent =
         action.label;
       button.addEventListener(
@@ -1075,6 +1126,54 @@ function automationItem({
   }
 
   return item;
+}
+
+function populateAutomationHistoryFilter(
+  id,
+  items,
+  allLabel
+) {
+  const select =
+    document.querySelector(
+      "#" + id
+    );
+  if (!select) return;
+  const current =
+    select.value;
+  select.replaceChildren();
+
+  const all =
+    document.createElement(
+      "option"
+    );
+  all.value = "";
+  all.textContent = allLabel;
+  select.appendChild(all);
+
+  for (const item of items) {
+    const option =
+      document.createElement(
+        "option"
+      );
+    option.value = item.id;
+    option.textContent =
+      item.status === "paused"
+        ? `${item.name} · Paused`
+        : item.name;
+    select.appendChild(option);
+  }
+
+  if (
+    [
+      ...select.options
+    ].some(
+      (option) =>
+        option.value ===
+        current
+    )
+  ) {
+    select.value = current;
+  }
 }
 
 function populateAutomationSelects() {
@@ -1158,6 +1257,478 @@ function populateAutomationSelects() {
   ) {
     endpointSelect.value =
       currentEndpoint;
+  }
+
+  populateAutomationHistoryFilter(
+    "eventGeofenceFilter",
+    state.automation.geofences,
+    "All geofences"
+  );
+  populateAutomationHistoryFilter(
+    "deliveryEndpointFilter",
+    state.automation.endpoints,
+    "All endpoints"
+  );
+}
+
+function automationHistoryParams(
+  kind,
+  cursor = ""
+) {
+  const params =
+    new URLSearchParams({
+      limit: "50"
+    });
+  if (cursor) {
+    params.set(
+      "cursor",
+      cursor
+    );
+  }
+
+  if (kind === "events") {
+    const eventType =
+      document.querySelector(
+        "#eventTypeFilter"
+      )?.value || "";
+    const geofenceId =
+      document.querySelector(
+        "#eventGeofenceFilter"
+      )?.value || "";
+    const userId =
+      document.querySelector(
+        "#eventUserFilter"
+      )?.value.trim() || "";
+    if (eventType) {
+      params.set(
+        "eventType",
+        eventType
+      );
+    }
+    if (geofenceId) {
+      params.set(
+        "geofenceId",
+        geofenceId
+      );
+    }
+    if (userId) {
+      params.set(
+        "userId",
+        userId
+      );
+    }
+  } else {
+    const status =
+      document.querySelector(
+        "#deliveryStatusFilter"
+      )?.value || "";
+    const endpointId =
+      document.querySelector(
+        "#deliveryEndpointFilter"
+      )?.value || "";
+    const eventType =
+      document.querySelector(
+        "#deliveryEventTypeFilter"
+      )?.value || "";
+    if (status) {
+      params.set(
+        "status",
+        status
+      );
+    }
+    if (endpointId) {
+      params.set(
+        "endpointId",
+        endpointId
+      );
+    }
+    if (eventType) {
+      params.set(
+        "eventType",
+        eventType
+      );
+    }
+  }
+
+  return params;
+}
+
+function safeLocalTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(
+    date.getTime()
+  )
+    ? "—"
+    : date.toLocaleString();
+}
+
+function renderAutomationObservability() {
+  const events =
+    state.automation.events || [];
+  const deliveries =
+    state.automation.deliveries || [];
+
+  const eventCounts = {
+    enter: 0,
+    exit: 0,
+    dwell: 0
+  };
+  for (const event of events) {
+    if (
+      event.eventType in
+      eventCounts
+    ) {
+      eventCounts[
+        event.eventType
+      ] += 1;
+    }
+  }
+
+  const deliveryCounts = {
+    pending: 0,
+    retry: 0,
+    delivered: 0,
+    dead: 0
+  };
+  for (
+    const delivery of deliveries
+  ) {
+    if (
+      delivery.status in
+      deliveryCounts
+    ) {
+      deliveryCounts[
+        delivery.status
+      ] += 1;
+    }
+  }
+
+  const totalDeliveries =
+    deliveries.length;
+  const deliveryRate =
+    totalDeliveries
+      ? Math.round(
+          deliveryCounts.delivered /
+            totalDeliveries *
+            100
+        )
+      : 0;
+
+  setText(
+    "obsEvents",
+    formatCount(events.length)
+  );
+  setText(
+    "obsEventMix",
+    `Enter ${eventCounts.enter} · Exit ${eventCounts.exit} · Dwell ${eventCounts.dwell}`
+  );
+  setText(
+    "obsDelivered",
+    formatCount(
+      deliveryCounts.delivered
+    )
+  );
+  setText(
+    "obsDeliveryRate",
+    `${deliveryRate}% of loaded deliveries`
+  );
+  setText(
+    "obsAttention",
+    formatCount(
+      deliveryCounts.pending +
+      deliveryCounts.retry
+    )
+  );
+  setText(
+    "obsDead",
+    formatCount(
+      deliveryCounts.dead
+    )
+  );
+  setText(
+    "obsDeadHint",
+    deliveryCounts.dead
+      ? "Open a dead delivery to inspect failures."
+      : "No terminal failures loaded"
+  );
+  setText(
+    "automationHistoryScope",
+    `Loaded ${events.length} events · ${deliveries.length} deliveries`
+  );
+
+  const moreEvents =
+    document.querySelector(
+      "#loadMoreEvents"
+    );
+  if (moreEvents) {
+    moreEvents.hidden =
+      !state.automation
+        .eventsNextCursor;
+  }
+  const moreDeliveries =
+    document.querySelector(
+      "#loadMoreDeliveries"
+    );
+  if (moreDeliveries) {
+    moreDeliveries.hidden =
+      !state.automation
+        .deliveriesNextCursor;
+  }
+}
+
+function closeWebhookDeliveryDetail() {
+  state.automation
+    .selectedDeliveryId = "";
+  const panel =
+    document.querySelector(
+      "#webhookDeliveryDetail"
+    );
+  if (panel) {
+    panel.hidden = true;
+  }
+}
+
+function renderWebhookAttemptTimeline(
+  attempts
+) {
+  const timeline =
+    document.querySelector(
+      "#webhookAttemptTimeline"
+    );
+  timeline.replaceChildren();
+
+  setText(
+    "deliveryAttemptCount",
+    `${attempts.length} ${attempts.length === 1 ? "attempt" : "attempts"}`
+  );
+
+  if (!attempts.length) {
+    automationEmpty(
+      timeline,
+      "No delivery attempts have completed yet."
+    );
+    return;
+  }
+
+  for (const attempt of attempts) {
+    const item =
+      document.createElement(
+        "article"
+      );
+    const success =
+      Number(
+        attempt.responseStatus
+      ) >= 200 &&
+      Number(
+        attempt.responseStatus
+      ) < 300;
+    item.className =
+      `webhook-attempt ${success ? "success" : attempt.errorText || attempt.responseStatus ? "failure" : "pending"}`;
+
+    const head =
+      document.createElement(
+        "div"
+      );
+    head.className =
+      "webhook-attempt-head";
+    const title =
+      document.createElement(
+        "strong"
+      );
+    title.textContent =
+      `Attempt #${attempt.attemptNumber}`;
+    const result =
+      document.createElement(
+        "span"
+      );
+    result.textContent =
+      attempt.responseStatus
+        ? `HTTP ${attempt.responseStatus}`
+        : attempt.errorText ||
+          "No response";
+    head.append(
+      title,
+      result
+    );
+
+    const timing =
+      document.createElement(
+        "small"
+      );
+    timing.textContent =
+      `${safeLocalTime(attempt.startedAt)} · ${formatCount(attempt.latencyMs)} ms`;
+    item.append(
+      head,
+      timing
+    );
+
+    if (attempt.errorText) {
+      const error =
+        document.createElement(
+          "small"
+        );
+      error.textContent =
+        `Error: ${attempt.errorText}`;
+      item.appendChild(error);
+    }
+
+    timeline.appendChild(item);
+  }
+}
+
+function renderWebhookDeliveryDetail(
+  payload
+) {
+  const delivery =
+    payload.delivery || {};
+  setText(
+    "deliveryDetailTitle",
+    delivery.endpointName ||
+      "Webhook delivery"
+  );
+  setText(
+    "deliveryDetailStatus",
+    String(
+      delivery.status || "—"
+    ).toUpperCase()
+  );
+  setText(
+    "deliveryDetailId",
+    delivery.deliveryId || "—"
+  );
+  setText(
+    "deliveryDetailEndpoint",
+    delivery.endpointName || "—"
+  );
+  setText(
+    "deliveryDetailUrl",
+    delivery.endpointUrl || "—"
+  );
+  setText(
+    "deliveryDetailEvent",
+    delivery.eventType
+      ? `${delivery.eventType.toUpperCase()} · ${delivery.eventId || "—"}`
+      : delivery.eventId || "—"
+  );
+  setText(
+    "deliveryDetailUser",
+    delivery.userId || "—"
+  );
+  setText(
+    "deliveryDetailGeofence",
+    delivery.geofenceName ||
+      delivery.geofenceId ||
+      "—"
+  );
+  setText(
+    "deliveryDetailRule",
+    delivery.alertRuleName ||
+      delivery.alertRuleId ||
+      "—"
+  );
+  setText(
+    "deliveryDetailCreated",
+    safeLocalTime(
+      delivery.createdAt
+    )
+  );
+
+  const schedule =
+    delivery.status === "delivered"
+      ? `Delivered ${safeLocalTime(delivery.deliveredAt)}`
+      : delivery.status === "dead"
+        ? "Dead letter · manual retry available"
+        : `Next attempt ${safeLocalTime(delivery.nextAttemptAt)}`;
+  setText(
+    "deliveryDetailSchedule",
+    schedule
+  );
+  setText(
+    "deliveryDetailResponse",
+    delivery.responseStatus
+      ? `HTTP ${delivery.responseStatus}`
+      : "No HTTP response"
+  );
+  setText(
+    "deliveryDetailError",
+    delivery.lastError || "—"
+  );
+  setText(
+    "deliveryResponseBody",
+    delivery.responseBodyExcerpt ||
+      "No response body captured."
+  );
+
+  renderWebhookAttemptTimeline(
+    payload.attempts || []
+  );
+}
+
+async function openWebhookDeliveryDetail(
+  deliveryId
+) {
+  const project =
+    projectById();
+  if (!project || !deliveryId) {
+    return;
+  }
+
+  state.automation
+    .selectedDeliveryId =
+      deliveryId;
+  const panel =
+    document.querySelector(
+      "#webhookDeliveryDetail"
+    );
+  panel.hidden = false;
+  setText(
+    "deliveryDetailTitle",
+    "Loading delivery…"
+  );
+  setText(
+    "deliveryAttemptCount",
+    "Loading attempts…"
+  );
+  document.querySelector(
+    "#webhookAttemptTimeline"
+  ).replaceChildren();
+
+  try {
+    const payload =
+      await api(
+        `/v1/admin/projects/${project.id}/webhook-deliveries/${deliveryId}`
+      );
+    if (
+      state.automation
+        .selectedDeliveryId !==
+      deliveryId
+    ) {
+      return;
+    }
+    renderWebhookDeliveryDetail(
+      payload
+    );
+    panel.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest"
+    });
+  } catch (error) {
+    if (
+      state.automation
+        .selectedDeliveryId !==
+      deliveryId
+    ) {
+      return;
+    }
+    setText(
+      "deliveryDetailTitle",
+      "Delivery unavailable"
+    );
+    setText(
+      "deliveryAttemptCount",
+      automationErrorText(error)
+    );
   }
 }
 
@@ -1459,7 +2030,7 @@ function renderAutomation() {
     automationEmpty(
       events,
       state.automation.geofencesEnabled
-        ? "No geofence events yet."
+        ? "No geofence events match the current filters."
         : "Geofence event history is not enabled for this account."
     );
   }
@@ -1467,10 +2038,23 @@ function renderAutomation() {
     const event of
     state.automation.events
   ) {
+    const location =
+      event.payload?.location;
+    const locationLine =
+      location &&
+      Number.isFinite(
+        Number(location.latitude)
+      ) &&
+      Number.isFinite(
+        Number(location.longitude)
+      )
+        ? `Location: ${Number(location.latitude).toFixed(5)}, ${Number(location.longitude).toFixed(5)}`
+        : "Location: not captured";
+
     events.appendChild(
       automationItem({
         title:
-          `${event.eventType.toUpperCase()} · ${event.geofenceName || event.geofenceId}`,
+          `${String(event.eventType || "").toUpperCase()} · ${event.geofenceName || event.geofenceId}`,
         status:
           event.eventType ===
           "exit"
@@ -1478,9 +2062,11 @@ function renderAutomation() {
             : "active",
         lines: [
           `User: ${event.userId}`,
-          new Date(
+          locationLine,
+          `Event ID: ${event.eventId}`,
+          safeLocalTime(
             event.occurredAt
-          ).toLocaleString()
+          )
         ]
       })
     );
@@ -1497,7 +2083,7 @@ function renderAutomation() {
     automationEmpty(
       deliveries,
       state.automation.webhooksEnabled
-        ? "No webhook deliveries yet."
+        ? "No webhook deliveries match the current filters."
         : "Webhook delivery history is not enabled for this account."
     );
   }
@@ -1505,6 +2091,58 @@ function renderAutomation() {
     const delivery of
     state.automation.deliveries
   ) {
+    const actions = [
+      {
+        label: "Details",
+        className:
+          "inspect-button",
+        onClick:
+          () =>
+            openWebhookDeliveryDetail(
+              delivery.deliveryId
+            )
+      }
+    ];
+
+    if (
+      webhookWritable &&
+      delivery.status === "dead"
+    ) {
+      actions.push({
+        label: "Retry",
+        onClick:
+          async () => {
+            const project =
+              projectById();
+            if (!project) return;
+            try {
+              await api(
+                `/v1/admin/projects/${project.id}/webhook-deliveries/${delivery.deliveryId}/retry`,
+                {
+                  method: "POST",
+                  mutate: true
+                }
+              );
+              if (
+                state.automation
+                  .selectedDeliveryId ===
+                delivery.deliveryId
+              ) {
+                closeWebhookDeliveryDetail();
+              }
+              await loadAutomation();
+            } catch (error) {
+              setText(
+                "automationError",
+                automationErrorText(
+                  error
+                )
+              );
+            }
+          }
+      });
+    }
+
     deliveries.appendChild(
       automationItem({
         title:
@@ -1513,50 +2151,29 @@ function renderAutomation() {
         status:
           delivery.status,
         lines: [
+          delivery.eventType
+            ? `${delivery.eventType.toUpperCase()} · ${delivery.geofenceName || delivery.geofenceId || "Geofence"}`
+            : "Event details unavailable",
           `Attempts: ${delivery.attemptCount}`,
           delivery.responseStatus
             ? `HTTP ${delivery.responseStatus}`
             : delivery.lastError ||
-              "Awaiting delivery",
-          new Date(
+              (
+                delivery.status ===
+                  "pending"
+                  ? "Awaiting first attempt"
+                  : "Awaiting delivery"
+              ),
+          safeLocalTime(
             delivery.createdAt
-          ).toLocaleString()
+          )
         ],
-        actions:
-          webhookWritable &&
-          delivery.status === "dead"
-            ? [
-                {
-                  label: "Retry",
-                  onClick:
-                    async () => {
-                      const project =
-                        projectById();
-                      if (!project) return;
-                      try {
-                        await api(
-                          `/v1/admin/projects/${project.id}/webhook-deliveries/${delivery.deliveryId}/retry`,
-                          {
-                            method: "POST",
-                            mutate: true
-                          }
-                        );
-                        await loadAutomation();
-                      } catch (error) {
-                        setText(
-                          "automationError",
-                          automationErrorText(
-                            error
-                          )
-                        );
-                      }
-                    }
-                }
-              ]
-            : []
+        actions
       })
     );
   }
+
+  renderAutomationObservability();
 }
 
 async function loadAutomation() {
@@ -1567,9 +2184,20 @@ async function loadAutomation() {
     "automationError",
     ""
   );
+  closeWebhookDeliveryDetail();
 
+  const selectedDeliveryId = "";
   const base =
     `/v1/admin/projects/${project.id}`;
+  const eventParams =
+    automationHistoryParams(
+      "events"
+    );
+  const deliveryParams =
+    automationHistoryParams(
+      "deliveries"
+    );
+
   const results =
     await Promise.allSettled([
       api(`${base}/geofences`),
@@ -1578,10 +2206,10 @@ async function loadAutomation() {
       ),
       api(`${base}/alert-rules`),
       api(
-        `${base}/geofence-events?limit=50`
+        `${base}/geofence-events?${eventParams.toString()}`
       ),
       api(
-        `${base}/webhook-deliveries?limit=50`
+        `${base}/webhook-deliveries?${deliveryParams.toString()}`
       )
     ]);
 
@@ -1654,7 +2282,20 @@ async function loadAutomation() {
       "fulfilled"
         ? deliveryResult.value
             .deliveries || []
-        : []
+        : [],
+    eventsNextCursor:
+      eventResult.status ===
+      "fulfilled"
+        ? eventResult.value
+            .nextCursor || null
+        : null,
+    deliveriesNextCursor:
+      deliveryResult.status ===
+      "fulfilled"
+        ? deliveryResult.value
+            .nextCursor || null
+        : null,
+    selectedDeliveryId
   };
 
   const labels = [
@@ -1697,6 +2338,106 @@ async function loadAutomation() {
   renderAutomation();
 }
 
+async function loadAutomationHistory(
+  kind,
+  { append = false } = {}
+) {
+  const project =
+    projectById();
+  if (!project) return;
+
+  const isEvents =
+    kind === "events";
+  if (
+    !append &&
+    !isEvents
+  ) {
+    closeWebhookDeliveryDetail();
+  }
+  const cursor =
+    append
+      ? isEvents
+        ? state.automation
+            .eventsNextCursor
+        : state.automation
+            .deliveriesNextCursor
+      : "";
+
+  if (append && !cursor) {
+    return;
+  }
+
+  const params =
+    automationHistoryParams(
+      kind,
+      cursor || ""
+    );
+  const resource =
+    isEvents
+      ? "geofence-events"
+      : "webhook-deliveries";
+  const button =
+    document.querySelector(
+      isEvents
+        ? "#loadMoreEvents"
+        : "#loadMoreDeliveries"
+    );
+  if (button) {
+    button.disabled = true;
+  }
+
+  try {
+    const payload =
+      await api(
+        `/v1/admin/projects/${project.id}/${resource}?${params.toString()}`
+      );
+
+    if (isEvents) {
+      const incoming =
+        payload.events || [];
+      state.automation.events =
+        append
+          ? [
+              ...state.automation
+                .events,
+              ...incoming
+            ]
+          : incoming;
+      state.automation
+        .eventsNextCursor =
+          payload.nextCursor ||
+          null;
+    } else {
+      const incoming =
+        payload.deliveries || [];
+      state.automation.deliveries =
+        append
+          ? [
+              ...state.automation
+                .deliveries,
+              ...incoming
+            ]
+          : incoming;
+      state.automation
+        .deliveriesNextCursor =
+          payload.nextCursor ||
+          null;
+    }
+
+    renderAutomation();
+  } catch (error) {
+    setText(
+      "automationError",
+      automationErrorText(error)
+    );
+  } finally {
+    if (button) {
+      button.disabled = false;
+    }
+  }
+}
+
+
 async function openAutomationModal() {
   if (!state.projectId) return;
   document.querySelector(
@@ -1706,6 +2447,7 @@ async function openAutomationModal() {
 }
 
 function closeAutomationModal() {
+  closeWebhookDeliveryDetail();
   document.querySelector(
     "#automationModal"
   ).hidden = true;
@@ -2580,6 +3322,118 @@ document.querySelector(
       }
     });
   }
+);
+
+let automationHistoryFilterTimer =
+  null;
+
+function scheduleAutomationHistoryReload(
+  kind,
+  delay = 180
+) {
+  clearTimeout(
+    automationHistoryFilterTimer
+  );
+  automationHistoryFilterTimer =
+    setTimeout(() => {
+      closeWebhookDeliveryDetail();
+      loadAutomationHistory(
+        kind
+      ).catch(() => {});
+    }, delay);
+}
+
+document.querySelector(
+  "#refreshEventHistory"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "events"
+    )
+);
+
+document.querySelector(
+  "#refreshDeliveryHistory"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "deliveries"
+    )
+);
+
+document.querySelector(
+  "#loadMoreEvents"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "events",
+      { append: true }
+    )
+);
+
+document.querySelector(
+  "#loadMoreDeliveries"
+).addEventListener(
+  "click",
+  () =>
+    loadAutomationHistory(
+      "deliveries",
+      { append: true }
+    )
+);
+
+[
+  "#eventTypeFilter",
+  "#eventGeofenceFilter"
+].forEach((selector) => {
+  document.querySelector(
+    selector
+  ).addEventListener(
+    "change",
+    () =>
+      scheduleAutomationHistoryReload(
+        "events",
+        0
+      )
+  );
+});
+
+document.querySelector(
+  "#eventUserFilter"
+).addEventListener(
+  "input",
+  () =>
+    scheduleAutomationHistoryReload(
+      "events",
+      350
+    )
+);
+
+[
+  "#deliveryStatusFilter",
+  "#deliveryEndpointFilter",
+  "#deliveryEventTypeFilter"
+].forEach((selector) => {
+  document.querySelector(
+    selector
+  ).addEventListener(
+    "change",
+    () =>
+      scheduleAutomationHistoryReload(
+        "deliveries",
+        0
+      )
+  );
+});
+
+document.querySelector(
+  "#deliveryDetailClose"
+).addEventListener(
+  "click",
+  closeWebhookDeliveryDetail
 );
 
 document.querySelector(

@@ -216,7 +216,11 @@ GeoLive 0.12.0 adds direct geofence drawing and editing on this globe. Tenant ow
 
 Circle drawing uses a center click followed by an edge click and computes a geodesic radius. Polygon drawing accepts globe vertices, closes only after at least three points, and reuses the backend's existing validation and entitlement enforcement. Manual coordinate entry remains available for precision workflows.
 
-Trip/route analytics, export workflows, richer webhook observability and explicit pagination UX for very broad text searches remain follow-up work rather than being represented as complete.
+GeoLive 0.13.0 adds an automation observability layer to the same tenant console. Geofence event history can be filtered by event type, geofence and exact user ID. Webhook delivery history can be filtered by delivery status, endpoint and originating geofence event type, with cursor pagination for older records.
+
+Each webhook delivery can now be inspected in a project-scoped detail view that exposes endpoint/rule/event context, latest response or error state, scheduling state, the safely rendered response excerpt, and the completed attempt timeline with HTTP status, latency and failure reason. Dead-letter retries remain explicit audited mutations. Production query indexes for the new filters are created concurrently during migration.
+
+Trip/route analytics, export workflows and explicit pagination UX for very broad user text searches remain follow-up work rather than being represented as complete.
 
 ## Production realtime
 
@@ -240,7 +244,7 @@ This cleans location history, realtime replay events, operational data, expired 
 
 ## Compatibility
 
-Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B, the P4C console foundation and the 0.12.0 globe geofence editor are additive.
+Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B, the P4C console foundation, the globe geofence editor and the 0.13.0 automation observability layer are additive.
 
 The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
 
@@ -252,7 +256,7 @@ The legacy `GEOLIVE_KEYS_JSON` credential bridge remains migration-only.
 npm run check
 ```
 
-CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 commercial controls, P4A geospatial isolation, P4B geofence/webhook validation and PostgreSQL transitions, webhook signing/delivery behavior, dashboard asset serving, and the billing rollup worker.
+CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 commercial controls, P4A geospatial isolation, P4B geofence/webhook validation and PostgreSQL transitions, P4E filtered automation history and delivery-attempt inspection, webhook signing/delivery behavior, dashboard asset serving, and the billing rollup worker.
 
 See:
 

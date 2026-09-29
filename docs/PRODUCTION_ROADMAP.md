@@ -143,9 +143,15 @@ Completed foundation:
 - geodesic circle radius calculation and polygon vertex undo/finish controls
 - active/paused geofence boundary overlays aligned with the globe projection
 - geofence editor geometry and asset regression coverage
+- filtered geofence-event observability by type, geofence and user
+- filtered webhook-delivery observability by status, endpoint and event type
+- cursor pagination controls for automation history
+- project-scoped webhook delivery inspector
+- completed-attempt timeline with response status, latency and failure reason
+- explicit dead-letter inspection and audited retry path
+- concurrent production indexes for observability filters
 
 Remaining P4C work:
-- richer event/delivery observability views
 - explicit pagination UX for very broad text-search results above 500 users
 - route/trip analytics and export workflows
 

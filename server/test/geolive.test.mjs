@@ -149,7 +149,7 @@ test("public readiness response does not expose sensitive deployment metadata", 
     assert.deepEqual(payload, {
       ready: true,
       service: "rekixo-geolive",
-      version: "0.12.0",
+      version: "0.13.0",
       persistence: "memory"
     });
     assert.equal(
