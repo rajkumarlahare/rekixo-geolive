@@ -35,8 +35,10 @@ P0 through the P4C console foundation now provide:
 - **SSRF-resistant production webhook networking and one-time signing-secret reveal**
 - **dashboard geofence, alert-rule, endpoint, event and delivery controls**
 - **self-hosted dependency-free WebGL globe renderer with 2D fallback**
-- **shared rotation/zoom projection for live markers, clusters, heatmaps and movement trails**
-- **pointer drag + wheel zoom interaction with server-side clustering refresh**
+- **optional Google Photorealistic 3D Tiles renderer through CesiumJS for the public demo**
+- **automatic fallback to the local WebGL globe when no browser key is configured or the external renderer fails**
+- **shared projection for live markers, clusters, heatmaps, movement trails and the photorealistic Earth view**
+- **pointer drag + deep wheel zoom interaction with server-side clustering refresh**
 
 Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
