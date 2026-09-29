@@ -221,9 +221,15 @@ test("P4C serves self-hosted WebGL globe assets with safe content types", async 
       ) || "",
       /tile\.googleapis\.com/
     );
+    const runtimeConfig =
+      await runtimeConfigResponse.text();
     assert.match(
-      await runtimeConfigResponse.text(),
+      runtimeConfig,
       /test-browser-key/
+    );
+    assert.match(
+      runtimeConfig,
+      /"demoMode":false/
     );
 
     const moduleResponse =
