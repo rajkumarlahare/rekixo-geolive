@@ -986,19 +986,19 @@ export class PostgresGeoLiveStore {
 
     if (status) {
       params.push(String(status));
-      where.push(`presence = ${params.length}`);
+      where.push(`presence = $${params.length}`);
     }
     if (country) {
       params.push(String(country));
-      where.push(`country = ${params.length}`);
+      where.push(`country = $${params.length}`);
     }
     if (state) {
       params.push(String(state));
-      where.push(`state = ${params.length}`);
+      where.push(`state = $${params.length}`);
     }
     if (city) {
       params.push(String(city));
-      where.push(`city = ${params.length}`);
+      where.push(`city = $${params.length}`);
     }
 
     const result = await this.pool.query(
