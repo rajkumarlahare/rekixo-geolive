@@ -1062,6 +1062,14 @@ function renderAutomation() {
   const writable =
     canWriteProject();
 
+  document
+    .querySelectorAll(
+      "#geofenceForm input, #geofenceForm select, #geofenceForm textarea, #geofenceForm button, #webhookForm input, #webhookForm select, #webhookForm textarea, #webhookForm button, #alertRuleForm input, #alertRuleForm select, #alertRuleForm textarea, #alertRuleForm button"
+    )
+    .forEach((element) => {
+      element.disabled = !writable;
+    });
+
   const geofences =
     clearAutomationList(
       "geofenceList"
