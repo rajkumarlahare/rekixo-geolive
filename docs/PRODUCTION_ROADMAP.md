@@ -138,9 +138,13 @@ Completed foundation:
 - real Today Active and 24-hour API-request dashboard metrics
 - server-side user filtering/facets and large-project clustering
 - WebGL dashboard assets covered by server regression tests
+- direct circle/polygon geofence drawing on the globe
+- direct redraw/edit workflow for existing geofences
+- geodesic circle radius calculation and polygon vertex undo/finish controls
+- active/paused geofence boundary overlays aligned with the globe projection
+- geofence editor geometry and asset regression coverage
 
 Remaining P4C work:
-- geofence editing/drawing directly on the globe
 - richer event/delivery observability views
 - explicit pagination UX for very broad text-search results above 500 users
 - route/trip analytics and export workflows
