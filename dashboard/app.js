@@ -36,6 +36,11 @@ const state = {
   pollTimer: null,
   projectMode: "create",
   keys: [],
+  facets: {
+    countries: [],
+    states: [],
+    cities: []
+  },
   clusters: [],
   useClusters: false,
   realtimeSocket: null,
@@ -44,6 +49,7 @@ const state = {
   realtimeSequence: "0",
   realtimeProjectId: "",
   clusterRefreshTimer: null,
+  filterRefreshTimer: null,
   liveRefreshTimer: null,
   selectedUserId: "",
   historyPoints: [],
@@ -186,6 +192,11 @@ function applyIdentity() {
 function resetData() {
   state.users = [];
   state.filtered = [];
+  state.facets = {
+    countries: [],
+    states: [],
+    cities: []
+  };
   state.clusters = [];
   state.useClusters = false;
   state.selectedUserId = "";
@@ -234,71 +245,155 @@ function updateStats() {
   setText("recentSide", formatCount(state.summary.recent));
   setText("offlineSide", formatCount(state.summary.offline));
   setText("liveBadge", formatCount(state.summary.online));
+  const showing = state.useClusters
+    ? state.clusters.reduce(
+        (sum, cluster) =>
+          sum + Number(cluster.count || 0),
+        0
+      )
+    : state.filtered.length;
   setText(
     "showingCount",
-    state.useClusters
-      ? state.summary.total
-      : state.filtered.length
+    formatCount(showing)
   );
-}
-
-function unique(field) {
-  return [...new Set(state.users.map((u) => u[field]).filter(Boolean))].sort();
 }
 
 function fillSelect(id, values, label) {
   const el = document.querySelector("#" + id);
   const current = el.value;
-  el.innerHTML = `<option value="">All ${label}</option>`;
+  el.replaceChildren();
+
+  const all = document.createElement("option");
+  all.value = "";
+  all.textContent = `All ${label}`;
+  el.appendChild(all);
+
   for (const value of values) {
     const option = document.createElement("option");
-    option.value = option.textContent = value;
+    option.value =
+      option.textContent = value;
     el.appendChild(option);
   }
-  if (values.includes(current)) el.value = current;
+  if (values.includes(current)) {
+    el.value = current;
+  }
 }
 
 function rebuildGeoFilters() {
-  fillSelect("country", unique("country"), "Countries");
-  fillSelect("state", unique("state"), "States");
-  fillSelect("city", unique("city"), "Cities");
+  fillSelect(
+    "country",
+    state.facets.countries || [],
+    "Countries"
+  );
+  fillSelect(
+    "state",
+    state.facets.states || [],
+    "States"
+  );
+  fillSelect(
+    "city",
+    state.facets.cities || [],
+    "Cities"
+  );
+}
+
+function currentFilterParams({
+  includeSearch = true
+} = {}) {
+  const params = new URLSearchParams();
+  const q = search.value.trim();
+  const country =
+    document.querySelector("#country").value;
+  const region =
+    document.querySelector("#state").value;
+  const city =
+    document.querySelector("#city").value;
+
+  if (includeSearch && q) {
+    params.set("search", q);
+  }
+  if (state.activeStatus) {
+    params.set(
+      "status",
+      state.activeStatus
+    );
+  }
+  if (country) {
+    params.set("country", country);
+  }
+  if (region) {
+    params.set("state", region);
+  }
+  if (city) {
+    params.set("city", city);
+  }
+  return params;
 }
 
 function applyFilters() {
-  const q = search.value.toLowerCase().trim();
-  const country = document.querySelector("#country").value;
-  const region = document.querySelector("#state").value;
-  const city = document.querySelector("#city").value;
-
-  state.filtered = state.users.filter((u) =>
-    (!state.activeStatus || u.status === state.activeStatus) &&
-    (!q || [u.userId, u.name, u.email].some((v) =>
-      String(v || "").toLowerCase().includes(q)
-    )) &&
-    (!country || u.country === country) &&
-    (!region || u.state === region) &&
-    (!city || u.city === city)
-  );
-
-  const hasFilters = Boolean(
-    q ||
-    state.activeStatus ||
-    country ||
-    region ||
-    city
-  );
-  state.useClusters = Boolean(
-    !hasFilters &&
-    state.summary.total > 500 &&
-    state.clusters.length
-  );
-
+  // User rows and clusters are already filtered server-side.
+  state.filtered = [...state.users];
   updateStats();
   const markerCount = state.useClusters
     ? state.clusters.length
     : state.filtered.length;
   document.querySelector("#emptyState").hidden =
-    Boolean(state.projectId && markerCount);
+    Boolean(
+      state.projectId &&
+      markerCount
+    );
+}
+
+async function refreshMapData() {
+  const project = projectById();
+  if (!project) return;
+
+  const q = search.value.trim();
+  if (
+    state.summary.total > 500 &&
+    !q
+  ) {
+    await loadClusters();
+    return;
+  }
+
+  const params =
+    currentFilterParams();
+  params.set("limit", "500");
+
+  const payload = await api(
+    `/v1/admin/projects/${project.id}/users?${params.toString()}`
+  );
+  state.users = payload.users || [];
+  state.clusters = [];
+  state.useClusters = false;
+  applyFilters();
+
+  if (payload.nextCursor) {
+    setText(
+      "projectState",
+      `${project.status.toUpperCase()} · ${project.role} · 500+ MATCHES`
+    );
+  }
+}
+
+function scheduleFilterRefresh(
+  delay = 250
+) {
+  clearTimeout(
+    state.filterRefreshTimer
+  );
+  state.filterRefreshTimer =
+    setTimeout(() => {
+      refreshMapData().catch(
+        (error) => {
+          setText(
+            "lastUpdated",
+            `Filter failed: ${error.code}`
+          );
+        }
+      );
+    }, delay);
 }
 
 function clusterGridDegrees() {
@@ -311,23 +406,38 @@ function clusterGridDegrees() {
 
 async function loadClusters() {
   const project = projectById();
-  if (!project || state.summary.total <= 500) {
+  if (
+    !project ||
+    state.summary.total <= 500
+  ) {
     state.clusters = [];
     state.useClusters = false;
     return;
   }
 
-  const payload = await api(
-    `/v1/admin/projects/${project.id}/clusters?gridDegrees=${encodeURIComponent(clusterGridDegrees())}`
+  const params =
+    currentFilterParams({
+      includeSearch: false
+    });
+  params.set(
+    "gridDegrees",
+    String(clusterGridDegrees())
   );
-  state.clusters = payload.clusters || [];
+
+  const payload = await api(
+    `/v1/admin/projects/${project.id}/clusters?${params.toString()}`
+  );
+  state.users = [];
+  state.clusters =
+    payload.clusters || [];
+  state.useClusters = true;
   applyFilters();
 }
 
 function scheduleClusterRefresh(delay = 250) {
   clearTimeout(state.clusterRefreshTimer);
   state.clusterRefreshTimer = setTimeout(() => {
-    loadClusters().catch(() => {});
+    refreshMapData().catch(() => {});
   }, delay);
 }
 
@@ -346,12 +456,7 @@ async function refreshLiveSummary() {
     inactive: summaryPayload.inactive || 0
   };
 
-  if (state.summary.total > 500) {
-    await loadClusters();
-  } else {
-    state.clusters = [];
-  }
-  applyFilters();
+  await refreshMapData();
 }
 
 function scheduleLiveRefresh() {
@@ -368,63 +473,81 @@ async function loadProject({ quiet = false } = {}) {
     return;
   }
 
-  sessionStorage.setItem("geolive.projectId", project.id);
-  setText("projectState", `${project.status.toUpperCase()} · ${project.role}`);
+  sessionStorage.setItem(
+    "geolive.projectId",
+    project.id
+  );
+  setText(
+    "projectState",
+    `${project.status.toUpperCase()} · ${project.role}`
+  );
 
   try {
-    const summaryPayload = await api(
-      `/v1/admin/projects/${project.id}/summary`
-    );
-    state.summary = {
-      total: summaryPayload.total || 0,
-      todayActive:
-        summaryPayload.todayActive || 0,
-      online: summaryPayload.online || 0,
-      recent: summaryPayload.recent || 0,
-      offline: summaryPayload.offline || 0,
-      inactive: summaryPayload.inactive || 0
-    };
-
     const [
-      usersPayload,
+      summaryPayload,
       metricsPayload,
-      clustersPayload
+      facetsPayload
     ] = await Promise.all([
       api(
-        `/v1/admin/projects/${project.id}/users?limit=500`
+        `/v1/admin/projects/${project.id}/summary`
       ),
       api(
         `/v1/admin/projects/${project.id}/operations/metrics?hours=24`
       ),
-      state.summary.total > 500
-        ? api(
-            `/v1/admin/projects/${project.id}/clusters?gridDegrees=${encodeURIComponent(clusterGridDegrees())}`
-          )
-        : Promise.resolve(null)
+      api(
+        `/v1/admin/projects/${project.id}/facets`
+      )
     ]);
 
-    state.users = usersPayload.users || [];
-    state.clusters =
-      clustersPayload?.clusters || [];
+    state.summary = {
+      total:
+        summaryPayload.total || 0,
+      todayActive:
+        summaryPayload.todayActive || 0,
+      online:
+        summaryPayload.online || 0,
+      recent:
+        summaryPayload.recent || 0,
+      offline:
+        summaryPayload.offline || 0,
+      inactive:
+        summaryPayload.inactive || 0
+    };
     state.apiRequests24h =
       metricsPayload.metrics?.totals
         ?.requests || 0;
+    state.facets = {
+      countries:
+        facetsPayload.countries || [],
+      states:
+        facetsPayload.states || [],
+      cities:
+        facetsPayload.cities || []
+    };
     state.refreshes += 1;
 
     rebuildGeoFilters();
-    applyFilters();
+    await refreshMapData();
+    updateStats();
     setText(
       "lastUpdated",
       `Last updated: ${new Date().toLocaleTimeString()}`
     );
 
-    if (!quiet) showDetail({});
+    if (!quiet) {
+      showDetail({});
+    }
   } catch (error) {
     if (error.status === 401) {
-      showLogin("Your session expired. Sign in again.");
+      showLogin(
+        "Your session expired. Sign in again."
+      );
       return;
     }
-    setText("lastUpdated", `Refresh failed: ${error.code}`);
+    setText(
+      "lastUpdated",
+      `Refresh failed: ${error.code}`
+    );
   }
 }
 
@@ -468,8 +591,6 @@ function applyRealtimeLocation(message) {
   }
 
   state.refreshes += 1;
-  rebuildGeoFilters();
-  applyFilters();
   scheduleLiveRefresh();
   setText(
     "lastUpdated",
@@ -3098,7 +3219,7 @@ document.querySelectorAll(".status-filter").forEach((button) => {
     document.querySelectorAll(".status-filter").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     state.activeStatus = button.dataset.status;
-    applyFilters();
+    scheduleFilterRefresh(0);
   });
 });
 
@@ -3107,7 +3228,12 @@ document.querySelectorAll(".status-filter").forEach((button) => {
   document.querySelector("#country"),
   document.querySelector("#state"),
   document.querySelector("#city")
-].forEach((element) => element.addEventListener("input", applyFilters));
+].forEach((element) =>
+  element.addEventListener(
+    "input",
+    () => scheduleFilterRefresh()
+  )
+);
 
 document.querySelector("#reset").addEventListener("click", () => {
   search.value = "";
@@ -3118,8 +3244,9 @@ document.querySelector("#reset").addEventListener("click", () => {
   document.querySelectorAll(".status-filter").forEach((item, index) => {
     item.classList.toggle("active", index === 0);
   });
-  applyFilters();
+  scheduleFilterRefresh(0);
 });
+
 
 document.querySelector("#pause").onclick = () => state.paused = !state.paused;
 document.querySelector("#zoomIn").onclick = () => {
