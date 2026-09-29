@@ -50,6 +50,7 @@ export class ProjectRealtimeRoom extends DurableObject {
       projectId,
       mode,
       authenticated: trustedAdmin,
+      origin: String(request.headers.get("x-geolive-client-origin") || ""),
       joinedAt: Date.now()
     };
     server.serializeAttachment(state);
@@ -93,6 +94,7 @@ export class ProjectRealtimeRoom extends DurableObject {
     const request = new Request("https://internal/v1/realtime", {
       headers: {
         authorization: `Bearer ${payload.token}`,
+        ...(attachment.origin ? { origin: attachment.origin } : {}),
         ...(payload.packageId
           ? { "x-geolive-package": String(payload.packageId) }
           : {})
