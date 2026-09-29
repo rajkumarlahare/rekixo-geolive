@@ -517,6 +517,8 @@
           <label class="checkbox-label"><input id="platformFeatureRealtime" type="checkbox" checked />Realtime</label>
           <label class="checkbox-label"><input id="platformFeatureMovementHistory" type="checkbox" checked />Movement history</label>
           <label class="checkbox-label"><input id="platformFeatureHeatmap" type="checkbox" checked />Heatmap</label>
+          <label class="checkbox-label"><input id="platformFeatureGeofences" type="checkbox" checked />Geofences</label>
+          <label class="checkbox-label"><input id="platformFeatureWebhooks" type="checkbox" checked />Webhooks</label>
           <label class="checkbox-label"><input id="platformFeatureClientTokens" type="checkbox" checked />Client tokens</label>
           <label class="checkbox-label"><input id="platformFeatureAttestation" type="checkbox" checked />Android attestation</label>
           <label class="checkbox-label"><input id="platformFeaturePrioritySupport" type="checkbox" />Priority support</label>
@@ -565,6 +567,20 @@
             </label>
             <label>Heatmap
               <select id="entitlementHeatmap">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Geofences
+              <select id="entitlementGeofences">
+                <option value="">Inherit</option>
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
+              </select>
+            </label>
+            <label>Webhooks
+              <select id="entitlementWebhooks">
                 <option value="">Inherit</option>
                 <option value="true">Enabled</option>
                 <option value="false">Disabled</option>
