@@ -146,9 +146,12 @@ export async function resolveWebhookTarget(
   const hostname =
     url.hostname.toLowerCase();
   if (
-    hostname === "localhost" ||
-    hostname.endsWith(".localhost") ||
-    hostname.endsWith(".local")
+    isProduction &&
+    (
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local")
+    )
   ) {
     const error = new Error(
       "webhook_private_target"
@@ -179,11 +182,14 @@ export async function resolveWebhookTarget(
 
   if (
     !addresses.length ||
-    addresses.some(
-      ({ address }) =>
-        !isPublicWebhookAddress(
-          address
-        )
+    (
+      isProduction &&
+      addresses.some(
+        ({ address }) =>
+          !isPublicWebhookAddress(
+            address
+          )
+      )
     )
   ) {
     const error = new Error(
