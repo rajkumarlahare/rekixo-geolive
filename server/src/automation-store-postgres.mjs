@@ -200,7 +200,7 @@ async function scheduleDeliveries(
             END,
             COALESCE(
               (
-                plan.features ->
+                plan.features ->>
                   'webhooks'
               )::boolean,
               false
@@ -395,7 +395,7 @@ export async function evaluateLocationAutomation(
             END,
             COALESCE(
               (
-                plan.features ->
+                plan.features ->>
                   'geofences'
               )::boolean,
               false
@@ -2135,7 +2135,7 @@ export class PostgresAutomationStore {
                   END,
                   COALESCE(
                     (
-                      plan.features ->
+                      plan.features ->>
                         'geofences'
                     )::boolean,
                     false
