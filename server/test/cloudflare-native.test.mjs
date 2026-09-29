@@ -236,6 +236,37 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
 });
 
+test("GeoLive brand eye is code-drawn and raster-free", async () => {
+  const [html, css] = await Promise.all([
+    readFile("dashboard/index.html", "utf8"),
+    readFile("dashboard/styles.css", "utf8")
+  ]);
+
+  assert.match(
+    html,
+    /<symbol id="geolive-eye-mark" viewBox="0 0 120 74">/
+  );
+  assert.equal(
+    (html.match(/href="#geolive-eye-mark"/g) || []).length,
+    2
+  );
+  assert.match(
+    css,
+    /\.brand-icon \.geolive-mark\{width:34px;height:22px\}/
+  );
+  assert.match(
+    css,
+    /\.auth-logo \.geolive-mark\{width:52px;height:32px\}/
+  );
+
+  const brandMarkup =
+    html.match(/<div class="brand">[\s\S]*?<\/div>/)?.[0] || "";
+  const authMarkup =
+    html.match(/<div class="auth-logo"[\s\S]*?<\/div>/)?.[0] || "";
+  assert.doesNotMatch(brandMarkup, /<img\b|\.png|\.jpe?g|\.webp/i);
+  assert.doesNotMatch(authMarkup, /<img\b|\.png|\.jpe?g|\.webp/i);
+});
+
 test("Cloudflare production config is first-deploy safe and keeps secrets out of vars", async () => {
   const configText = await readFile(
     "cloudflare/wrangler.jsonc",
