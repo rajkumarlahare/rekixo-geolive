@@ -6,6 +6,7 @@ import {
   clusterUsers,
   cleanupRetention,
   emitDueDwellEvents,
+  enforceProjectRate,
   heatmapHistory,
   listUsersPage,
   movementHistory,
@@ -113,10 +114,88 @@ async function broadcast(env, projectId, payload) {
   });
 }
 
+async function recordSecurityEvent(
+  env,
+  auth,
+  eventType,
+  severity = "warning",
+  metadata = {}
+) {
+  const projectId = auth?.key?.projectId;
+  if (!projectId) return;
+  try {
+    await env.DB.prepare(
+      `INSERT INTO security_events(
+        project_id,key_ref,event_type,severity,metadata_json,created_at
+      ) VALUES(?,?,?,?,?,?)`
+    ).bind(
+      projectId,
+      auth?.key?.id || null,
+      eventType,
+      severity,
+      JSON.stringify(metadata),
+      new Date().toISOString()
+    ).run();
+  } catch {}
+}
+
+function rateHeaders(rate) {
+  if (!rate?.limit) return {};
+  return {
+    "x-ratelimit-limit": String(rate.limit),
+    "x-ratelimit-remaining": String(rate.remaining ?? 0),
+    ...(rate.resetAt
+      ? { "x-ratelimit-reset": rate.resetAt }
+      : {})
+  };
+}
+
 async function publicAuth(request, env, scope) {
   const auth = await authenticateIntegration(env,request,scope);
-  if (!auth.ok) return { response: json({ error: auth.error },auth.status), auth };
+  if (!auth.ok) {
+    if (auth?.key?.projectId) {
+      await recordSecurityEvent(
+        env,
+        auth,
+        `api.${auth.error}`,
+        "warning",
+        { scope }
+      );
+    }
+    return {
+      response: json({ error: auth.error },auth.status),
+      auth
+    };
+  }
   return { auth, response: null };
+}
+
+async function publicRateGate(request, env, auth, group) {
+  const rate = await enforceProjectRate(
+    env,
+    auth.key.projectId,
+    group
+  );
+  if (rate.ok) return { rate, response: null };
+  await recordSecurityEvent(
+    env,
+    auth,
+    `api.${rate.error}`,
+    "warning",
+    { group }
+  );
+  return {
+    rate,
+    response: json(
+      { error: rate.error },
+      rate.status || 429,
+      {
+        ...corsHeaders(request,auth),
+        ...rateHeaders(rate),
+        "retry-after": "60"
+      }
+    )
+  };
 }
 
 async function handlePublic(request, env, ctx) {
@@ -146,6 +225,10 @@ async function handlePublic(request, env, ctx) {
   if (path === "/v1/locations" && request.method === "POST") {
     const gate = await publicAuth(request,env,"location:write");
     if (gate.response) return gate.response;
+    const rateGate = await publicRateGate(
+      request,env,gate.auth,"ingest"
+    );
+    if (rateGate.response) return rateGate.response;
     let body;
     try { body = validateLocationInput(await request.json()); }
     catch (error) { return json({ error: error.code || "invalid_body" },error.status || 400); }
@@ -194,15 +277,29 @@ async function handlePublic(request, env, ctx) {
         userId: record.userId,
         receivedAt: record.receivedAt,
         eventSequence: String(record.sequence || "0")
-      },202,corsHeaders(request,gate.auth));
+      },202,{
+        ...corsHeaders(request,gate.auth),
+        ...rateHeaders(rateGate.rate)
+      });
     } catch (error) {
-      return json({ error: error.code || "location_write_failed" },error.status || 500,corsHeaders(request,gate.auth));
+      return json(
+        { error: error.code || "location_write_failed" },
+        error.status || 500,
+        {
+          ...corsHeaders(request,gate.auth),
+          ...rateHeaders(rateGate.rate)
+        }
+      );
     }
   }
 
   if (path === "/v1/users" && request.method === "GET") {
     const gate = await publicAuth(request,env,"users:read");
     if (gate.response) return gate.response;
+    const rateGate = await publicRateGate(
+      request,env,gate.auth,"read"
+    );
+    if (rateGate.response) return rateGate.response;
     const page = await listUsersPage(env,gate.auth.key.projectId,{
       search:url.searchParams.get("search")||"",
       status:url.searchParams.get("status")||"",
@@ -214,12 +311,19 @@ async function handlePublic(request, env, ctx) {
       thresholds:limits
     });
     ctx.waitUntil(recordUsage(env,gate.auth.key.projectId,"api_reads",1));
-    return json({ projectId: gate.auth.key.projectId, ...page },200,corsHeaders(request,gate.auth));
+    return json({ projectId: gate.auth.key.projectId, ...page },200,{
+      ...corsHeaders(request,gate.auth),
+      ...rateHeaders(rateGate.rate)
+    });
   }
 
   if (path === "/v1/clusters" && request.method === "GET") {
     const gate = await publicAuth(request,env,"users:read");
     if (gate.response) return gate.response;
+    const rateGate = await publicRateGate(
+      request,env,gate.auth,"read"
+    );
+    if (rateGate.response) return rateGate.response;
     try {
       const clusters=await clusterUsers(env,gate.auth.key.projectId,{
         gridDegrees:url.searchParams.get("gridDegrees")||8,
@@ -230,7 +334,10 @@ async function handlePublic(request, env, ctx) {
         thresholds:limits
       });
       ctx.waitUntil(recordUsage(env,gate.auth.key.projectId,"api_reads",1));
-      return json({projectId:gate.auth.key.projectId,clusters},200,corsHeaders(request,gate.auth));
+      return json({projectId:gate.auth.key.projectId,clusters},200,{
+        ...corsHeaders(request,gate.auth),
+        ...rateHeaders(rateGate.rate)
+      });
     } catch(error) {
       return json({error:error.code||"invalid_query"},error.status||400,corsHeaders(request,gate.auth));
     }
@@ -239,14 +346,25 @@ async function handlePublic(request, env, ctx) {
   if (path === "/v1/summary" && request.method === "GET") {
     const gate = await publicAuth(request,env,"summary:read");
     if (gate.response) return gate.response;
+    const rateGate = await publicRateGate(
+      request,env,gate.auth,"read"
+    );
+    if (rateGate.response) return rateGate.response;
     const payload=await summary(env,gate.auth.key.projectId,limits);
     ctx.waitUntil(recordUsage(env,gate.auth.key.projectId,"api_reads",1));
-    return json({projectId:gate.auth.key.projectId,...payload},200,corsHeaders(request,gate.auth));
+    return json({projectId:gate.auth.key.projectId,...payload},200,{
+      ...corsHeaders(request,gate.auth),
+      ...rateHeaders(rateGate.rate)
+    });
   }
 
   if (path === "/v1/history" && request.method === "GET") {
     const gate = await publicAuth(request,env,"history:read");
     if (gate.response) return gate.response;
+    const rateGate = await publicRateGate(
+      request,env,gate.auth,"read"
+    );
+    if (rateGate.response) return rateGate.response;
     try {
       const userId=String(url.searchParams.get("userId")||"").trim();
       if(!userId) return json({error:"invalid_userId"},400,corsHeaders(request,gate.auth));
@@ -256,7 +374,10 @@ async function handlePublic(request, env, ctx) {
         cursor:url.searchParams.get("cursor")||""
       });
       ctx.waitUntil(recordUsage(env,gate.auth.key.projectId,"api_reads",1));
-      return json({projectId:gate.auth.key.projectId,userId,window,...page},200,corsHeaders(request,gate.auth));
+      return json({projectId:gate.auth.key.projectId,userId,window,...page},200,{
+        ...corsHeaders(request,gate.auth),
+        ...rateHeaders(rateGate.rate)
+      });
     } catch(error) {
       return json({error:error.code||"invalid_history"},error.status||400,corsHeaders(request,gate.auth));
     }
@@ -265,13 +386,20 @@ async function handlePublic(request, env, ctx) {
   if (path === "/v1/heatmap" && request.method === "GET") {
     const gate = await publicAuth(request,env,"history:read");
     if (gate.response) return gate.response;
+    const rateGate = await publicRateGate(
+      request,env,gate.auth,"read"
+    );
+    if (rateGate.response) return rateGate.response;
     try {
       const window=parseWindow(url.searchParams);
       const gridDegrees=normalizeGridDegrees(url.searchParams.get("gridDegrees")||2,2);
       const userId=String(url.searchParams.get("userId")||"").trim()||null;
       const cells=await heatmapHistory(env,gate.auth.key.projectId,{...window,gridDegrees,userId});
       ctx.waitUntil(recordUsage(env,gate.auth.key.projectId,"api_reads",1));
-      return json({projectId:gate.auth.key.projectId,window,gridDegrees,userId,cells},200,corsHeaders(request,gate.auth));
+      return json({projectId:gate.auth.key.projectId,window,gridDegrees,userId,cells},200,{
+        ...corsHeaders(request,gate.auth),
+        ...rateHeaders(rateGate.rate)
+      });
     } catch(error) {
       return json({error:error.code||"invalid_heatmap"},error.status||400,corsHeaders(request,gate.auth));
     }
