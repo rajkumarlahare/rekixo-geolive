@@ -195,11 +195,16 @@ export class MemoryGeoLiveStore {
               a.lastSeenAt
             ).getTime();
           if (time) return time;
-          return String(
-            b.userId
-          ).localeCompare(
-            String(a.userId)
-          );
+          const left =
+            String(a.userId);
+          const right =
+            String(b.userId);
+          if (left === right) {
+            return 0;
+          }
+          return left < right
+            ? 1
+            : -1;
         });
 
     const page =
