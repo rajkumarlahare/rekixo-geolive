@@ -267,4 +267,71 @@ Each cell returns a center coordinate, historical location-point count, distinct
 
 Movement history and heatmap are commercial feature entitlements. A denied feature returns HTTP `402` with `feature_not_entitled` or `subscription_not_active`.
 
-P4A intentionally stops at historical reads. Geofences, alerts and outbound webhooks are a separate P4B boundary.
+## 16. Geofence automation
+
+Tenant admins configure circle or polygon geofences from **Geofences & Webhooks** or the admin API. Each geofence is project-scoped and can be active or paused.
+
+GeoLive emits:
+
+- `geofence.enter` when an observed user moves from outside to inside;
+- `geofence.exit` when an observed user moves from inside to outside;
+- `geofence.dwell` once per visit after the configured dwell duration.
+
+Enter/exit evaluation commits in the same PostgreSQL transaction as the location observation. Dwell state is durable and a multi-instance scheduler claims due dwell rows with database locks, so a user can generate a dwell event even when no new location update arrives exactly at the threshold.
+
+Realtime readers receive the same geofence event types through the existing WebSocket stream. Admins can inspect durable event history under:
+
+```http
+GET /v1/admin/projects/<projectId>/geofence-events
+```
+
+## 17. Signed outbound webhooks
+
+Create a webhook endpoint from the dashboard or admin API. Production endpoint URLs must use HTTPS. The full `rgl_whsec_...` signing secret is returned only after endpoint creation or secret rotation.
+
+Every delivery contains a JSON event envelope:
+
+```json
+{
+  "id": "<event-uuid>",
+  "type": "geofence.enter",
+  "createdAt": "2026-09-29T00:00:00.000Z",
+  "data": {
+    "type": "geofence.enter",
+    "projectId": "<project-uuid>",
+    "geofence": {
+      "id": "<geofence-uuid>",
+      "name": "Warehouse"
+    },
+    "userId": "user_123",
+    "occurredAt": "2026-09-29T00:00:00.000Z",
+    "location": {
+      "latitude": 21.2514,
+      "longitude": 81.6296,
+      "accuracyM": 8
+    }
+  }
+}
+```
+
+Headers include:
+
+```text
+X-Rekixo-Timestamp: <unix-seconds>
+X-Rekixo-Signature: v1=<hex-hmac-sha256>
+X-Rekixo-Event-Id: <event-uuid>
+X-Rekixo-Delivery-Id: <delivery-uuid>
+Idempotency-Key: <delivery-uuid>
+```
+
+Verify the signature using the endpoint secret over the exact UTF-8 bytes:
+
+```text
+HMAC_SHA256(secret, "<timestamp>.<raw-request-body>")
+```
+
+Consumers should also reject stale timestamps and deduplicate by event or delivery ID.
+
+Webhook delivery is **at least once**. Non-2xx/network failures use bounded exponential retry. Exhausted deliveries enter a terminal `dead` state and an authorized tenant admin can explicitly requeue a dead letter. Production delivery resolves DNS before each attempt, rejects non-public/private targets, pins the request to the validated address and does not follow redirects.
+
+`geofences` and `webhooks` are separate commercial entitlements. Disabling either entitlement fails closed for the corresponding runtime behavior without blocking ordinary location ingestion.
