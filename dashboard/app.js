@@ -933,6 +933,14 @@ function automationErrorText(error) {
       "Private or local network webhook targets are blocked in production.",
     geofence_not_found:
       "The selected geofence no longer exists.",
+    invalid_geofence_polygon:
+      "The polygon is invalid or self-intersects. Redraw it with a simple boundary.",
+    invalid_geofence_geometry:
+      "The geofence geometry is invalid. Redraw it and try again.",
+    invalid_geofence_shape_fields:
+      "The selected shape contains incompatible geometry fields.",
+    geofence_shape_fields_required:
+      "Complete the new shape geometry before saving.",
     webhook_endpoint_not_found:
       "The selected webhook endpoint no longer exists.",
     alert_rule_not_found:
