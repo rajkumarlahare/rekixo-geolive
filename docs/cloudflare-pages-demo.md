@@ -24,9 +24,24 @@ Create a Pages project from the GitHub repository and use:
 | Root directory | repository root |
 | Build command | `npm run build:demo` |
 | Build output directory | `dist-demo` |
-| Environment variables | none required |
+| Environment variables | none required for the base demo; optional `GOOGLE_MAPS_API_KEY` enables Google Photorealistic 3D Tiles |
 
 The Pages deployment will receive a stable `*.pages.dev` URL. Demo mode automatically activates on that hostname.
+
+
+## Optional real Earth renderer
+
+The demo keeps the local WebGL globe as a zero-dependency fallback. To enable the Google Earth-style photorealistic renderer:
+
+1. In Google Cloud, enable billing for the project and enable the **Map Tiles API**.
+2. Create a browser API key.
+3. Restrict the key to **Websites / HTTP referrers**. Add the exact public Pages origin, for example `https://rekixo-geolive.pages.dev/*`, and add the custom domain later if one is attached.
+4. Restrict the key's API access to **Map Tiles API**.
+5. In Cloudflare Pages, add `GOOGLE_MAPS_API_KEY` to the production build environment and redeploy.
+
+The build writes the browser key only into generated `dist-demo/demo-config.js`; it is never committed to Git. Browser map keys are visible to site visitors by design, so referrer and API restrictions are mandatory.
+
+When the key is configured, GeoLive loads pinned CesiumJS assets and Google's Photorealistic 3D Tiles. The renderer keeps Google/Cesium attribution visible and projects GeoLive clusters, users, heatmaps, movement trails and geofences into the same screen space. If loading fails, the dashboard automatically falls back to the existing local WebGL globe.
 
 ## Safety model
 
