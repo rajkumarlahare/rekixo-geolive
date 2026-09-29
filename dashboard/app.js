@@ -258,6 +258,7 @@ function resetData() {
     selectedDeliveryId: ""
   };
   state.geofenceOverlayProjectId = "";
+  resetAutomationHistoryFilters();
   state.facets = {
     countries: [],
     states: [],
@@ -891,6 +892,7 @@ document.querySelector("#logout").addEventListener("click", async () => {
 projectSelect.addEventListener("change", () => {
   stopRealtime({ resetSequence: true });
   cancelGeofenceEditor();
+  resetAutomationHistoryFilters();
   state.projectId = projectSelect.value;
   state.geofenceOverlayProjectId = "";
   state.automation.geofences = [];
@@ -923,6 +925,32 @@ document.querySelector("#projectCancel").addEventListener("click", closeProjectM
 document.querySelector("#keyModalClose").addEventListener("click", closeKeyModal);
 document.querySelector("#refreshKeys").addEventListener("click", loadKeys);
 
+function resetAutomationHistoryFilters() {
+  for (const id of [
+    "eventTypeFilter",
+    "eventGeofenceFilter",
+    "deliveryStatusFilter",
+    "deliveryEndpointFilter",
+    "deliveryEventTypeFilter"
+  ]) {
+    const element =
+      document.querySelector(
+        "#" + id
+      );
+    if (element) {
+      element.value = "";
+    }
+  }
+  const user =
+    document.querySelector(
+      "#eventUserFilter"
+    );
+  if (user) {
+    user.value = "";
+  }
+  closeWebhookDeliveryDetail();
+}
+
 function automationErrorText(error) {
   const messages = {
     feature_not_entitled:
@@ -949,6 +977,18 @@ function automationErrorText(error) {
       "Complete the new shape geometry before saving.",
     webhook_endpoint_not_found:
       "The selected webhook endpoint no longer exists.",
+    webhook_delivery_not_found:
+      "That webhook delivery is no longer available.",
+    webhook_delivery_not_retryable:
+      "Only dead-letter deliveries can be manually retried.",
+    invalid_automation_event_type:
+      "Choose a valid geofence event type.",
+    invalid_webhook_delivery_status:
+      "Choose a valid webhook delivery status.",
+    invalid_automation_user_id:
+      "The user ID filter is too long.",
+    invalid_cursor:
+      "This history page cursor expired. Refresh the history.",
     alert_rule_not_found:
       "The selected alert rule no longer exists."
   };
