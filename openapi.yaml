@@ -608,6 +608,23 @@ paths:
       responses:
         "200": { description: Cursor-paginated webhook delivery and dead-letter state }
 
+  /v1/admin/projects/{projectId}/webhook-deliveries/{deliveryId}/retry:
+    post:
+      operationId: adminRetryWebhookDelivery
+      description: Resets a terminal dead-letter delivery for an audited manual retry.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: deliveryId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Dead-letter delivery requeued }
+        "409": { description: Delivery is not in the dead-letter state }
+
   /v1/admin/realtime:
     get:
       operationId: adminRealtimeWebSocket
