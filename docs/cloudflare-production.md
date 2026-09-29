@@ -144,7 +144,9 @@ npx wrangler@latest queues create rekixo-geolive-webhooks-dlq
 ## Required secrets
 
 The production Worker uses these runtime secrets. Their names are documented here,
-but no secret values are committed to Git:
+but no secret values are committed to Git. They are managed in the Cloudflare
+Production environment rather than declared as deploy-time required-secret
+metadata, so Workers Builds can deploy without needing secret-list validation:
 
 - `GEOLIVE_BOOTSTRAP_TOKEN`
 - `GEOLIVE_WEBHOOK_SIGNING_SECRET`
