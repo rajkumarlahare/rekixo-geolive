@@ -13,6 +13,7 @@ const files = [
   "styles.css",
   "app.js",
   "globe-webgl.js",
+  "photorealistic-earth.js",
   "geofence-editor.js",
   "demo-mode.js",
   "earth-dark.svg",
@@ -39,14 +40,33 @@ const index = sourceIndex
     'href="./styles.css"'
   )
   .replace(
-    'src="/dashboard/app.js"',
-    'src="./app.js"'
+    '  <script type="module" src="/dashboard/app.js"></script>',
+    '  <script src="./demo-config.js"></script>\\n  <script type="module" src="./app.js"></script>'
   );
+
+const googleMapsApiKey =
+  String(
+    process.env
+      .GOOGLE_MAPS_API_KEY ||
+    ""
+  ).trim();
+
+await writeFile(
+  path.join(
+    output,
+    "demo-config.js"
+  ),
+  `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${JSON.stringify({
+    googleMapsApiKey
+  })});\\n`,
+  "utf8"
+);
 
 if (
   index === sourceIndex ||
   index.includes("/dashboard/styles.css") ||
-  index.includes("/dashboard/app.js")
+  index.includes("/dashboard/app.js") ||
+  !index.includes("./demo-config.js")
 ) {
   throw new Error(
     "public_demo_asset_rewrite_failed"
@@ -62,4 +82,10 @@ await writeFile(
 console.log(
   "GeoLive public demo bundle ready:",
   path.relative(root, output)
+);
+console.log(
+  "Photorealistic Earth:",
+  googleMapsApiKey
+    ? "configured"
+    : "not configured; local WebGL fallback remains active"
 );
