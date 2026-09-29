@@ -438,20 +438,6 @@ export class PostgresGeoLiveStore {
         status: "online"
       };
 
-      const automationEvents =
-        await evaluateLocationAutomation(
-          client,
-          {
-            projectId,
-            userId:
-              observation.userId,
-            historyId:
-              history.rows[0]?.id ||
-              null,
-            record: mapped
-          }
-        );
-
       const realtime = await client.query(
         `INSERT INTO realtime_events (
           project_id,
@@ -472,6 +458,22 @@ export class PostgresGeoLiveStore {
           JSON.stringify(mapped)
         ]
       );
+
+      // Geofence realtime rows are appended after the location row so
+      // live broadcast order matches durable replay sequence order.
+      const automationEvents =
+        await evaluateLocationAutomation(
+          client,
+          {
+            projectId,
+            userId:
+              observation.userId,
+            historyId:
+              history.rows[0]?.id ||
+              null,
+            record: mapped
+          }
+        );
 
       await client.query("COMMIT");
 
