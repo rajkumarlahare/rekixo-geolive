@@ -197,50 +197,61 @@ export class PostgresApiKeyStore {
     expiresAt
   }) {
     const generated = generateIntegrationKey();
-    const result = await this.pool.query(
-      `INSERT INTO api_keys (
-        project_id, name, key_prefix, secret_hash, scopes,
-        allowed_origins, allowed_packages, expires_at,
-        created_by_admin_user_id
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      RETURNING id, project_id, name, key_prefix, scopes,
-                allowed_origins, allowed_packages, expires_at,
-                revoked_at, last_used_at, created_at, updated_at`,
-      [
-        project.id,
-        name,
-        generated.prefix,
-        hashIntegrationKey(generated.secret),
-        scopes,
-        allowedOrigins,
-        allowedPackages,
-        expiresAt,
-        actorUserId
-      ]
-    );
-
-    await this.pool.query(
-      `INSERT INTO audit_log (
-        admin_user_id, account_id, project_id, action, details
-      ) VALUES ($1,$2,$3,'api_key.create',$4::jsonb)`,
-      [
-        actorUserId,
-        project.accountId,
-        project.id,
-        JSON.stringify({
-          keyId: result.rows[0].id,
-          prefix: generated.prefix,
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `INSERT INTO api_keys (
+          project_id, name, key_prefix, secret_hash, scopes,
+          allowed_origins, allowed_packages, expires_at,
+          created_by_admin_user_id
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        RETURNING id, project_id, name, key_prefix, scopes,
+                  allowed_origins, allowed_packages, expires_at,
+                  revoked_at, last_used_at, created_at, updated_at`,
+        [
+          project.id,
           name,
+          generated.prefix,
+          hashIntegrationKey(generated.secret),
           scopes,
-          expiresAt
-        })
-      ]
-    );
+          allowedOrigins,
+          allowedPackages,
+          expiresAt,
+          actorUserId
+        ]
+      );
 
-    return {
-      key: mapKey(result.rows[0]),
-      secret: generated.secret
-    };
+      await client.query(
+        `INSERT INTO audit_log (
+          admin_user_id, account_id, project_id, action, details
+        ) VALUES ($1,$2,$3,'api_key.create',$4::jsonb)`,
+        [
+          actorUserId,
+          project.accountId,
+          project.id,
+          JSON.stringify({
+            keyId: result.rows[0].id,
+            prefix: generated.prefix,
+            name,
+            scopes,
+            expiresAt
+          })
+        ]
+      );
+      await client.query("COMMIT");
+      return {
+        key: mapKey(result.rows[0]),
+        secret: generated.secret
+      };
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async updateKey({
@@ -252,98 +263,144 @@ export class PostgresApiKeyStore {
     allowedPackages,
     expiresAt
   }) {
-    const current = await this.pool.query(
-      `SELECT *
-         FROM api_keys
-        WHERE id = $1 AND project_id = $2
-        LIMIT 1`,
-      [keyId, project.id]
-    );
-    if (!current.rows.length) {
-      throw Object.assign(new Error("API key not found."), {
-        code: "api_key_not_found",
-        status: 404
-      });
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const current = await client.query(
+        `SELECT *
+           FROM api_keys
+          WHERE id = $1 AND project_id = $2
+          FOR UPDATE`,
+        [keyId, project.id]
+      );
+      if (!current.rows.length) {
+        throw Object.assign(
+          new Error("API key not found."),
+          {
+            code: "api_key_not_found",
+            status: 404
+          }
+        );
+      }
+      if (current.rows[0].revoked_at) {
+        throw Object.assign(
+          new Error(
+            "Revoked API keys cannot be edited."
+          ),
+          {
+            code: "api_key_revoked",
+            status: 409
+          }
+        );
+      }
+
+      const result = await client.query(
+        `UPDATE api_keys
+            SET name = COALESCE($3, name),
+                allowed_origins = COALESCE($4, allowed_origins),
+                allowed_packages = COALESCE($5, allowed_packages),
+                expires_at = CASE WHEN $6::boolean THEN $7 ELSE expires_at END,
+                updated_at = now()
+          WHERE id = $1 AND project_id = $2
+          RETURNING id, project_id, name, key_prefix, scopes,
+                    allowed_origins, allowed_packages, expires_at,
+                    revoked_at, last_used_at, created_at, updated_at`,
+        [
+          keyId,
+          project.id,
+          name ?? null,
+          allowedOrigins ?? null,
+          allowedPackages ?? null,
+          expiresAt !== undefined,
+          expiresAt ?? null
+        ]
+      );
+
+      await client.query(
+        `INSERT INTO audit_log (
+          admin_user_id, account_id, project_id, action, details
+        ) VALUES ($1,$2,$3,'api_key.update',$4::jsonb)`,
+        [
+          actorUserId,
+          project.accountId,
+          project.id,
+          JSON.stringify({
+            keyId,
+            prefix:
+              current.rows[0].key_prefix
+          })
+        ]
+      );
+      await client.query("COMMIT");
+      return mapKey(result.rows[0]);
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+      throw error;
+    } finally {
+      client.release();
     }
-    if (current.rows[0].revoked_at) {
-      throw Object.assign(new Error("Revoked API keys cannot be edited."), {
-        code: "api_key_revoked",
-        status: 409
-      });
-    }
-
-    const result = await this.pool.query(
-      `UPDATE api_keys
-          SET name = COALESCE($3, name),
-              allowed_origins = COALESCE($4, allowed_origins),
-              allowed_packages = COALESCE($5, allowed_packages),
-              expires_at = CASE WHEN $6::boolean THEN $7 ELSE expires_at END,
-              updated_at = now()
-        WHERE id = $1 AND project_id = $2
-        RETURNING id, project_id, name, key_prefix, scopes,
-                  allowed_origins, allowed_packages, expires_at,
-                  revoked_at, last_used_at, created_at, updated_at`,
-      [
-        keyId,
-        project.id,
-        name ?? null,
-        allowedOrigins ?? null,
-        allowedPackages ?? null,
-        expiresAt !== undefined,
-        expiresAt ?? null
-      ]
-    );
-
-    await this.pool.query(
-      `INSERT INTO audit_log (
-        admin_user_id, account_id, project_id, action, details
-      ) VALUES ($1,$2,$3,'api_key.update',$4::jsonb)`,
-      [
-        actorUserId,
-        project.accountId,
-        project.id,
-        JSON.stringify({ keyId, prefix: current.rows[0].key_prefix })
-      ]
-    );
-
-    return mapKey(result.rows[0]);
   }
 
-  async revokeKey({ project, actorUserId, keyId }) {
-    const result = await this.pool.query(
-      `UPDATE api_keys
-          SET revoked_at = COALESCE(revoked_at, now()),
-              revoked_by_admin_user_id = COALESCE(revoked_by_admin_user_id, $3),
-              updated_at = now()
-        WHERE id = $1 AND project_id = $2
-        RETURNING id, project_id, name, key_prefix, scopes,
-                  allowed_origins, allowed_packages, expires_at,
-                  revoked_at, last_used_at, created_at, updated_at`,
-      [keyId, project.id, actorUserId]
-    );
-    if (!result.rows.length) {
-      throw Object.assign(new Error("API key not found."), {
-        code: "api_key_not_found",
-        status: 404
-      });
-    }
-
-    await this.pool.query(
-      `INSERT INTO audit_log (
-        admin_user_id, account_id, project_id, action, details
-      ) VALUES ($1,$2,$3,'api_key.revoke',$4::jsonb)`,
-      [
-        actorUserId,
-        project.accountId,
-        project.id,
-        JSON.stringify({
+  async revokeKey({
+    project,
+    actorUserId,
+    keyId
+  }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `UPDATE api_keys
+            SET revoked_at = COALESCE(revoked_at, now()),
+                revoked_by_admin_user_id = COALESCE(revoked_by_admin_user_id, $3),
+                updated_at = now()
+          WHERE id = $1 AND project_id = $2
+          RETURNING id, project_id, name, key_prefix, scopes,
+                    allowed_origins, allowed_packages, expires_at,
+                    revoked_at, last_used_at, created_at, updated_at`,
+        [
           keyId,
-          prefix: result.rows[0].key_prefix
-        })
-      ]
-    );
+          project.id,
+          actorUserId
+        ]
+      );
+      if (!result.rows.length) {
+        throw Object.assign(
+          new Error("API key not found."),
+          {
+            code: "api_key_not_found",
+            status: 404
+          }
+        );
+      }
 
-    return mapKey(result.rows[0]);
+      await client.query(
+        `INSERT INTO audit_log (
+          admin_user_id, account_id, project_id, action, details
+        ) VALUES ($1,$2,$3,'api_key.revoke',$4::jsonb)`,
+        [
+          actorUserId,
+          project.accountId,
+          project.id,
+          JSON.stringify({
+            keyId,
+            prefix:
+              result.rows[0].key_prefix
+          })
+        ]
+      );
+      await client.query("COMMIT");
+      return mapKey(result.rows[0]);
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async rotateKey({ project, actorUserId, keyId }) {
