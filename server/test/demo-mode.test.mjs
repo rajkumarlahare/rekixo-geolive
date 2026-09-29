@@ -20,6 +20,13 @@ test("demo mode activates only explicitly or on Pages hosts", () => {
     false
   );
   assert.equal(
+    demoModeEnabled(
+      { search: "", hostname: "demo.rekixo.com" },
+      { demoMode: true }
+    ),
+    true
+  );
+  assert.equal(
     demoModeEnabled({ search: "?demo=1", hostname: "geolive.rekixo.com" }),
     false
   );
