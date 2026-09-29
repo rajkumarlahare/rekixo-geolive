@@ -513,7 +513,8 @@ function heatmapFor(projectId) {
 export function demoModeEnabled(locationLike = globalThis.location) {
   try {
     const params = new URLSearchParams(locationLike?.search || "");
-    return params.get("demo") === "1";
+    const hostname = String(locationLike?.hostname || "").toLowerCase();
+    return params.get("demo") === "1" || hostname.endsWith(".pages.dev");
   } catch {
     return false;
   }
