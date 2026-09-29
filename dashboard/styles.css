@@ -108,3 +108,20 @@ button,select,input{font:inherit;color:inherit}button{cursor:pointer}
 .analytics-button:disabled{opacity:.42;cursor:not-allowed}
 .analytics-status{display:block;color:#7f929e;line-height:1.45;padding:0 5px 8px}
 #trailStatus{display:block;color:#7f929e;line-height:1.45;margin-top:6px}
+
+.automation-modal-card{width:min(1220px,96vw);max-height:92vh;overflow:auto}
+.automation-forms{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.automation-columns{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:16px}
+.automation-columns+ .automation-columns{grid-template-columns:repeat(2,minmax(0,1fr))}
+.automation-columns>section{min-width:0}
+.automation-item{border:1px solid #263843;border-radius:9px;padding:12px;background:#08141d;display:grid;gap:7px}
+.automation-item header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.automation-item strong{font-size:13px}
+.automation-item small{color:#8497a3;overflow-wrap:anywhere}
+.automation-item .automation-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:3px}
+.automation-item .automation-actions button{font-size:11px;padding:6px 8px}
+.automation-status{font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#9bb0ba}
+.automation-status.active,.automation-status.delivered{color:var(--green)}
+.automation-status.paused,.automation-status.retry,.automation-status.pending{color:var(--amber)}
+.automation-status.dead{color:var(--red)}
+@media(max-width:1050px){.automation-forms,.automation-columns,.automation-columns+ .automation-columns{grid-template-columns:1fr}}
