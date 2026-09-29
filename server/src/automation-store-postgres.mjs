@@ -120,8 +120,22 @@ function mapDelivery(row) {
     endpointUrl:
       row.endpoint_url || undefined,
     alertRuleId: row.alert_rule_id,
+    alertRuleName:
+      row.alert_rule_name || undefined,
     geofenceEventId:
       String(row.geofence_event_id),
+    eventId:
+      row.event_id || undefined,
+    eventType:
+      row.event_type || undefined,
+    occurredAt:
+      iso(row.occurred_at),
+    userId:
+      row.external_user_id || undefined,
+    geofenceId:
+      row.geofence_id || undefined,
+    geofenceName:
+      row.geofence_name || undefined,
     status: row.status,
     attemptCount:
       Number(row.attempt_count || 0),
@@ -139,6 +153,27 @@ function mapDelivery(row) {
       iso(row.delivered_at),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at)
+  };
+}
+
+function mapDeliveryAttempt(row) {
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    attemptNumber:
+      Number(row.attempt_number),
+    startedAt:
+      iso(row.started_at),
+    completedAt:
+      iso(row.completed_at),
+    responseStatus:
+      row.response_status == null
+        ? null
+        : Number(row.response_status),
+    latencyMs:
+      Number(row.latency_ms || 0),
+    errorText:
+      row.error_text || null
   };
 }
 
@@ -2025,7 +2060,10 @@ export class PostgresAutomationStore {
     projectId,
     {
       limit = 100,
-      cursor = ""
+      cursor = "",
+      eventType = "",
+      geofenceId = "",
+      userId = ""
     } = {}
   ) {
     const pageSize =
@@ -2042,7 +2080,29 @@ export class PostgresAutomationStore {
         ["occurredAt", "id"]
       );
     const params = [projectId];
-    let cursorSql = "";
+    const where = [
+      "e.project_id = $1"
+    ];
+
+    if (eventType) {
+      params.push(eventType);
+      where.push(
+        `e.event_type = $${params.length}`
+      );
+    }
+    if (geofenceId) {
+      params.push(geofenceId);
+      where.push(
+        `e.geofence_id = $${params.length}`
+      );
+    }
+    if (userId) {
+      params.push(userId);
+      where.push(
+        `e.external_user_id = $${params.length}`
+      );
+    }
+
     if (decoded) {
       const date = new Date(
         decoded.occurredAt
@@ -2065,22 +2125,30 @@ export class PostgresAutomationStore {
         throw error;
       }
       params.push(
-        date.toISOString(),
-        id
+        date.toISOString()
       );
-      cursorSql = `
-        AND (
+      const dateIndex =
+        params.length;
+      params.push(id);
+      const idIndex =
+        params.length;
+      where.push(
+        `(
           e.occurred_at <
-            $2::timestamptz
+            $${dateIndex}::timestamptz
           OR (
             e.occurred_at =
-              $2::timestamptz
+              $${dateIndex}::timestamptz
             AND e.id <
-              $3::bigint
+              $${idIndex}::bigint
           )
-        )`;
+        )`
+      );
     }
+
     params.push(pageSize + 1);
+    const limitIndex =
+      params.length;
     const result =
       await this.pool.query(
         `SELECT
@@ -2089,12 +2157,13 @@ export class PostgresAutomationStore {
         FROM geofence_events e
         JOIN geofences g
           ON g.id = e.geofence_id
-        WHERE e.project_id = $1
-        ${cursorSql}
+        WHERE ${where.join(
+          "\n          AND "
+        )}
         ORDER BY
           e.occurred_at DESC,
           e.id DESC
-        LIMIT $${params.length}`,
+        LIMIT $${limitIndex}`,
         params
       );
     const hasMore =
@@ -2126,7 +2195,10 @@ export class PostgresAutomationStore {
     projectId,
     {
       limit = 100,
-      cursor = ""
+      cursor = "",
+      status = "",
+      endpointId = "",
+      eventType = ""
     } = {}
   ) {
     const pageSize =
@@ -2143,7 +2215,29 @@ export class PostgresAutomationStore {
         ["createdAt", "id"]
       );
     const params = [projectId];
-    let cursorSql = "";
+    const where = [
+      "d.project_id = $1"
+    ];
+
+    if (status) {
+      params.push(status);
+      where.push(
+        `d.status = $${params.length}`
+      );
+    }
+    if (endpointId) {
+      params.push(endpointId);
+      where.push(
+        `d.webhook_endpoint_id = $${params.length}`
+      );
+    }
+    if (eventType) {
+      params.push(eventType);
+      where.push(
+        `ge.event_type = $${params.length}`
+      );
+    }
+
     if (decoded) {
       const date = new Date(
         decoded.createdAt
@@ -2166,38 +2260,63 @@ export class PostgresAutomationStore {
         throw error;
       }
       params.push(
-        date.toISOString(),
-        id
+        date.toISOString()
       );
-      cursorSql = `
-        AND (
+      const dateIndex =
+        params.length;
+      params.push(id);
+      const idIndex =
+        params.length;
+      where.push(
+        `(
           d.created_at <
-            $2::timestamptz
+            $${dateIndex}::timestamptz
           OR (
             d.created_at =
-              $2::timestamptz
+              $${dateIndex}::timestamptz
             AND d.id <
-              $3::bigint
+              $${idIndex}::bigint
           )
-        )`;
+        )`
+      );
     }
+
     params.push(pageSize + 1);
+    const limitIndex =
+      params.length;
     const result =
       await this.pool.query(
         `SELECT
           d.*,
-          e.name AS endpoint_name,
-          e.url AS endpoint_url
+          endpoint.name AS endpoint_name,
+          endpoint.url AS endpoint_url,
+          rule.name AS alert_rule_name,
+          ge.event_id,
+          ge.event_type,
+          ge.occurred_at,
+          ge.external_user_id,
+          ge.geofence_id,
+          g.name AS geofence_name
         FROM webhook_deliveries d
-        JOIN webhook_endpoints e
-          ON e.id =
+        JOIN webhook_endpoints endpoint
+          ON endpoint.id =
             d.webhook_endpoint_id
-        WHERE d.project_id = $1
-        ${cursorSql}
+        JOIN alert_rules rule
+          ON rule.id =
+            d.alert_rule_id
+        JOIN geofence_events ge
+          ON ge.id =
+            d.geofence_event_id
+        JOIN geofences g
+          ON g.id =
+            ge.geofence_id
+        WHERE ${where.join(
+          "\n          AND "
+        )}
         ORDER BY
           d.created_at DESC,
           d.id DESC
-        LIMIT $${params.length}`,
+        LIMIT $${limitIndex}`,
         params
       );
     const hasMore =
@@ -2222,6 +2341,89 @@ export class PostgresAutomationStore {
               id: String(last.id)
             })
           : null
+    };
+  }
+
+  async getDeliveryDetails(
+    projectId,
+    deliveryId
+  ) {
+    const result =
+      await this.pool.query(
+        `SELECT
+          d.*,
+          endpoint.name AS endpoint_name,
+          endpoint.url AS endpoint_url,
+          rule.name AS alert_rule_name,
+          ge.event_id,
+          ge.event_type,
+          ge.occurred_at,
+          ge.external_user_id,
+          ge.geofence_id,
+          ge.payload AS event_payload,
+          g.name AS geofence_name
+        FROM webhook_deliveries d
+        JOIN webhook_endpoints endpoint
+          ON endpoint.id =
+            d.webhook_endpoint_id
+        JOIN alert_rules rule
+          ON rule.id =
+            d.alert_rule_id
+        JOIN geofence_events ge
+          ON ge.id =
+            d.geofence_event_id
+        JOIN geofences g
+          ON g.id =
+            ge.geofence_id
+        WHERE d.project_id = $1
+          AND d.delivery_id = $2
+        LIMIT 1`,
+        [
+          projectId,
+          deliveryId
+        ]
+      );
+
+    if (!result.rows.length) {
+      const error = new Error(
+        "webhook_delivery_not_found"
+      );
+      error.code =
+        "webhook_delivery_not_found";
+      error.status = 404;
+      throw error;
+    }
+
+    const row =
+      result.rows[0];
+    const attempts =
+      await this.pool.query(
+        `SELECT
+          a.id,
+          a.attempt_number,
+          a.started_at,
+          a.completed_at,
+          a.response_status,
+          a.latency_ms,
+          a.error_text
+        FROM webhook_delivery_attempts a
+        WHERE a.webhook_delivery_id =
+          $1
+        ORDER BY
+          a.attempt_number DESC,
+          a.id DESC`,
+        [row.id]
+      );
+
+    return {
+      delivery:
+        mapDelivery(row),
+      eventPayload:
+        row.event_payload || {},
+      attempts:
+        attempts.rows.map(
+          mapDeliveryAttempt
+        )
     };
   }
 
