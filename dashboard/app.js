@@ -1363,7 +1363,39 @@ function renderAutomation() {
           new Date(
             delivery.createdAt
           ).toLocaleString()
-        ]
+        ],
+        actions:
+          writable &&
+          delivery.status === "dead"
+            ? [
+                {
+                  label: "Retry",
+                  onClick:
+                    async () => {
+                      const project =
+                        projectById();
+                      if (!project) return;
+                      try {
+                        await api(
+                          `/v1/admin/projects/${project.id}/webhook-deliveries/${delivery.deliveryId}/retry`,
+                          {
+                            method: "POST",
+                            mutate: true
+                          }
+                        );
+                        await loadAutomation();
+                      } catch (error) {
+                        setText(
+                          "automationError",
+                          automationErrorText(
+                            error
+                          )
+                        );
+                      }
+                    }
+                }
+              ]
+            : []
       })
     );
   }
