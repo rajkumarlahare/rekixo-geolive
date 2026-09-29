@@ -294,6 +294,14 @@ function populateProjectSelect() {
     issuerOption.disabled =
       runtimeCapabilities.clientTokens === false;
   }
+  const clientSecurityForm =
+    document.querySelector(
+      "#clientSecurityForm"
+    );
+  if (clientSecurityForm) {
+    clientSecurityForm.hidden =
+      runtimeCapabilities.clientTokens === false;
+  }
 
   document.querySelector("#platformConsole").hidden =
     !state.platformRole ||
