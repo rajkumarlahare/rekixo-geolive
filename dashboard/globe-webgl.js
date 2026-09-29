@@ -411,6 +411,7 @@ export class GeoGlobeRenderer {
         ).href,
       realContainer = null,
       googleMapsApiKey = "",
+      googleTilesRootUrl = "",
       creditContainer = null
     } = {}
   ) {
@@ -425,6 +426,8 @@ export class GeoGlobeRenderer {
         {
           apiKey:
             googleMapsApiKey,
+          tilesRootUrl:
+            googleTilesRootUrl,
           creditContainer
         }
       );
@@ -617,6 +620,17 @@ export class GeoGlobeRenderer {
       this.photorealistic
         ?.active
     );
+  }
+
+  ensurePhotorealistic() {
+    return this.photorealistic
+      ?.initialize?.() ||
+      Promise.resolve(false);
+  }
+
+  suspendPhotorealistic() {
+    this.photorealistic
+      ?.destroy?.();
   }
 
   get label() {

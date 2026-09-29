@@ -42,6 +42,10 @@ const globeRenderer =
         publicConfig
           .googleMapsApiKey ||
         "",
+      googleTilesRootUrl:
+        publicConfig
+          .googleTilesRootUrl ||
+        "",
       creditContainer:
         document.querySelector(
           "#realEarthCredits"
@@ -65,8 +69,11 @@ const syncRendererBadge =
       detail.mode || "";
     rendererBadge.title =
       reason ===
-      "google_tiles_auth_or_referrer"
-        ? "Google Map Tiles rejected this browser origin. Verify the Website restriction for the current domain."
+      "google_tiles_proxy_auth"
+        ? "Sign in to load Google Photorealistic 3D through the secure GeoLive proxy."
+        : reason ===
+          "google_tiles_auth_or_referrer"
+          ? "Google 3D Tiles access was rejected upstream. Verify that the secret key is valid and restricted to Map Tiles API."
         : reason ===
             "google_tiles_quota"
           ? "Google Map Tiles quota or billing limit was reached."
@@ -1242,6 +1249,9 @@ function hydrateSession(payload) {
   applyIdentity();
   populateProjectSelect();
   authOverlay.hidden = true;
+  globeRenderer
+    .ensurePhotorealistic()
+    .catch(() => {});
 
   if (!state.projects.length) {
     resetData();
@@ -1257,6 +1267,10 @@ function hydrateSession(payload) {
 
 function showLogin(message = "") {
   clearInterval(state.pollTimer);
+  if (!DEMO_MODE) {
+    globeRenderer
+      .suspendPhotorealistic();
+  }
   stopRealtime({ resetSequence: true });
   state.user = null;
   state.platformRole = null;

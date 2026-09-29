@@ -199,7 +199,7 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
   assert.match(
     worker,
-    /"referrer-policy": "origin"/
+    /"referrer-policy": "no-referrer"/
   );
   assert.match(
     realtime,
@@ -240,11 +240,15 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
 });
 
-test("Photorealistic Earth validates Google Tiles and self-recovers from transient custom-domain failures", async () => {
-  const [renderer, app, worker] =
+test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy in production", async () => {
+  const [renderer, globe, app, worker, admin] =
     await Promise.all([
       readFile(
         "dashboard/photorealistic-earth.js",
+        "utf8"
+      ),
+      readFile(
+        "dashboard/globe-webgl.js",
         "utf8"
       ),
       readFile(
@@ -254,36 +258,64 @@ test("Photorealistic Earth validates Google Tiles and self-recovers from transie
       readFile(
         "cloudflare/src/index.mjs",
         "utf8"
+      ),
+      readFile(
+        "cloudflare/src/admin.mjs",
+        "utf8"
       )
     ]);
 
   assert.match(
     renderer,
-    /probeGoogleTiles/
+    /tilesRootUrl/
   );
   assert.match(
     renderer,
-    /google_tiles_auth_or_referrer/
+    /google_tiles_proxy_auth/
   );
   assert.match(
     renderer,
     /RETRY_DELAYS_MS/
   );
   assert.match(
-    renderer,
-    /Google 3D retrying/
-  );
-  assert.match(
-    renderer,
-    /Google 3D blocked/
+    globe,
+    /ensurePhotorealistic/
   );
   assert.match(
     app,
-    /Google Map Tiles rejected this browser origin/
+    /googleTilesRootUrl/
+  );
+  assert.match(
+    app,
+    /ensurePhotorealistic/
   );
   assert.match(
     worker,
-    /googleMapsConfigured/
+    /handleGoogle3dTiles/
+  );
+  assert.match(
+    worker,
+    /"\/v1\/3dtiles\/root\.json"/
+  );
+  assert.match(
+    worker,
+    /https:\/\/tile\.googleapis\.com/
+  );
+  assert.match(
+    worker,
+    /googleTilesRootUrl/
+  );
+  assert.doesNotMatch(
+    worker,
+    /googleMapsApiKey:/
+  );
+  assert.match(
+    admin,
+    /touch = true/
+  );
+  assert.match(
+    worker,
+    /touch: false/
   );
 });
 

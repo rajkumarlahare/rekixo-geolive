@@ -92,7 +92,7 @@ async function visibleContext(env, user) {
   return { accounts, projects };
 }
 
-export async function authenticateAdmin(env, request, { csrf = false } = {}) {
+export async function authenticateAdmin(env, request, { csrf = false, touch = true } = {}) {
   const token = parseCookie(request, COOKIE);
   if (!token) return { ok: false, status: 401, error: "admin_session_required" };
   const hash = sha256Secret(token);
@@ -113,9 +113,11 @@ export async function authenticateAdmin(env, request, { csrf = false } = {}) {
     }
   }
 
-  await env.DB.prepare(
-    "UPDATE admin_sessions SET last_seen_at=? WHERE id=?"
-  ).bind(now, row.session_id).run();
+  if (touch) {
+    await env.DB.prepare(
+      "UPDATE admin_sessions SET last_seen_at=? WHERE id=?"
+    ).bind(now, row.session_id).run();
+  }
 
   return {
     ok: true,
