@@ -489,6 +489,8 @@ async function refreshLiveSummary() {
   );
   state.summary = {
     total: summaryPayload.total || 0,
+    todayActive:
+      summaryPayload.todayActive || 0,
     online: summaryPayload.online || 0,
     recent: summaryPayload.recent || 0,
     offline: summaryPayload.offline || 0,
