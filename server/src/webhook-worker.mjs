@@ -82,11 +82,15 @@ export class WebhookDeliveryWorker {
               .batchSize
         });
 
-    for (const delivery of deliveries) {
-      await this.deliver(
-        delivery
-      );
-    }
+    // Claimed deliveries share a bounded lease. Run the batch
+    // concurrently so a slow endpoint cannot let later claims expire
+    // before their first attempt starts.
+    await Promise.allSettled(
+      deliveries.map(
+        (delivery) =>
+          this.deliver(delivery)
+      )
+    );
 
     return deliveries.length;
   }
