@@ -1496,6 +1496,51 @@ export async function handleAdminApi({
       }
     }
 
+    const webhookDeliveryDetailMatch =
+      url.pathname.match(
+        /^\/v1\/admin\/projects\/([0-9a-f-]{36})\/webhook-deliveries\/([0-9a-f-]{36})$/
+      );
+
+    if (
+      webhookDeliveryDetailMatch &&
+      req.method === "GET"
+    ) {
+      if (!automationStore) {
+        sendJson(res, 503, {
+          error:
+            "automation_requires_postgres"
+        });
+        return true;
+      }
+      const projectId =
+        webhookDeliveryDetailMatch[1];
+      const deliveryId =
+        webhookDeliveryDetailMatch[2];
+      await adminStore
+        .authorizeProject(
+          session.user.id,
+          projectId
+        );
+      if (commercialStore) {
+        await commercialStore
+          .assertProjectFeature(
+            projectId,
+            "webhooks"
+          );
+      }
+      const details =
+        await automationStore
+          .getDeliveryDetails(
+            projectId,
+            deliveryId
+          );
+      sendJson(res, 200, {
+        projectId,
+        ...details
+      });
+      return true;
+    }
+
     const webhookRetryMatch =
       url.pathname.match(
         /^\/v1\/admin\/projects\/([0-9a-f-]{36})\/webhook-deliveries\/([0-9a-f-]{36})\/retry$/
