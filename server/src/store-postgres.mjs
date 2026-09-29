@@ -2,6 +2,9 @@ import {
   decodeCursor,
   encodeCursor
 } from "./cursor.mjs";
+import {
+  evaluateLocationAutomation
+} from "./automation-store-postgres.mjs";
 
 function iso(value) {
   if (!value) return undefined;
@@ -139,6 +142,16 @@ export class PostgresGeoLiveStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+
+      // Serialize writes for one project/user pair so geofence state
+      // transitions are evaluated in arrival order.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))",
+        [
+          projectId,
+          observation.userId
+        ]
+      );
 
       const project = await client.query(
         "SELECT status FROM projects WHERE id = $1 FOR SHARE",
@@ -346,7 +359,7 @@ export class PostgresGeoLiveStore {
         values
       );
 
-      await client.query(
+      const history = await client.query(
         `INSERT INTO location_history (
           project_id,
           external_user_id,
@@ -381,7 +394,8 @@ export class PostgresGeoLiveStore {
           $13,
           $14::jsonb,
           $15::jsonb
-        )`,
+        )
+        RETURNING id`,
         values
       );
 
@@ -424,6 +438,20 @@ export class PostgresGeoLiveStore {
         status: "online"
       };
 
+      const automationEvents =
+        await evaluateLocationAutomation(
+          client,
+          {
+            projectId,
+            userId:
+              observation.userId,
+            historyId:
+              history.rows[0]?.id ||
+              null,
+            record: mapped
+          }
+        );
+
       const realtime = await client.query(
         `INSERT INTO realtime_events (
           project_id,
@@ -461,7 +489,9 @@ export class PostgresGeoLiveStore {
             eventRow.created_at instanceof Date
               ? eventRow.created_at.toISOString()
               : new Date(eventRow.created_at).toISOString()
-        }
+        },
+        _automationEvents:
+          automationEvents
       };
     } catch (error) {
       try {
