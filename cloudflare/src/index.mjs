@@ -37,6 +37,17 @@ function thresholds(env) {
   };
 }
 
+const DASHBOARD_CSP =
+  "default-src 'self'; " +
+  "img-src 'self' data: blob: https://cdn.jsdelivr.net https://tile.googleapis.com; " +
+  "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
+  "script-src 'self' https://cdn.jsdelivr.net; " +
+  "connect-src 'self' https://cdn.jsdelivr.net https://tile.googleapis.com; " +
+  "worker-src 'self' blob: https://cdn.jsdelivr.net; " +
+  "child-src blob:; " +
+  "font-src 'self' data: https://cdn.jsdelivr.net; " +
+  "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'";
+
 function securityHeaders() {
   return {
     "x-content-type-options": "nosniff",
@@ -293,6 +304,28 @@ export default {
       const url = new URL(request.url);
       if (request.method === "OPTIONS") return preflight(request,env);
 
+      if (url.pathname === "/") {
+        return Response.redirect(new URL("/dashboard/",request.url),302);
+      }
+      if (url.pathname === "/dashboard/runtime-config.js") {
+        const publicConfig = JSON.stringify({
+          demoMode: false,
+          googleMapsApiKey: String(env.GEOLIVE_GOOGLE_MAPS_API_KEY || "")
+        }).replace(/</g,"\\u003c");
+        return new Response(
+          `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${publicConfig});\n`,
+          {
+            status: 200,
+            headers: {
+              ...securityHeaders(),
+              "content-security-policy": DASHBOARD_CSP,
+              "content-type": "text/javascript; charset=utf-8",
+              "cache-control": "no-store"
+            }
+          }
+        );
+      }
+
       if (url.pathname === "/health") {
         return json({ok:true,service:"rekixo-geolive-cloudflare",version:VERSION,runtime:"cloudflare-workers"});
       }
@@ -317,6 +350,25 @@ export default {
 
       const publicResponse=await handlePublic(request,env,ctx);
       if(publicResponse) return publicResponse;
+
+      if (url.pathname.startsWith("/dashboard/") && env.ASSETS) {
+        const asset = await env.ASSETS.fetch(request);
+        if (asset.status !== 404) {
+          const headers = new Headers(asset.headers);
+          for (const [key,value] of Object.entries(securityHeaders())) {
+            headers.set(key,value);
+          }
+          headers.set("content-security-policy",DASHBOARD_CSP);
+          if (url.pathname.endsWith("/index.html") || url.pathname.endsWith("/dashboard/")) {
+            headers.set("cache-control","no-store");
+          }
+          return new Response(asset.body,{
+            status:asset.status,
+            statusText:asset.statusText,
+            headers
+          });
+        }
+      }
 
       return json({error:"not_found"},404);
     } catch (error) {
