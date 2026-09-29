@@ -2145,8 +2145,20 @@ async function loadAutomation() {
     ""
   );
 
+  const selectedDeliveryId =
+    state.automation
+      .selectedDeliveryId || "";
   const base =
     `/v1/admin/projects/${project.id}`;
+  const eventParams =
+    automationHistoryParams(
+      "events"
+    );
+  const deliveryParams =
+    automationHistoryParams(
+      "deliveries"
+    );
+
   const results =
     await Promise.allSettled([
       api(`${base}/geofences`),
@@ -2155,10 +2167,10 @@ async function loadAutomation() {
       ),
       api(`${base}/alert-rules`),
       api(
-        `${base}/geofence-events?limit=50`
+        `${base}/geofence-events?${eventParams.toString()}`
       ),
       api(
-        `${base}/webhook-deliveries?limit=50`
+        `${base}/webhook-deliveries?${deliveryParams.toString()}`
       )
     ]);
 
@@ -2231,7 +2243,20 @@ async function loadAutomation() {
       "fulfilled"
         ? deliveryResult.value
             .deliveries || []
-        : []
+        : [],
+    eventsNextCursor:
+      eventResult.status ===
+      "fulfilled"
+        ? eventResult.value
+            .nextCursor || null
+        : null,
+    deliveriesNextCursor:
+      deliveryResult.status ===
+      "fulfilled"
+        ? deliveryResult.value
+            .nextCursor || null
+        : null,
+    selectedDeliveryId
   };
 
   const labels = [
@@ -2273,6 +2298,100 @@ async function loadAutomation() {
   );
   renderAutomation();
 }
+
+async function loadAutomationHistory(
+  kind,
+  { append = false } = {}
+) {
+  const project =
+    projectById();
+  if (!project) return;
+
+  const isEvents =
+    kind === "events";
+  const cursor =
+    append
+      ? isEvents
+        ? state.automation
+            .eventsNextCursor
+        : state.automation
+            .deliveriesNextCursor
+      : "";
+
+  if (append && !cursor) {
+    return;
+  }
+
+  const params =
+    automationHistoryParams(
+      kind,
+      cursor || ""
+    );
+  const resource =
+    isEvents
+      ? "geofence-events"
+      : "webhook-deliveries";
+  const button =
+    document.querySelector(
+      isEvents
+        ? "#loadMoreEvents"
+        : "#loadMoreDeliveries"
+    );
+  if (button) {
+    button.disabled = true;
+  }
+
+  try {
+    const payload =
+      await api(
+        `/v1/admin/projects/${project.id}/${resource}?${params.toString()}`
+      );
+
+    if (isEvents) {
+      const incoming =
+        payload.events || [];
+      state.automation.events =
+        append
+          ? [
+              ...state.automation
+                .events,
+              ...incoming
+            ]
+          : incoming;
+      state.automation
+        .eventsNextCursor =
+          payload.nextCursor ||
+          null;
+    } else {
+      const incoming =
+        payload.deliveries || [];
+      state.automation.deliveries =
+        append
+          ? [
+              ...state.automation
+                .deliveries,
+              ...incoming
+            ]
+          : incoming;
+      state.automation
+        .deliveriesNextCursor =
+          payload.nextCursor ||
+          null;
+    }
+
+    renderAutomation();
+  } catch (error) {
+    setText(
+      "automationError",
+      automationErrorText(error)
+    );
+  } finally {
+    if (button) {
+      button.disabled = false;
+    }
+  }
+}
+
 
 async function openAutomationModal() {
   if (!state.projectId) return;
