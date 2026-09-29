@@ -387,6 +387,112 @@ function rebuildGeoFilters() {
   );
 }
 
+function resetUserSearchPaging({
+  preserveQuery = false
+} = {}) {
+  const requestId =
+    Number(
+      state.userSearchPage
+        ?.requestId || 0
+    ) + 1;
+  const pageSize =
+    Number(
+      state.userSearchPage
+        ?.pageSize || 200
+    );
+
+  state.userSearchPage = {
+    queryKey:
+      preserveQuery
+        ? state.userSearchPage
+            ?.queryKey || ""
+        : "",
+    page: 1,
+    cursor: "",
+    nextCursor: null,
+    previousCursors: [],
+    pageSize,
+    loading: false,
+    requestId
+  };
+  updateUserSearchPager();
+}
+
+function userSearchQueryKey() {
+  return currentFilterParams()
+    .toString();
+}
+
+function updateUserSearchPager() {
+  const pager =
+    document.querySelector(
+      "#searchPager"
+    );
+  if (!pager) return;
+
+  const q =
+    search.value.trim();
+  const page =
+    state.userSearchPage;
+  const visible =
+    Boolean(q) &&
+    (
+      page.page > 1 ||
+      Boolean(
+        page.nextCursor
+      )
+    );
+
+  pager.hidden = !visible;
+  if (!visible) {
+    return;
+  }
+
+  const first =
+    state.users.length
+      ? (
+          page.page - 1
+        ) *
+          page.pageSize +
+        1
+      : 0;
+  const last =
+    state.users.length
+      ? first +
+        state.users.length -
+        1
+      : 0;
+  const suffix =
+    page.nextCursor
+      ? " · more available"
+      : " · end of results";
+
+  setText(
+    "searchPageLabel",
+    `Page ${page.page} · “${q}”`
+  );
+  setText(
+    "searchPageRange",
+    state.users.length
+      ? `${formatCount(first)}–${formatCount(last)} shown${suffix}`
+      : `No matches on page ${page.page}`
+  );
+
+  const previous =
+    document.querySelector(
+      "#searchPrev"
+    );
+  const next =
+    document.querySelector(
+      "#searchNext"
+    );
+  previous.disabled =
+    page.loading ||
+    page.page <= 1;
+  next.disabled =
+    page.loading ||
+    !page.nextCursor;
+}
 function currentFilterParams({
   includeSearch = true
 } = {}) {
