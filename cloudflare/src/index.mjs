@@ -479,6 +479,13 @@ export default {
             clientTokens: false,
             platformConsole: false
           },
+          googleMapsConfigured:
+            Boolean(
+              String(
+                env.GEOLIVE_GOOGLE_MAPS_API_KEY ||
+                ""
+              ).trim()
+            ),
           googleMapsApiKey: String(env.GEOLIVE_GOOGLE_MAPS_API_KEY || "")
         }).replace(/</g,"\\u003c");
         return new Response(

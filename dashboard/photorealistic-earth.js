@@ -28,6 +28,87 @@ function emitRendererStatus(detail) {
   );
 }
 
+const GOOGLE_TILES_ROOT =
+  "https://tile.googleapis.com/v1/3dtiles/root.json";
+const RETRY_DELAYS_MS = [
+  3_000,
+  7_000,
+  15_000,
+  30_000,
+  60_000
+];
+
+function rendererFailureCode(error) {
+  const code =
+    String(
+      error?.code ||
+      error?.message ||
+      ""
+    ).toLowerCase();
+
+  if (
+    code.includes("google_tiles_http_401") ||
+    code.includes("google_tiles_http_403")
+  ) {
+    return "google_tiles_auth_or_referrer";
+  }
+  if (
+    code.includes("google_tiles_http_429")
+  ) {
+    return "google_tiles_quota";
+  }
+  if (
+    code.includes("cesium_load_failed") ||
+    code.includes("cesium_global_missing")
+  ) {
+    return "cesium_load_failed";
+  }
+  if (
+    code.includes("google_tiles_http_")
+  ) {
+    return "google_tiles_http_error";
+  }
+  return "google_tiles_unavailable";
+}
+
+async function probeGoogleTiles(apiKey) {
+  if (
+    typeof fetch !== "function" ||
+    typeof location === "undefined"
+  ) {
+    return;
+  }
+
+  const url =
+    `${GOOGLE_TILES_ROOT}?key=${encodeURIComponent(apiKey)}`;
+  const response =
+    await fetch(
+      url,
+      {
+        method: "GET",
+        mode: "cors",
+        credentials: "omit",
+        cache: "no-store",
+        referrerPolicy:
+          "strict-origin-when-cross-origin"
+      }
+    );
+
+  try {
+    await response.body?.cancel?.();
+  } catch {}
+
+  if (!response.ok) {
+    const error =
+      new Error(
+        `google_tiles_http_${response.status}`
+      );
+    error.code =
+      `google_tiles_http_${response.status}`;
+    throw error;
+  }
+}
+
 function ensureStylesheet() {
   if (
     typeof document === "undefined" ||
@@ -232,6 +313,9 @@ export class PhotorealisticEarthRenderer {
     this.scratchNormal = null;
     this.scratchToCamera = null;
     this.scratchWindow = null;
+    this.retryTimer = null;
+    this.retryAttempt = 0;
+    this.failureReason = "";
 
     if (this.configured) {
       queueMicrotask(() => {
@@ -259,6 +343,12 @@ export class PhotorealisticEarthRenderer {
       this.status === "loading"
     ) {
       return "Loading real Earth";
+    }
+    if (
+      this.configured &&
+      this.status === "retrying"
+    ) {
+      return "Google 3D retrying";
     }
     return "";
   }
@@ -315,6 +405,10 @@ export class PhotorealisticEarthRenderer {
     let viewer = null;
 
     try {
+      await probeGoogleTiles(
+        this.apiKey
+      );
+
       const Cesium =
         await loadCesium();
 
@@ -394,6 +488,14 @@ export class PhotorealisticEarthRenderer {
         new Cesium.Cartesian2();
       this.ready = true;
       this.status = "ready";
+      this.failureReason = "";
+      this.retryAttempt = 0;
+      if (this.retryTimer) {
+        clearTimeout(
+          this.retryTimer
+        );
+        this.retryTimer = null;
+      }
 
       this.container.classList.add(
         "active"
@@ -416,7 +518,7 @@ export class PhotorealisticEarthRenderer {
           "Google Photorealistic 3D"
       });
       return true;
-    } catch {
+    } catch (error) {
       if (
         viewer &&
         !viewer.isDestroyed()
@@ -427,7 +529,10 @@ export class PhotorealisticEarthRenderer {
       this.tileset = null;
       this.Cesium = null;
       this.ready = false;
-      this.status = "error";
+      this.failureReason =
+        rendererFailureCode(
+          error
+        );
       this.container?.classList.remove(
         "active"
       );
@@ -437,13 +542,52 @@ export class PhotorealisticEarthRenderer {
           "real-earth-active"
         );
 
+      const retryDelay =
+        RETRY_DELAYS_MS[
+          this.retryAttempt
+        ];
+      if (
+        this.configured &&
+        Number.isFinite(
+          retryDelay
+        )
+      ) {
+        this.retryAttempt += 1;
+        this.status = "retrying";
+        emitRendererStatus({
+          mode:
+            "photorealistic-retrying",
+          label:
+            "Google 3D retrying",
+          reason:
+            this.failureReason,
+          retryInMs:
+            retryDelay
+        });
+        this.retryTimer =
+          setTimeout(
+            () => {
+              this.retryTimer = null;
+              this.initialize().catch(
+                () => {}
+              );
+            },
+            retryDelay
+          );
+      } else {
+        this.status = "error";
+        emitRendererStatus({
+          mode: "fallback",
+          label: "",
+          reason:
+            this.failureReason
+        });
+      }
+
       console.warn(
-        "GeoLive real Earth renderer unavailable; using the local WebGL fallback."
+        "GeoLive real Earth renderer unavailable; using the local WebGL fallback.",
+        this.failureReason
       );
-      emitRendererStatus({
-        mode: "fallback",
-        label: ""
-      });
       return false;
     }
   }
@@ -587,6 +731,12 @@ export class PhotorealisticEarthRenderer {
   }
 
   destroy() {
+    if (this.retryTimer) {
+      clearTimeout(
+        this.retryTimer
+      );
+      this.retryTimer = null;
+    }
     if (
       this.viewer &&
       !this.viewer.isDestroyed()

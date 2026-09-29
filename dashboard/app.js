@@ -54,9 +54,28 @@ const rendererBadge =
   );
 const syncRendererBadge =
   (event) => {
+    const detail =
+      event?.detail || {};
     rendererBadge.textContent =
-      event?.detail?.label ||
+      detail.label ||
       globeRenderer.label;
+    const reason =
+      detail.reason || "";
+    rendererBadge.dataset.state =
+      detail.mode || "";
+    rendererBadge.title =
+      reason ===
+      "google_tiles_auth_or_referrer"
+        ? "Google Map Tiles rejected this browser origin. Verify the Website restriction for the current domain."
+        : reason ===
+            "google_tiles_quota"
+          ? "Google Map Tiles quota or billing limit was reached."
+          : reason ===
+              "cesium_load_failed"
+            ? "Cesium could not load from the configured CDN."
+            : reason
+              ? "Google Photorealistic 3D is temporarily unavailable; GeoLive is retrying safely."
+              : "";
   };
 syncRendererBadge();
 addEventListener(
