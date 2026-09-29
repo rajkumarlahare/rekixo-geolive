@@ -48,6 +48,10 @@ function signingSecret(env, projectId, endpointId, generation) {
     .digest();
 }
 
+export function deriveWebhookSecret(env, projectId, endpointId, generation = 1) {
+  return signingSecret(env, projectId, endpointId, generation).toString("base64url");
+}
+
 function signature(env, delivery, timestamp, body) {
   const secret = signingSecret(
     env,
