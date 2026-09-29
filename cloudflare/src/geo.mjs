@@ -118,10 +118,10 @@ export function pointInPolygon(latitude, longitude, points) {
   for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
     const a = points[i];
     const b = points[j];
-    const xi = Number(a.longitude ?? a.lng ?? a[1]);
-    const yi = Number(a.latitude ?? a.lat ?? a[0]);
-    const xj = Number(b.longitude ?? b.lng ?? b[1]);
-    const yj = Number(b.latitude ?? b.lat ?? b[0]);
+    const xi = Number(a.longitude ?? a.lng ?? a[0]);
+    const yi = Number(a.latitude ?? a.lat ?? a[1]);
+    const xj = Number(b.longitude ?? b.lng ?? b[0]);
+    const yj = Number(b.latitude ?? b.lat ?? b[1]);
     const intersects = ((yi > y) !== (yj > y)) &&
       x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi;
     if (intersects) inside = !inside;
