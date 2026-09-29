@@ -431,6 +431,10 @@ async function handleAdminRealtime(request, env) {
   const target=new URL("https://realtime.internal/socket");
   target.searchParams.set("projectId",projectId);
   target.searchParams.set("mode","admin");
+  target.searchParams.set(
+    "after",
+    String(url.searchParams.get("after") || "0")
+  );
   const headers=new Headers(request.headers);
   headers.set("x-geolive-internal-admin","1");
   return room(env,projectId).fetch(new Request(target,{
