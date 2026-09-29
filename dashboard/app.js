@@ -239,9 +239,7 @@ function applyIdentity() {
 }
 
 function resetData() {
-  cancelGeofenceEditor({
-    restorePause: false
-  });
+  cancelGeofenceEditor();
   state.users = [];
   state.filtered = [];
   state.automation = {
@@ -886,9 +884,7 @@ document.querySelector("#logout").addEventListener("click", async () => {
 
 projectSelect.addEventListener("change", () => {
   stopRealtime({ resetSequence: true });
-  cancelGeofenceEditor({
-    restorePause: false
-  });
+  cancelGeofenceEditor();
   state.projectId = projectSelect.value;
   state.geofenceOverlayProjectId = "";
   state.automation.geofences = [];
