@@ -273,3 +273,14 @@ See:
 - [P1E production realtime](docs/P1E-PRODUCTION-REALTIME.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)
+
+
+## Public demo
+
+A safe synthetic-data demo can be built without PostgreSQL or Redis:
+
+```bash
+npm run build:demo
+```
+
+Deploy `dist-demo/` to Cloudflare Pages. On `*.pages.dev`, the dashboard automatically enters read-only public demo mode. See [docs/cloudflare-pages-demo.md](docs/cloudflare-pages-demo.md) for the exact settings and safety model.
