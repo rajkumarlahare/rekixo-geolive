@@ -57,8 +57,13 @@ CREATE INDEX IF NOT EXISTS projects_account_status_idx
 
 CREATE TABLE IF NOT EXISTS project_limits (
   project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  ingest_requests_per_minute INTEGER NOT NULL DEFAULT 6000,
+  read_requests_per_minute INTEGER NOT NULL DEFAULT 3000,
+  daily_ingest_quota INTEGER NOT NULL DEFAULT 10000000,
   max_live_users INTEGER NOT NULL DEFAULT 100000,
   history_retention_days INTEGER NOT NULL DEFAULT 30,
+  security_event_retention_days INTEGER NOT NULL DEFAULT 30,
+  metrics_retention_days INTEGER NOT NULL DEFAULT 90,
   realtime_retention_hours INTEGER NOT NULL DEFAULT 24,
   geofence_event_retention_days INTEGER NOT NULL DEFAULT 90,
   webhook_delivery_retention_days INTEGER NOT NULL DEFAULT 30,
@@ -298,6 +303,19 @@ CREATE TABLE IF NOT EXISTS usage_daily (
   updated_at TEXT NOT NULL,
   PRIMARY KEY(project_id, usage_date)
 );
+
+CREATE TABLE IF NOT EXISTS security_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  key_ref TEXT,
+  event_type TEXT NOT NULL,
+  severity TEXT NOT NULL DEFAULT 'warning'
+    CHECK (severity IN ('info','warning','critical')),
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS security_events_project_time_idx
+  ON security_events(project_id, created_at DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
