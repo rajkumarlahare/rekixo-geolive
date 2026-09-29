@@ -1266,7 +1266,7 @@ export async function handleAdminApi({
     }
 
     const projectMatch = url.pathname.match(
-      /^\/v1\/admin\/projects\/([0-9a-f-]{36})(?:\/(users|summary|clusters|history|heatmap))?$/
+      /^\/v1\/admin\/projects\/([0-9a-f-]{36})(?:\/(users|facets|summary|clusters|history|heatmap))?$/
     );
 
     if (projectMatch) {
@@ -1303,6 +1303,34 @@ export async function handleAdminApi({
                 nextCursor: null
               };
         sendJson(res, 200, { projectId, ...page });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource === "facets"
+      ) {
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId
+        );
+        if (
+          typeof geoStore.locationFacets !==
+          "function"
+        ) {
+          sendJson(res, 501, {
+            error: "facets_unavailable"
+          });
+          return true;
+        }
+        const facets =
+          await geoStore.locationFacets(
+            projectId
+          );
+        sendJson(res, 200, {
+          projectId,
+          ...facets
+        });
         return true;
       }
 
