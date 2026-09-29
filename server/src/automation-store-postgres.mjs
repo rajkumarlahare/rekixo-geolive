@@ -851,14 +851,19 @@ export class PostgresAutomationStore {
         );
       } catch {}
       if (
-        error?.code === "XX000" ||
-        error?.code === "22023"
+        [
+          "XX000",
+          "22023",
+          "23514"
+        ].includes(error?.code)
       ) {
-        const wrapped = new Error(
-          "invalid_geofence_polygon"
-        );
-        wrapped.code =
-          "invalid_geofence_polygon";
+        const code =
+          shapeType === "polygon"
+            ? "invalid_geofence_polygon"
+            : "invalid_geofence_geometry";
+        const wrapped =
+          new Error(code);
+        wrapped.code = code;
         wrapped.status = 400;
         throw wrapped;
       }
@@ -1084,6 +1089,23 @@ export class PostgresAutomationStore {
           "ROLLBACK"
         );
       } catch {}
+      if (
+        [
+          "XX000",
+          "22023",
+          "23514"
+        ].includes(error?.code)
+      ) {
+        const code =
+          shapeType === "polygon"
+            ? "invalid_geofence_polygon"
+            : "invalid_geofence_geometry";
+        const wrapped =
+          new Error(code);
+        wrapped.code = code;
+        wrapped.status = 400;
+        throw wrapped;
+      }
       throw error;
     } finally {
       client.release();
