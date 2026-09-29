@@ -386,6 +386,26 @@ export class MemoryGeoLiveStore {
       .slice(0, 5000);
   }
 
+  async locationFacets(projectId) {
+    const users = await this.listUsers(
+      projectId,
+      { limit: 1000 }
+    );
+    const unique = (field) =>
+      [
+        ...new Set(
+          users
+            .map((user) => user[field])
+            .filter(Boolean)
+        )
+      ].sort();
+    return {
+      countries: unique("country"),
+      states: unique("state"),
+      cities: unique("city")
+    };
+  }
+
   async summary(projectId, thresholds) {
     const users = await this.listUsers(
       projectId,
