@@ -18,6 +18,7 @@
       <button id="editProject" class="icon-button" title="Project settings" disabled>⚙</button>
       <button id="manageKeys" class="icon-button" title="API keys" disabled>⌘</button>
       <button id="manageOps" class="icon-button" title="Security & operations" disabled>◇</button>
+      <button id="manageAutomation" class="icon-button" title="Geofences & alerts" disabled>⌖</button>
       <button id="manageBilling" class="icon-button" title="Billing & support" disabled>¤</button>
       <button id="platformConsole" class="icon-button" title="Platform console" hidden>◆</button>
     </div>
@@ -302,6 +303,99 @@
         <button type="button" class="text-button" id="refreshOps">Refresh</button>
       </div>
       <div class="security-list" id="securityList"></div>
+    </section>
+  </div>
+
+  <div class="modal-overlay" id="automationModal" hidden>
+    <section class="modal-card automation-modal-card">
+      <div class="modal-title">
+        <div><small>AUTOMATION</small><h2>Geofences & Webhooks</h2></div>
+        <button type="button" class="close" id="automationModalClose">×</button>
+      </div>
+      <p class="modal-help">Create project-scoped geofences, trigger enter/exit/dwell rules, and deliver signed webhooks with durable retries.</p>
+      <div class="form-error" id="automationError"></div>
+
+      <section class="automation-forms">
+        <form id="geofenceForm" class="limits-form">
+          <div class="key-list-head"><h3>Create geofence</h3></div>
+          <div class="key-form-grid">
+            <label>Name<input id="geofenceName" maxlength="120" required /></label>
+            <label>Shape
+              <select id="geofenceShape">
+                <option value="circle">Circle</option>
+                <option value="polygon">Polygon</option>
+              </select>
+            </label>
+            <label>Dwell seconds<input id="geofenceDwell" type="number" min="0" max="604800" value="300" required /></label>
+          </div>
+          <div id="geofenceCircleFields" class="key-form-grid">
+            <label>Latitude<input id="geofenceLat" type="number" step="any" min="-90" max="90" required /></label>
+            <label>Longitude<input id="geofenceLng" type="number" step="any" min="-180" max="180" required /></label>
+            <label>Radius meters<input id="geofenceRadius" type="number" min="10" max="1000000" value="250" required /></label>
+          </div>
+          <label id="geofencePolygonField" hidden>Polygon points
+            <textarea id="geofencePoints" rows="4" placeholder="81.6200,21.2400&#10;81.6400,21.2400&#10;81.6400,21.2600&#10;81.6200,21.2600"></textarea>
+            <small>One longitude,latitude pair per line. The polygon closes automatically.</small>
+          </label>
+          <button type="submit" class="primary-button">Create geofence</button>
+        </form>
+
+        <form id="webhookForm" class="limits-form">
+          <div class="key-list-head"><h3>Create webhook endpoint</h3></div>
+          <div class="key-form-grid">
+            <label>Name<input id="webhookName" maxlength="120" required /></label>
+            <label>HTTPS URL<input id="webhookUrl" type="url" maxlength="2048" placeholder="https://example.com/webhooks/geolive" required /></label>
+          </div>
+          <button type="submit" class="primary-button">Create endpoint</button>
+          <div class="secret-reveal" id="webhookSecretReveal" hidden>
+            <strong>Copy signing secret now</strong>
+            <code id="webhookSecret"></code>
+            <button type="button" class="primary-button" id="copyWebhookSecret">Copy secret</button>
+            <small>This full secret is shown only after create or rotate.</small>
+          </div>
+        </form>
+
+        <form id="alertRuleForm" class="limits-form">
+          <div class="key-list-head"><h3>Create alert rule</h3></div>
+          <div class="key-form-grid">
+            <label>Name<input id="alertRuleName" maxlength="120" required /></label>
+            <label>Geofence<select id="alertRuleGeofence"></select></label>
+            <label>Webhook endpoint<select id="alertRuleEndpoint" required></select></label>
+          </div>
+          <div class="commercial-tags">
+            <label class="checkbox-label"><input id="alertEnter" type="checkbox" checked />Enter</label>
+            <label class="checkbox-label"><input id="alertExit" type="checkbox" checked />Exit</label>
+            <label class="checkbox-label"><input id="alertDwell" type="checkbox" checked />Dwell</label>
+          </div>
+          <button type="submit" class="primary-button">Create alert rule</button>
+        </form>
+      </section>
+
+      <div class="automation-columns">
+        <section>
+          <div class="key-list-head"><h3>Geofences</h3><button type="button" class="text-button" id="refreshAutomation">Refresh</button></div>
+          <div id="geofenceList" class="commercial-list"></div>
+        </section>
+        <section>
+          <div class="key-list-head"><h3>Webhook endpoints</h3></div>
+          <div id="webhookList" class="commercial-list"></div>
+        </section>
+        <section>
+          <div class="key-list-head"><h3>Alert rules</h3></div>
+          <div id="alertRuleList" class="commercial-list"></div>
+        </section>
+      </div>
+
+      <div class="automation-columns">
+        <section>
+          <div class="key-list-head"><h3>Recent geofence events</h3></div>
+          <div id="geofenceEventList" class="commercial-list"></div>
+        </section>
+        <section>
+          <div class="key-list-head"><h3>Webhook deliveries</h3></div>
+          <div id="webhookDeliveryList" class="commercial-list"></div>
+        </section>
+      </div>
     </section>
   </div>
 
