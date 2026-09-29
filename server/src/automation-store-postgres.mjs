@@ -799,7 +799,7 @@ export class PostgresAutomationStore {
             input.latitude ?? null,
             input.longitude ?? null,
             input.radiusM ?? null,
-            shapeType === "polygon"
+            input.shapeType === "polygon"
               ? JSON.stringify({
                   type: "Polygon",
                   coordinates: [
