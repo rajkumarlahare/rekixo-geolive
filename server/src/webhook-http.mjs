@@ -144,7 +144,10 @@ export async function resolveWebhookTarget(
   }
 
   const hostname =
-    url.hostname.toLowerCase();
+    url.hostname
+      .toLowerCase()
+      .replace(/^\[/, "")
+      .replace(/\]$/, "");
   if (
     isProduction &&
     (
@@ -203,6 +206,7 @@ export async function resolveWebhookTarget(
 
   return {
     url,
+    hostname,
     address:
       addresses[0].address,
     family:
@@ -242,7 +246,7 @@ export async function postWebhook({
           protocol:
             target.url.protocol,
           hostname:
-            target.url.hostname,
+            target.hostname,
           port:
             target.url.port ||
             (
@@ -256,7 +260,11 @@ export async function postWebhook({
             target.url.search,
           method: "POST",
           servername:
-            target.url.hostname,
+            net.isIP(
+              target.hostname
+            )
+              ? undefined
+              : target.hostname,
           headers: {
             host: target.url.host,
             "content-type":
