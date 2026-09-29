@@ -138,3 +138,34 @@ background-size:180px 180px,230px 230px,260px 260px,310px 310px,auto,auto}
 .automation-status.paused,.automation-status.retry,.automation-status.pending{color:var(--amber)}
 .automation-status.dead{color:var(--red)}
 @media(max-width:1050px){.automation-forms,.automation-columns,.automation-columns+ .automation-columns{grid-template-columns:1fr}}
+
+.globe-card.geofence-editing .globe-overlay{cursor:crosshair}
+.geofence-editor{position:absolute;z-index:7;top:16px;right:88px;width:min(430px,calc(100% - 150px));border:1px solid #31566a;border-radius:12px;background:rgba(5,18,28,.96);box-shadow:0 18px 60px rgba(0,0,0,.42);padding:14px;backdrop-filter:blur(14px)}
+.geofence-editor[hidden]{display:none}
+.geofence-editor-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+.geofence-editor-head small{display:block;color:#79bfdc;font-size:9px;letter-spacing:.08em;margin-bottom:3px}
+.geofence-editor-head strong{font-size:14px}
+.geofence-editor-head .close{line-height:1;padding:0 4px}
+.geofence-editor-fields{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(110px,.75fr) minmax(110px,.75fr);gap:8px}
+.geofence-editor-fields label{font-size:10px;color:#91a6b1}
+.geofence-editor-fields input,.geofence-editor-fields select{margin-top:4px;width:100%}
+.geofence-editor p{margin:10px 0 7px;color:#b8c7ce;font-size:11px;line-height:1.45}
+.geofence-editor-meta{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid rgba(91,133,154,.2);border-bottom:1px solid rgba(91,133,154,.2);color:#7f98a5;font-size:10px}
+.geofence-editor-meta span:last-child{text-align:right;color:#8bdcff}
+.geofence-editor-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.geofence-editor-actions .primary-button{margin-left:auto}
+.geofence-editor .form-error{min-height:16px;margin-top:7px}
+.geofence-create-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.geofence-overlay-label{font:600 10px sans-serif}
+@media(max-width:850px){
+  .geofence-editor{top:auto;right:10px;left:10px;bottom:52px;width:auto;max-height:48%;overflow:auto}
+  .geofence-editor-fields{grid-template-columns:1fr 1fr}
+  .geofence-editor-fields label:first-child{grid-column:1/-1}
+  .geofence-editor-actions .primary-button{margin-left:0}
+}
+@media(max-width:560px){
+  .geofence-editor-fields{grid-template-columns:1fr}
+  .geofence-editor-fields label:first-child{grid-column:auto}
+  .geofence-editor-meta{display:grid}
+}
+
