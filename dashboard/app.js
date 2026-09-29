@@ -42,6 +42,10 @@ const globeRenderer =
         publicConfig
           .googleMapsApiKey ||
         "",
+      googleTilesRootUrl:
+        publicConfig
+          .googleTilesRootUrl ||
+        "",
       creditContainer:
         document.querySelector(
           "#realEarthCredits"
@@ -66,7 +70,7 @@ const syncRendererBadge =
     rendererBadge.title =
       reason ===
       "google_tiles_auth_or_referrer"
-        ? "Google Map Tiles rejected this browser origin. Verify the Website restriction for the current domain."
+        ? "Google 3D Tiles access was rejected. Production uses the authenticated Worker proxy; verify the Map Tiles API key and API restriction."
         : reason ===
             "google_tiles_quota"
           ? "Google Map Tiles quota or billing limit was reached."
