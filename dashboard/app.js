@@ -6722,10 +6722,19 @@ canvas.addEventListener(
       globeDrag.moved = true;
     }
 
+    const dragSensitivity =
+      globeRenderer
+        .dragSensitivity(
+          state.zoom,
+          canvas.clientHeight
+        );
+
     state.rotation =
       (
         state.rotation -
-        deltaX * 0.35 +
+        deltaX *
+          dragSensitivity
+            .longitude +
         540
       ) %
         360 -
@@ -6741,7 +6750,9 @@ canvas.addEventListener(
           Math.max(
             -80,
             state.cameraLatitude +
-              deltaY * 0.22
+              deltaY *
+                dragSensitivity
+                  .latitude
           )
         );
     }
