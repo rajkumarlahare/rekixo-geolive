@@ -1,4 +1,5 @@
 import {
+  burnPasswordCheck,
   hashPassword,
   normalizeAdminEmail,
   randomCsrfToken,
@@ -256,6 +257,7 @@ async function login(request, env) {
   ).bind(email).first();
   const now = new Date();
   if (!row || row.status !== "active") {
+    await burnPasswordCheck(String(body.password || ""));
     return json({ error: "invalid_credentials" }, 401);
   }
   if (row.locked_until && new Date(row.locked_until) > now) {
@@ -327,24 +329,36 @@ async function logout(request, env) {
 
 async function projectMetrics(env, projectId, hours) {
   const since = new Date(Date.now() - Math.min(Math.max(Number(hours)||24,1),168)*3600000).toISOString();
-  const reads = await env.DB.prepare(
-    `SELECT
-      COALESCE(SUM(location_writes),0)+COALESCE(SUM(api_reads),0) AS requests,
-      COALESCE(SUM(location_writes),0) AS writes,
-      COALESCE(SUM(api_reads),0) AS reads,
-      COALESCE(SUM(realtime_events),0) AS realtime_events,
-      COALESCE(SUM(webhook_attempts),0) AS webhook_attempts
-     FROM usage_daily
-     WHERE project_id=? AND usage_date>=substr(?,1,10)`
-  ).bind(projectId,since).first();
+  const [readsResult, securityResult] = await env.DB.batch([
+    env.DB.prepare(
+      `SELECT
+        COALESCE(SUM(location_writes),0)+COALESCE(SUM(api_reads),0) AS requests,
+        COALESCE(SUM(location_writes),0) AS writes,
+        COALESCE(SUM(api_reads),0) AS reads,
+        COALESCE(SUM(realtime_events),0) AS realtime_events,
+        COALESCE(SUM(webhook_attempts),0) AS webhook_attempts
+       FROM usage_daily
+       WHERE project_id=? AND usage_date>=substr(?,1,10)`
+    ).bind(projectId,since),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS count
+       FROM security_events
+       WHERE project_id=? AND created_at>=?`
+    ).bind(projectId,since)
+  ]);
+  const reads = readsResult.results?.[0] || {};
+  const security = securityResult.results?.[0] || {};
   return {
     metrics: {
       totals: {
-        requests: Number(reads?.requests || 0),
-        writes: Number(reads?.writes || 0),
-        reads: Number(reads?.reads || 0),
-        realtimeEvents: Number(reads?.realtime_events || 0),
-        webhookAttempts: Number(reads?.webhook_attempts || 0)
+        requests: Number(reads.requests || 0),
+        writes: Number(reads.writes || 0),
+        reads: Number(reads.reads || 0),
+        errors: 0,
+        averageLatencyMs: 0,
+        securityEvents: Number(security.count || 0),
+        realtimeEvents: Number(reads.realtime_events || 0),
+        webhookAttempts: Number(reads.webhook_attempts || 0)
       }
     }
   };
