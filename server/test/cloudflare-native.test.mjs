@@ -157,6 +157,14 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
     config.vars?.GEOLIVE_ALLOWED_ORIGINS,
     "https://geolive.rekixo.com"
   );
+  assert.deepEqual(
+    config.secrets?.required,
+    [
+      "GEOLIVE_BOOTSTRAP_TOKEN",
+      "GEOLIVE_WEBHOOK_SIGNING_SECRET",
+      "GEOLIVE_GOOGLE_MAPS_API_KEY"
+    ]
+  );
 
   for (const table of [
     "accounts",
@@ -233,6 +241,49 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
     pkg.scripts[
       "cloudflare:deploy"
     ]
+  );
+});
+
+test("Photorealistic Earth validates Google Tiles and self-recovers from transient custom-domain failures", async () => {
+  const [renderer, app, worker] =
+    await Promise.all([
+      readFile(
+        "dashboard/photorealistic-earth.js",
+        "utf8"
+      ),
+      readFile(
+        "dashboard/app.js",
+        "utf8"
+      ),
+      readFile(
+        "cloudflare/src/index.mjs",
+        "utf8"
+      )
+    ]);
+
+  assert.match(
+    renderer,
+    /probeGoogleTiles/
+  );
+  assert.match(
+    renderer,
+    /google_tiles_auth_or_referrer/
+  );
+  assert.match(
+    renderer,
+    /RETRY_DELAYS_MS/
+  );
+  assert.match(
+    renderer,
+    /Google 3D retrying/
+  );
+  assert.match(
+    app,
+    /Google Map Tiles rejected this browser origin/
+  );
+  assert.match(
+    worker,
+    /googleMapsConfigured/
   );
 });
 
