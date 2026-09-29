@@ -33,7 +33,7 @@ test("public demo photorealistic Earth stays optional and safely attributed", as
   );
   assert.match(
     build,
-    /demo-config\.js/
+    /runtime-config\.js/
   );
   assert.match(
     index,
