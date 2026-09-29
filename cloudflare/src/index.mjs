@@ -40,10 +40,10 @@ function thresholds(env) {
 
 const DASHBOARD_CSP =
   "default-src 'self'; " +
-  "img-src 'self' data: blob: https://cdn.jsdelivr.net https://tile.googleapis.com; " +
+  "img-src 'self' data: blob: https://cdn.jsdelivr.net; " +
   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
   "script-src 'self' https://cdn.jsdelivr.net; " +
-  "connect-src 'self' https://cdn.jsdelivr.net https://tile.googleapis.com; " +
+  "connect-src 'self' https://cdn.jsdelivr.net; " +
   "worker-src 'self' blob: https://cdn.jsdelivr.net; " +
   "child-src blob:; " +
   "font-src 'self' data: https://cdn.jsdelivr.net; " +
@@ -52,7 +52,7 @@ const DASHBOARD_CSP =
 function securityHeaders() {
   return {
     "x-content-type-options": "nosniff",
-    "referrer-policy": "origin",
+    "referrer-policy": "no-referrer",
     "x-frame-options": "DENY",
     "permissions-policy": "geolocation=(), camera=(), microphone=()"
   };
