@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import {
+  parseWebhookSigningKeys
+} from "./webhook-secrets.mjs";
 
 export function sha256(value) {
   return crypto.createHash("sha256").update(String(value)).digest("hex");
@@ -228,6 +231,10 @@ export function loadConfig(env = process.env) {
     parseClientTokenKeys(env, isProduction);
   const playIntegrityApps =
     parsePlayIntegrityApps(env);
+  const webhookSigningKeys =
+    parseWebhookSigningKeys(
+      env.GEOLIVE_WEBHOOK_SIGNING_KEYS_JSON
+    );
 
   return {
     port: boundedNumber(env.PORT, 8787, 1, 65535),
@@ -254,6 +261,34 @@ export function loadConfig(env = process.env) {
         ).toLowerCase() === "true",
       signingKeys: clientTokenSigningKeys,
       playIntegrityApps
+    },
+    webhooks: {
+      signingKeys:
+        webhookSigningKeys,
+      timeoutMs: boundedNumber(
+        env.GEOLIVE_WEBHOOK_TIMEOUT_MS,
+        10000,
+        1000,
+        30000
+      ),
+      maxAttempts: boundedNumber(
+        env.GEOLIVE_WEBHOOK_MAX_ATTEMPTS,
+        8,
+        1,
+        20
+      ),
+      batchSize: boundedNumber(
+        env.GEOLIVE_WEBHOOK_BATCH_SIZE,
+        25,
+        1,
+        100
+      ),
+      dwellPollMs: boundedNumber(
+        env.GEOLIVE_DWELL_POLL_MS,
+        15000,
+        5000,
+        60000
+      )
     },
     realtime: {
       redisUrl: String(env.GEOLIVE_REDIS_URL || "").trim(),
