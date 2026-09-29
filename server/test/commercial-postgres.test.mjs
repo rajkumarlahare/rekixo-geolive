@@ -75,6 +75,8 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
           overageTrackedUserMinor: 50,
           features: {
             realtime: true,
+            geofences: true,
+            webhooks: false,
             clientTokens: true,
             androidAttestation: false,
             prioritySupport: false
@@ -119,6 +121,28 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
       true
     );
 
+    const geofenceAccess =
+      await commercialStore.assertProjectFeature(
+        project.id,
+        "geofences"
+      );
+    assert.equal(
+      geofenceAccess.effective.geofences,
+      true
+    );
+
+    await assert.rejects(
+      () =>
+        commercialStore.assertProjectFeature(
+          project.id,
+          "webhooks"
+        ),
+      (error) =>
+        error instanceof CommercialStoreError &&
+        error.code === "feature_not_entitled" &&
+        error.status === 402
+    );
+
     await assert.rejects(
       () =>
         commercialStore.assertProjectFeature(
@@ -138,7 +162,8 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
           actorUserId: owner.userId,
           overrides: {
             maxProjects: 1,
-            includedIngest: 2000
+            includedIngest: 2000,
+            webhooks: true
           }
         });
     assert.equal(
@@ -148,6 +173,10 @@ test("P3 commercial plans, entitlements, metering, invoices and support are isol
     assert.equal(
       entitlements.effective.includedIngest,
       2000
+    );
+    assert.equal(
+      entitlements.effective.webhooks,
+      true
     );
 
     await assert.rejects(
