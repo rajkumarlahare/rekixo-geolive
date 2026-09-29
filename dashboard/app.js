@@ -2218,6 +2218,10 @@ function setLimitFields(limits) {
     limits.metricsRetentionDays;
   document.querySelector("#limitRealtimeHours").value =
     limits.realtimeEventRetentionHours;
+  document.querySelector("#limitGeofenceEventDays").value =
+    limits.geofenceEventRetentionDays;
+  document.querySelector("#limitWebhookDeliveryDays").value =
+    limits.webhookDeliveryRetentionDays;
 
   const writable = canWriteProject();
   document.querySelectorAll("#limitsForm input").forEach((input) => {
@@ -3953,7 +3957,9 @@ document.querySelector("#limitsForm").addEventListener("submit", async (event) =
           historyRetentionDays: Number(document.querySelector("#limitHistoryDays").value),
           securityEventRetentionDays: Number(document.querySelector("#limitSecurityDays").value),
           metricsRetentionDays: Number(document.querySelector("#limitMetricsDays").value),
-          realtimeEventRetentionHours: Number(document.querySelector("#limitRealtimeHours").value)
+          realtimeEventRetentionHours: Number(document.querySelector("#limitRealtimeHours").value),
+          geofenceEventRetentionDays: Number(document.querySelector("#limitGeofenceEventDays").value),
+          webhookDeliveryRetentionDays: Number(document.querySelector("#limitWebhookDeliveryDays").value)
         })
       }
     );
