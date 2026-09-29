@@ -8,3 +8,4 @@ coverage/
 dist/
 *.log
 dist-demo/
+dist-cloudflare/
