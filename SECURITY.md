@@ -114,7 +114,7 @@ Geofence and webhook execution also fails closed when the corresponding commerci
 
 ## Retention
 
-Location history, realtime replay events, P2 replay nonces, security events and operational metrics have bounded cleanup. Commercial invoice/support records are not deleted by the generic retention worker because they represent business records and require an explicit retention policy before automatic deletion.
+Location history, realtime replay events, geofence events, terminal webhook deliveries and their attempt records, P2 replay nonces, security events and operational metrics have bounded cleanup. Geofence-event retention defaults to 90 days and terminal webhook-delivery retention defaults to 30 days; both are project-configurable within bounded ranges. Pending/retrying webhook deliveries are never removed by generic retention, and a geofence event is retained while any delivery still references it. Commercial invoice/support records are not deleted by the generic retention worker because they represent business records and require an explicit retention policy before automatic deletion.
 
 ## Compatibility
 
