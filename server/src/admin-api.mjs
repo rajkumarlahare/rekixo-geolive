@@ -185,10 +185,23 @@ function validateLimitsInput(body) {
   return out;
 }
 
-function sourceHash(req) {
-  return sha256Secret(
-    String(req.socket?.remoteAddress || "unknown")
-  );
+function sourceHash(req, config) {
+  let source =
+    String(req.socket?.remoteAddress || "unknown");
+
+  if (config?.admin?.trustProxy) {
+    const forwarded =
+      req.headers["x-forwarded-for"];
+    const first =
+      Array.isArray(forwarded)
+        ? forwarded[0]
+        : String(forwarded || "")
+            .split(",")[0]
+            .trim();
+    if (first) source = first;
+  }
+
+  return sha256Secret(source);
 }
 
 function validateKeyInput(body, { partial = false } = {}) {
@@ -276,7 +289,7 @@ export async function handleAdminApi({
   try {
     if (req.method === "POST" && url.pathname === "/v1/admin/login") {
       const body = await readJson(req);
-      const loginSourceHash = sourceHash(req);
+      const loginSourceHash = sourceHash(req, config);
 
       if (opsStore) {
         const sourceLimit = await opsStore.consumeRateLimit({
@@ -461,17 +474,22 @@ export async function handleAdminApi({
         accountId,
         { write: true }
       );
+      let maxProjects = null;
       if (commercialStore) {
-        await commercialStore.assertProjectCreateAllowed(
-          accountId
-        );
+        const effective =
+          await commercialStore.assertProjectCreateAllowed(
+            accountId
+          );
+        maxProjects =
+          Number(effective.maxProjects);
       }
       const input = validateProjectInput(body);
       const project = await adminStore.createProject(
         session.user.id,
         {
           accountId,
-          ...input
+          ...input,
+          maxProjects
         }
       );
       sendJson(res, 201, { project });
