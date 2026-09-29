@@ -1,8 +1,9 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  "name": "rekixo-geolive",
+  "name": "rekixo-geolive-prod",
   "main": "src/index.mjs",
   "compatibility_date": "2026-09-29",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "assets": {
     "directory": "../dist-cloudflare",
@@ -18,13 +19,6 @@
   },
   "observability": {
     "enabled": true
-  },
-  "secrets": {
-    "required": [
-      "GEOLIVE_BOOTSTRAP_TOKEN",
-      "GEOLIVE_WEBHOOK_SIGNING_SECRET",
-      "GEOLIVE_GOOGLE_MAPS_API_KEY"
-    ]
   },
   "vars": {
     "GEOLIVE_ADMIN_SESSION_HOURS": "12",
