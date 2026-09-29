@@ -177,6 +177,36 @@ async function scheduleDeliveries(
       AND e.project_id = r.project_id
       AND e.status = 'active'
       AND e.deleted_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM projects p
+        JOIN account_subscriptions sub
+          ON sub.account_id = p.account_id
+        JOIN commercial_plans plan
+          ON plan.id = sub.plan_id
+        LEFT JOIN account_entitlement_overrides o
+          ON o.account_id = p.account_id
+         AND o.entitlement_key = 'webhooks'
+        WHERE p.id = r.project_id
+          AND sub.status IN (
+            'active',
+            'trialing'
+          )
+          AND COALESCE(
+            CASE
+              WHEN o.value IS NULL
+                THEN NULL
+              ELSE (o.value #>> '{}')::boolean
+            END,
+            COALESCE(
+              (
+                plan.features ->
+                  'webhooks'
+              )::boolean,
+              false
+            )
+          ) = true
+      )
     ON CONFLICT (
       alert_rule_id,
       geofence_event_id
@@ -336,6 +366,42 @@ export async function evaluateLocationAutomation(
     WHERE g.project_id = $1
       AND g.status = 'active'
       AND g.deleted_at IS NULL
+      AND EXISTS (
+        SELECT 1
+        FROM projects p
+        JOIN account_subscriptions sub
+          ON sub.account_id =
+            p.account_id
+        JOIN commercial_plans plan
+          ON plan.id = sub.plan_id
+        LEFT JOIN
+          account_entitlement_overrides o
+          ON o.account_id =
+            p.account_id
+         AND o.entitlement_key =
+            'geofences'
+        WHERE p.id =
+          g.project_id
+          AND sub.status IN (
+            'active',
+            'trialing'
+          )
+          AND COALESCE(
+            CASE
+              WHEN o.value IS NULL
+                THEN NULL
+              ELSE
+                (o.value #>> '{}')::boolean
+            END,
+            COALESCE(
+              (
+                plan.features ->
+                  'geofences'
+              )::boolean,
+              false
+            )
+          ) = true
+      )
     ORDER BY g.id`,
     [
       projectId,
@@ -2040,6 +2106,42 @@ export class PostgresAutomationStore {
             AND s.dwell_due_at <= now()
             AND g.status = 'active'
             AND g.deleted_at IS NULL
+            AND EXISTS (
+              SELECT 1
+              FROM projects p
+              JOIN account_subscriptions sub
+                ON sub.account_id =
+                  p.account_id
+              JOIN commercial_plans plan
+                ON plan.id = sub.plan_id
+              LEFT JOIN
+                account_entitlement_overrides o
+                ON o.account_id =
+                  p.account_id
+               AND o.entitlement_key =
+                  'geofences'
+              WHERE p.id =
+                s.project_id
+                AND sub.status IN (
+                  'active',
+                  'trialing'
+                )
+                AND COALESCE(
+                  CASE
+                    WHEN o.value IS NULL
+                      THEN NULL
+                    ELSE
+                      (o.value #>> '{}')::boolean
+                  END,
+                  COALESCE(
+                    (
+                      plan.features ->
+                        'geofences'
+                    )::boolean,
+                    false
+                  )
+                ) = true
+            )
           ORDER BY s.dwell_due_at ASC
           FOR UPDATE OF s
           SKIP LOCKED
