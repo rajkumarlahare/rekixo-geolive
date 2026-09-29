@@ -5281,7 +5281,13 @@ document.querySelector("#reset").addEventListener("click", () => {
 });
 
 
-document.querySelector("#pause").onclick = () => state.paused = !state.paused;
+document.querySelector("#pause").onclick = () => {
+  if (state.geofenceEditor.active) {
+    state.paused = true;
+    return;
+  }
+  state.paused = !state.paused;
+};
 document.querySelector("#zoomIn").onclick = () => {
   state.zoom = Math.min(1.5, state.zoom + .1);
   scheduleClusterRefresh();
