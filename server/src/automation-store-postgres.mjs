@@ -2224,6 +2224,78 @@ export class PostgresAutomationStore {
     }
   }
 
+  async retryWebhookDelivery({
+    project,
+    actorUserId,
+    deliveryId
+  }) {
+    const client =
+      await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result =
+        await client.query(
+          `UPDATE webhook_deliveries
+          SET status = 'retry',
+              attempt_count = 0,
+              next_attempt_at = now(),
+              locked_at = NULL,
+              locked_by = NULL,
+              last_error = NULL,
+              updated_at = now()
+          WHERE project_id = $1
+            AND delivery_id = $2
+            AND status = 'dead'
+          RETURNING id`,
+          [
+            project.id,
+            deliveryId
+          ]
+        );
+      if (!result.rows.length) {
+        const error = new Error(
+          "webhook_delivery_not_retryable"
+        );
+        error.code =
+          "webhook_delivery_not_retryable";
+        error.status = 409;
+        throw error;
+      }
+
+      await client.query(
+        `INSERT INTO audit_log (
+          admin_user_id,
+          account_id,
+          project_id,
+          action,
+          details
+        ) VALUES (
+          $1,$2,$3,
+          'automation.webhook_retry',
+          $4::jsonb
+        )`,
+        [
+          actorUserId,
+          project.accountId,
+          project.id,
+          JSON.stringify({
+            deliveryId
+          })
+        ]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      try {
+        await client.query(
+          "ROLLBACK"
+        );
+      } catch {}
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async claimWebhookDeliveries({
     workerId,
     limit = 25,
