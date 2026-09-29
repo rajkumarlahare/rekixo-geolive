@@ -147,14 +147,23 @@ function validateClientRestrictions(req, origin, config, key) {
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8"
+  ".js": "text/javascript; charset=utf-8",
+  ".svg": "image/svg+xml"
 };
 
 async function serveDashboard(res, pathname) {
   const relative = pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/"
     ? "index.html"
     : pathname.replace(/^\/dashboard\//, "");
-  if (!["index.html", "styles.css", "app.js"].includes(relative)) return false;
+  if (
+    ![
+      "index.html",
+      "styles.css",
+      "app.js",
+      "globe-webgl.js",
+      "earth-dark.svg"
+    ].includes(relative)
+  ) return false;
 
   try {
     const content = await fs.readFile(path.join(dashboardDir, relative));
