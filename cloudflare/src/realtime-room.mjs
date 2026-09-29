@@ -51,11 +51,36 @@ export class ProjectRealtimeRoom extends DurableObject {
       mode,
       authenticated: trustedAdmin,
       origin: String(request.headers.get("x-geolive-client-origin") || ""),
+      resumeAfter: Number(url.searchParams.get("after") || 0),
       joinedAt: Date.now()
     };
     server.serializeAttachment(state);
 
     if (trustedAdmin) {
+      const resumeAfter =
+        Number.isFinite(state.resumeAfter) &&
+        state.resumeAfter > 0
+          ? state.resumeAfter
+          : 0;
+      if (resumeAfter > 0) {
+        const replay = await this.env.DB.prepare(
+          `SELECT id,event_type,external_user_id,payload_json,created_at
+           FROM realtime_events
+           WHERE project_id=? AND id>?
+           ORDER BY id ASC
+           LIMIT 1000`
+        ).bind(projectId,resumeAfter).all();
+        for (const row of replay.results || []) {
+          sendJson(server, {
+            type: row.event_type,
+            sequence: String(row.id),
+            projectId,
+            userId: row.external_user_id,
+            payload: JSON.parse(row.payload_json || "{}"),
+            createdAt: row.created_at
+          });
+        }
+      }
       const latest = await this.env.DB.prepare(
         "SELECT COALESCE(MAX(id),0) AS sequence FROM realtime_events WHERE project_id=?"
       ).bind(projectId).first();
