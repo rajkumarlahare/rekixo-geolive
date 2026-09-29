@@ -191,6 +191,7 @@ export async function listUsersPage(env, projectId, options = {}) {
   const cursor = decodeCursor(options.cursor || "");
   const values = [projectId];
   const where = ["l.project_id=?"];
+  const cutoffs = thresholdCutoffs(new Date(), options.thresholds);
   if (options.search) {
     values.push(`%${String(options.search).trim().toLowerCase()}%`);
     where.push(
@@ -201,6 +202,24 @@ export async function listUsersPage(env, projectId, options = {}) {
   if (options.country) { values.push(String(options.country)); where.push("l.country=?"); }
   if (options.state) { values.push(String(options.state)); where.push("l.state=?"); }
   if (options.city) { values.push(String(options.city)); where.push("l.city=?"); }
+  if (options.status) {
+    const status = String(options.status);
+    if (status === "online") {
+      values.push(cutoffs.online);
+      where.push("l.received_at>=?");
+    } else if (status === "recent") {
+      values.push(cutoffs.online, cutoffs.recent);
+      where.push("l.received_at<? AND l.received_at>=?");
+    } else if (status === "offline") {
+      values.push(cutoffs.recent, cutoffs.inactive);
+      where.push("l.received_at<? AND l.received_at>=?");
+    } else if (status === "inactive") {
+      values.push(cutoffs.inactive);
+      where.push("l.received_at<?");
+    } else {
+      throw Object.assign(new Error("invalid_status"), { code: "invalid_status", status: 400 });
+    }
+  }
   if (cursor?.receivedAt && cursor?.userId) {
     values.push(cursor.receivedAt, cursor.receivedAt, cursor.userId);
     where.push("(l.received_at < ? OR (l.received_at = ? AND l.external_user_id > ?))");
@@ -217,7 +236,6 @@ export async function listUsersPage(env, projectId, options = {}) {
 
   const now = Date.now();
   let users = (result.results || []).map((row) => mapLive(row, options.thresholds, now));
-  if (options.status) users = users.filter((row) => row.status === options.status);
   const hasMore = users.length > limit;
   users = users.slice(0, limit);
   const last = users[users.length - 1];
