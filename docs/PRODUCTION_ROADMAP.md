@@ -129,11 +129,20 @@
 - tenant admin APIs for geofences, rules, endpoints, events and deliveries
 - PostgreSQL transition/isolation coverage plus webhook signing/worker tests
 
-## Next — P4C product-grade geospatial console
-- production WebGL/3D earth renderer
+## In progress — P4C product-grade geospatial console
+Completed foundation:
+- self-hosted dependency-free WebGL/3D earth renderer
+- 2D fallback when WebGL is unavailable
+- shared projection for markers, clusters, heatmap and movement trails
+- pointer drag, wheel/button zoom and reset/pause controls
+- real Today Active and 24-hour API-request dashboard metrics
+- server-side user filtering/facets and large-project clustering
+- WebGL dashboard assets covered by server regression tests
+
+Remaining P4C work:
 - geofence editing/drawing directly on the globe
-- event/delivery observability UI
-- large-project server-side user search pagination UX
+- richer event/delivery observability views
+- explicit pagination UX for very broad text-search results above 500 users
 - route/trip analytics and export workflows
 
 ## Later — Product administration
