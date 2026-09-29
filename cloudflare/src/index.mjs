@@ -451,6 +451,15 @@ export default {
       if (url.pathname === "/dashboard/runtime-config.js") {
         const publicConfig = JSON.stringify({
           demoMode: false,
+          runtime: "cloudflare",
+          capabilities: {
+            core: true,
+            operations: true,
+            automation: true,
+            commercial: false,
+            clientTokens: false,
+            platformConsole: false
+          },
           googleMapsApiKey: String(env.GEOLIVE_GOOGLE_MAPS_API_KEY || "")
         }).replace(/</g,"\\u003c");
         return new Response(
