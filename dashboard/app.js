@@ -36,6 +36,13 @@ const state = {
   pollTimer: null,
   projectMode: "create",
   keys: [],
+  automation: {
+    geofences: [],
+    endpoints: [],
+    rules: [],
+    events: [],
+    deliveries: []
+  },
   facets: {
     countries: [],
     states: [],
@@ -174,6 +181,7 @@ function populateProjectSelect() {
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#manageAutomation").disabled = !state.projectId;
   document.querySelector("#loadHeatmap").disabled = !state.projectId;
   document.querySelector("#manageBilling").disabled =
     state.accounts.length === 0;
@@ -192,6 +200,13 @@ function applyIdentity() {
 function resetData() {
   state.users = [];
   state.filtered = [];
+  state.automation = {
+    geofences: [],
+    endpoints: [],
+    rules: [],
+    events: [],
+    deliveries: []
+  };
   state.facets = {
     countries: [],
     states: [],
@@ -827,6 +842,7 @@ projectSelect.addEventListener("change", () => {
   document.querySelector("#editProject").disabled = !canWriteProject();
   document.querySelector("#manageKeys").disabled = !state.projectId;
   document.querySelector("#manageOps").disabled = !state.projectId;
+  document.querySelector("#manageAutomation").disabled = !state.projectId;
   document.querySelector("#loadHeatmap").disabled = !state.projectId;
   document.querySelector("#manageBilling").disabled =
     state.accounts.length === 0;
@@ -840,6 +856,7 @@ document.querySelector("#newProject").addEventListener("click", () => openProjec
 document.querySelector("#editProject").addEventListener("click", () => openProjectModal("edit"));
 document.querySelector("#manageKeys").addEventListener("click", openKeyModal);
 document.querySelector("#manageOps").addEventListener("click", openOpsModal);
+document.querySelector("#manageAutomation").addEventListener("click", openAutomationModal);
 document.querySelector("#manageBilling").addEventListener("click", openBillingModal);
 document.querySelector("#platformConsole").addEventListener("click", openPlatformModal);
 document.querySelector("#projectModalClose").addEventListener("click", closeProjectModal);
@@ -848,6 +865,952 @@ document.querySelector("#refreshOps").addEventListener("click", loadOperations);
 document.querySelector("#projectCancel").addEventListener("click", closeProjectModal);
 document.querySelector("#keyModalClose").addEventListener("click", closeKeyModal);
 document.querySelector("#refreshKeys").addEventListener("click", loadKeys);
+
+function automationErrorText(error) {
+  const messages = {
+    feature_not_entitled:
+      "Automation is not enabled for this account plan.",
+    subscription_not_active:
+      "The account subscription is not active.",
+    webhook_signing_unavailable:
+      "Configure webhook signing keys on the server before creating endpoints.",
+    webhook_signing_key_unavailable:
+      "The signing key used by this endpoint is not available on the server.",
+    invalid_webhook_url:
+      "Use a valid HTTPS webhook URL.",
+    webhook_private_target:
+      "Private or local network webhook targets are blocked in production.",
+    geofence_not_found:
+      "The selected geofence no longer exists.",
+    webhook_endpoint_not_found:
+      "The selected webhook endpoint no longer exists.",
+    alert_rule_not_found:
+      "The selected alert rule no longer exists."
+  };
+  return messages[error.code] ||
+    error.code ||
+    "Automation request failed.";
+}
+
+function clearAutomationList(id) {
+  const node =
+    document.querySelector("#" + id);
+  node.replaceChildren();
+  return node;
+}
+
+function automationEmpty(node, text) {
+  const item =
+    document.createElement("div");
+  item.className = "automation-item";
+  const small =
+    document.createElement("small");
+  small.textContent = text;
+  item.appendChild(small);
+  node.appendChild(item);
+}
+
+function automationItem({
+  title,
+  status = "",
+  lines = [],
+  actions = []
+}) {
+  const item =
+    document.createElement("article");
+  item.className =
+    "automation-item";
+
+  const header =
+    document.createElement("header");
+  const strong =
+    document.createElement("strong");
+  strong.textContent = title;
+  header.appendChild(strong);
+
+  if (status) {
+    const badge =
+      document.createElement("span");
+    badge.className =
+      `automation-status ${status}`;
+    badge.textContent = status;
+    header.appendChild(badge);
+  }
+  item.appendChild(header);
+
+  for (const line of lines) {
+    const small =
+      document.createElement("small");
+    small.textContent =
+      String(line);
+    item.appendChild(small);
+  }
+
+  if (actions.length) {
+    const wrap =
+      document.createElement("div");
+    wrap.className =
+      "automation-actions";
+    for (const action of actions) {
+      const button =
+        document.createElement("button");
+      button.type = "button";
+      button.className =
+        action.danger
+          ? "danger-button"
+          : "text-button";
+      button.textContent =
+        action.label;
+      button.addEventListener(
+        "click",
+        action.onClick
+      );
+      wrap.appendChild(button);
+    }
+    item.appendChild(wrap);
+  }
+
+  return item;
+}
+
+function populateAutomationSelects() {
+  const geofenceSelect =
+    document.querySelector(
+      "#alertRuleGeofence"
+    );
+  const endpointSelect =
+    document.querySelector(
+      "#alertRuleEndpoint"
+    );
+  const currentGeofence =
+    geofenceSelect.value;
+  const currentEndpoint =
+    endpointSelect.value;
+
+  geofenceSelect.replaceChildren();
+  const all =
+    document.createElement("option");
+  all.value = "";
+  all.textContent =
+    "All geofences";
+  geofenceSelect.appendChild(all);
+  for (
+    const geofence of
+    state.automation.geofences
+  ) {
+    const option =
+      document.createElement(
+        "option"
+      );
+    option.value = geofence.id;
+    option.textContent =
+      geofence.status === "paused"
+        ? `${geofence.name} · Paused`
+        : geofence.name;
+    geofenceSelect.appendChild(
+      option
+    );
+  }
+
+  endpointSelect.replaceChildren();
+  for (
+    const endpoint of
+    state.automation.endpoints
+  ) {
+    const option =
+      document.createElement(
+        "option"
+      );
+    option.value = endpoint.id;
+    option.textContent =
+      endpoint.status === "paused"
+        ? `${endpoint.name} · Paused`
+        : endpoint.name;
+    endpointSelect.appendChild(
+      option
+    );
+  }
+
+  if (
+    [
+      ...geofenceSelect.options
+    ].some(
+      (option) =>
+        option.value ===
+        currentGeofence
+    )
+  ) {
+    geofenceSelect.value =
+      currentGeofence;
+  }
+  if (
+    [
+      ...endpointSelect.options
+    ].some(
+      (option) =>
+        option.value ===
+        currentEndpoint
+    )
+  ) {
+    endpointSelect.value =
+      currentEndpoint;
+  }
+}
+
+function renderAutomation() {
+  populateAutomationSelects();
+  const writable =
+    canWriteProject();
+
+  const geofences =
+    clearAutomationList(
+      "geofenceList"
+    );
+  if (
+    !state.automation.geofences
+      .length
+  ) {
+    automationEmpty(
+      geofences,
+      "No geofences yet."
+    );
+  }
+  for (
+    const geofence of
+    state.automation.geofences
+  ) {
+    const shape =
+      geofence.shapeType ===
+      "circle"
+        ? `${geofence.latitude?.toFixed?.(5) ?? geofence.latitude}, ${geofence.longitude?.toFixed?.(5) ?? geofence.longitude} · ${formatCount(geofence.radiusM)} m`
+        : `Polygon · ${Math.max(0, (geofence.points?.length || 1) - 1)} vertices`;
+
+    geofences.appendChild(
+      automationItem({
+        title: geofence.name,
+        status:
+          geofence.status,
+        lines: [
+          shape,
+          geofence.dwellSeconds
+            ? `Dwell: ${geofence.dwellSeconds}s`
+            : "Dwell disabled"
+        ],
+        actions: writable
+          ? [
+              {
+                label:
+                  geofence.status ===
+                  "active"
+                    ? "Pause"
+                    : "Resume",
+                onClick:
+                  async () => {
+                    await patchAutomation(
+                      `geofences/${geofence.id}`,
+                      {
+                        status:
+                          geofence.status ===
+                          "active"
+                            ? "paused"
+                            : "active"
+                      }
+                    );
+                  }
+              },
+              {
+                label: "Delete",
+                danger: true,
+                onClick:
+                  async () => {
+                    if (
+                      !confirm(
+                        `Delete geofence "${geofence.name}"? Related alert rules will be disabled.`
+                      )
+                    ) {
+                      return;
+                    }
+                    await deleteAutomation(
+                      `geofences/${geofence.id}`
+                    );
+                  }
+              }
+            ]
+          : []
+      })
+    );
+  }
+
+  const webhooks =
+    clearAutomationList(
+      "webhookList"
+    );
+  if (
+    !state.automation.endpoints
+      .length
+  ) {
+    automationEmpty(
+      webhooks,
+      "No webhook endpoints yet."
+    );
+  }
+  for (
+    const endpoint of
+    state.automation.endpoints
+  ) {
+    webhooks.appendChild(
+      automationItem({
+        title: endpoint.name,
+        status:
+          endpoint.status,
+        lines: [
+          endpoint.url,
+          `Secret generation ${endpoint.secretGeneration}`
+        ],
+        actions: writable
+          ? [
+              {
+                label:
+                  endpoint.status ===
+                  "active"
+                    ? "Pause"
+                    : "Resume",
+                onClick:
+                  async () => {
+                    await patchAutomation(
+                      `webhook-endpoints/${endpoint.id}`,
+                      {
+                        status:
+                          endpoint.status ===
+                          "active"
+                            ? "paused"
+                            : "active"
+                      }
+                    );
+                  }
+              },
+              {
+                label: "Rotate secret",
+                onClick:
+                  async () => {
+                    await rotateWebhook(
+                      endpoint.id
+                    );
+                  }
+              },
+              {
+                label: "Delete",
+                danger: true,
+                onClick:
+                  async () => {
+                    if (
+                      !confirm(
+                        `Delete webhook endpoint "${endpoint.name}"? Pending deliveries will be dead-lettered.`
+                      )
+                    ) {
+                      return;
+                    }
+                    await deleteAutomation(
+                      `webhook-endpoints/${endpoint.id}`
+                    );
+                  }
+              }
+            ]
+          : []
+      })
+    );
+  }
+
+  const rules =
+    clearAutomationList(
+      "alertRuleList"
+    );
+  if (!state.automation.rules.length) {
+    automationEmpty(
+      rules,
+      "No alert rules yet."
+    );
+  }
+  for (
+    const rule of
+    state.automation.rules
+  ) {
+    const geofence =
+      state.automation.geofences
+        .find(
+          (item) =>
+            item.id ===
+            rule.geofenceId
+        );
+    const endpoint =
+      state.automation.endpoints
+        .find(
+          (item) =>
+            item.id ===
+            rule.webhookEndpointId
+        );
+    rules.appendChild(
+      automationItem({
+        title: rule.name,
+        status:
+          rule.enabled
+            ? "active"
+            : "paused",
+        lines: [
+          geofence?.name ||
+            "All geofences",
+          endpoint?.name ||
+            "Missing endpoint",
+          rule.eventTypes.join(", ")
+        ],
+        actions: writable
+          ? [
+              {
+                label:
+                  rule.enabled
+                    ? "Disable"
+                    : "Enable",
+                onClick:
+                  async () => {
+                    await patchAutomation(
+                      `alert-rules/${rule.id}`,
+                      {
+                        enabled:
+                          !rule.enabled
+                      }
+                    );
+                  }
+              },
+              {
+                label: "Delete",
+                danger: true,
+                onClick:
+                  async () => {
+                    await deleteAutomation(
+                      `alert-rules/${rule.id}`
+                    );
+                  }
+              }
+            ]
+          : []
+      })
+    );
+  }
+
+  const events =
+    clearAutomationList(
+      "geofenceEventList"
+    );
+  if (!state.automation.events.length) {
+    automationEmpty(
+      events,
+      "No geofence events yet."
+    );
+  }
+  for (
+    const event of
+    state.automation.events
+  ) {
+    events.appendChild(
+      automationItem({
+        title:
+          `${event.eventType.toUpperCase()} · ${event.geofenceName || event.geofenceId}`,
+        status:
+          event.eventType ===
+          "exit"
+            ? "paused"
+            : "active",
+        lines: [
+          `User: ${event.userId}`,
+          new Date(
+            event.occurredAt
+          ).toLocaleString()
+        ]
+      })
+    );
+  }
+
+  const deliveries =
+    clearAutomationList(
+      "webhookDeliveryList"
+    );
+  if (
+    !state.automation.deliveries
+      .length
+  ) {
+    automationEmpty(
+      deliveries,
+      "No webhook deliveries yet."
+    );
+  }
+  for (
+    const delivery of
+    state.automation.deliveries
+  ) {
+    deliveries.appendChild(
+      automationItem({
+        title:
+          delivery.endpointName ||
+          delivery.webhookEndpointId,
+        status:
+          delivery.status,
+        lines: [
+          `Attempts: ${delivery.attemptCount}`,
+          delivery.responseStatus
+            ? `HTTP ${delivery.responseStatus}`
+            : delivery.lastError ||
+              "Awaiting delivery",
+          new Date(
+            delivery.createdAt
+          ).toLocaleString()
+        ]
+      })
+    );
+  }
+}
+
+async function loadAutomation() {
+  const project =
+    projectById();
+  if (!project) return;
+  setText(
+    "automationError",
+    ""
+  );
+
+  try {
+    const base =
+      `/v1/admin/projects/${project.id}`;
+    const [
+      geofencePayload,
+      endpointPayload,
+      rulePayload,
+      eventPayload,
+      deliveryPayload
+    ] = await Promise.all([
+      api(`${base}/geofences`),
+      api(
+        `${base}/webhook-endpoints`
+      ),
+      api(`${base}/alert-rules`),
+      api(
+        `${base}/geofence-events?limit=50`
+      ),
+      api(
+        `${base}/webhook-deliveries?limit=50`
+      )
+    ]);
+
+    state.automation = {
+      geofences:
+        geofencePayload.geofences ||
+        [],
+      endpoints:
+        endpointPayload.endpoints ||
+        [],
+      rules:
+        rulePayload.alertRules ||
+        [],
+      events:
+        eventPayload.events || [],
+      deliveries:
+        deliveryPayload.deliveries ||
+        []
+    };
+    renderAutomation();
+  } catch (error) {
+    setText(
+      "automationError",
+      automationErrorText(error)
+    );
+  }
+}
+
+async function openAutomationModal() {
+  if (!state.projectId) return;
+  document.querySelector(
+    "#automationModal"
+  ).hidden = false;
+  await loadAutomation();
+}
+
+function closeAutomationModal() {
+  document.querySelector(
+    "#automationModal"
+  ).hidden = true;
+}
+
+async function patchAutomation(
+  suffix,
+  body
+) {
+  const project =
+    projectById();
+  if (!project) return;
+  try {
+    await api(
+      `/v1/admin/projects/${project.id}/${suffix}`,
+      {
+        method: "PATCH",
+        mutate: true,
+        body:
+          JSON.stringify(body)
+      }
+    );
+    await loadAutomation();
+  } catch (error) {
+    setText(
+      "automationError",
+      automationErrorText(error)
+    );
+  }
+}
+
+async function deleteAutomation(
+  suffix
+) {
+  const project =
+    projectById();
+  if (!project) return;
+  try {
+    await api(
+      `/v1/admin/projects/${project.id}/${suffix}`,
+      {
+        method: "DELETE",
+        mutate: true
+      }
+    );
+    await loadAutomation();
+  } catch (error) {
+    setText(
+      "automationError",
+      automationErrorText(error)
+    );
+  }
+}
+
+async function rotateWebhook(
+  endpointId
+) {
+  const project =
+    projectById();
+  if (!project) return;
+  try {
+    const payload =
+      await api(
+        `/v1/admin/projects/${project.id}/webhook-endpoints/${endpointId}/rotate`,
+        {
+          method: "POST",
+          mutate: true
+        }
+      );
+    setText(
+      "webhookSecret",
+      payload.secret
+    );
+    document.querySelector(
+      "#webhookSecretReveal"
+    ).hidden = false;
+    await loadAutomation();
+  } catch (error) {
+    setText(
+      "automationError",
+      automationErrorText(error)
+    );
+  }
+}
+
+function polygonPointsFromForm() {
+  return document.querySelector(
+    "#geofencePoints"
+  ).value
+    .split(/\r?\n/)
+    .map(
+      (line) => line.trim()
+    )
+    .filter(Boolean)
+    .map((line) => {
+      const [lng, lat] =
+        line
+          .split(",")
+          .map(
+            (value) =>
+              Number(value.trim())
+          );
+      return [lng, lat];
+    });
+}
+
+document.querySelector(
+  "#automationModalClose"
+).addEventListener(
+  "click",
+  closeAutomationModal
+);
+
+document.querySelector(
+  "#refreshAutomation"
+).addEventListener(
+  "click",
+  loadAutomation
+);
+
+document.querySelector(
+  "#geofenceShape"
+).addEventListener(
+  "change",
+  (event) => {
+    const polygon =
+      event.target.value ===
+      "polygon";
+    document.querySelector(
+      "#geofenceCircleFields"
+    ).hidden = polygon;
+    document.querySelector(
+      "#geofencePolygonField"
+    ).hidden = !polygon;
+    for (const id of [
+      "geofenceLat",
+      "geofenceLng",
+      "geofenceRadius"
+    ]) {
+      document.querySelector(
+        "#" + id
+      ).required = !polygon;
+    }
+    document.querySelector(
+      "#geofencePoints"
+    ).required = polygon;
+  }
+);
+
+document.querySelector(
+  "#geofenceForm"
+).addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    const project =
+      projectById();
+    if (!project) return;
+
+    const shapeType =
+      document.querySelector(
+        "#geofenceShape"
+      ).value;
+    const body = {
+      name:
+        document.querySelector(
+          "#geofenceName"
+        ).value.trim(),
+      shapeType,
+      dwellSeconds:
+        Number(
+          document.querySelector(
+            "#geofenceDwell"
+          ).value
+        )
+    };
+
+    if (
+      shapeType === "circle"
+    ) {
+      body.latitude = Number(
+        document.querySelector(
+          "#geofenceLat"
+        ).value
+      );
+      body.longitude = Number(
+        document.querySelector(
+          "#geofenceLng"
+        ).value
+      );
+      body.radiusM = Number(
+        document.querySelector(
+          "#geofenceRadius"
+        ).value
+      );
+    } else {
+      body.points =
+        polygonPointsFromForm();
+    }
+
+    try {
+      await api(
+        `/v1/admin/projects/${project.id}/geofences`,
+        {
+          method: "POST",
+          mutate: true,
+          body:
+            JSON.stringify(body)
+        }
+      );
+      event.target.reset();
+      document.querySelector(
+        "#geofenceDwell"
+      ).value = "300";
+      document.querySelector(
+        "#geofenceRadius"
+      ).value = "250";
+      document.querySelector(
+        "#geofenceShape"
+      ).dispatchEvent(
+        new Event("change")
+      );
+      await loadAutomation();
+    } catch (error) {
+      setText(
+        "automationError",
+        automationErrorText(error)
+      );
+    }
+  }
+);
+
+document.querySelector(
+  "#webhookForm"
+).addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    const project =
+      projectById();
+    if (!project) return;
+
+    try {
+      const payload =
+        await api(
+          `/v1/admin/projects/${project.id}/webhook-endpoints`,
+          {
+            method: "POST",
+            mutate: true,
+            body:
+              JSON.stringify({
+                name:
+                  document.querySelector(
+                    "#webhookName"
+                  ).value.trim(),
+                url:
+                  document.querySelector(
+                    "#webhookUrl"
+                  ).value.trim()
+              })
+          }
+        );
+      setText(
+        "webhookSecret",
+        payload.secret
+      );
+      document.querySelector(
+        "#webhookSecretReveal"
+      ).hidden = false;
+      event.target.reset();
+      await loadAutomation();
+    } catch (error) {
+      setText(
+        "automationError",
+        automationErrorText(error)
+      );
+    }
+  }
+);
+
+document.querySelector(
+  "#copyWebhookSecret"
+).addEventListener(
+  "click",
+  async () => {
+    const secret =
+      document.querySelector(
+        "#webhookSecret"
+      ).textContent;
+    if (!secret) return;
+    await navigator.clipboard
+      .writeText(secret);
+    setText(
+      "automationError",
+      "Webhook signing secret copied."
+    );
+  }
+);
+
+document.querySelector(
+  "#alertRuleForm"
+).addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    const project =
+      projectById();
+    if (!project) return;
+
+    const eventTypes = [];
+    if (
+      document.querySelector(
+        "#alertEnter"
+      ).checked
+    ) {
+      eventTypes.push("enter");
+    }
+    if (
+      document.querySelector(
+        "#alertExit"
+      ).checked
+    ) {
+      eventTypes.push("exit");
+    }
+    if (
+      document.querySelector(
+        "#alertDwell"
+      ).checked
+    ) {
+      eventTypes.push("dwell");
+    }
+
+    try {
+      await api(
+        `/v1/admin/projects/${project.id}/alert-rules`,
+        {
+          method: "POST",
+          mutate: true,
+          body:
+            JSON.stringify({
+              name:
+                document.querySelector(
+                  "#alertRuleName"
+                ).value.trim(),
+              geofenceId:
+                document.querySelector(
+                  "#alertRuleGeofence"
+                ).value || null,
+              webhookEndpointId:
+                document.querySelector(
+                  "#alertRuleEndpoint"
+                ).value,
+              eventTypes,
+              enabled: true
+            })
+        }
+      );
+      event.target.reset();
+      for (const id of [
+        "alertEnter",
+        "alertExit",
+        "alertDwell"
+      ]) {
+        document.querySelector(
+          "#" + id
+        ).checked = true;
+      }
+      await loadAutomation();
+    } catch (error) {
+      setText(
+        "automationError",
+        automationErrorText(error)
+      );
+    }
+  }
+);
 
 function slugify(value) {
   return String(value || "")
