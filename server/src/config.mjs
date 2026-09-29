@@ -242,6 +242,13 @@ export function loadConfig(env = process.env) {
     allowedOrigins,
     keys,
     persistence,
+    public: {
+      googleMapsApiKey: String(
+        env.GEOLIVE_GOOGLE_MAPS_API_KEY ||
+        env.GOOGLE_MAPS_API_KEY ||
+        ""
+      ).trim()
+    },
     database: {
       url: env.DATABASE_URL || "",
       sslMode: env.DATABASE_SSL || (isProduction ? "verify-full" : "disable"),
