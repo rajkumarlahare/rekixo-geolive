@@ -542,10 +542,13 @@ export default {
           createdAt:event.occurredAt
         });
       }
-      await cleanupRetention(env);
-      await env.DB.prepare(
-        "DELETE FROM admin_sessions WHERE expires_at<?"
-      ).bind(new Date().toISOString()).run();
+      const now = new Date();
+      if (now.getUTCMinutes() === 0) {
+        await cleanupRetention(env);
+        await env.DB.prepare(
+          "DELETE FROM admin_sessions WHERE expires_at<?"
+        ).bind(now.toISOString()).run();
+      }
     };
     ctx.waitUntil(run());
   }
