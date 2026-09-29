@@ -7,7 +7,8 @@ import {
   signWebhookPayload
 } from "../src/webhook-secrets.mjs";
 import {
-  isPublicWebhookAddress
+  isPublicWebhookAddress,
+  resolveWebhookTarget
 } from "../src/webhook-http.mjs";
 
 test("P4B derives stable per-endpoint webhook secrets", () => {
@@ -103,3 +104,27 @@ test("P4B production webhook address checks reject private networks", () => {
     true
   );
 });
+
+test("P4B production webhook resolver blocks literal private targets", async () => {
+  await assert.rejects(
+    () =>
+      resolveWebhookTarget(
+        "https://127.0.0.1/hook",
+        { isProduction: true }
+      ),
+    (error) =>
+      error.code ===
+      "webhook_private_target"
+  );
+
+  const local =
+    await resolveWebhookTarget(
+      "http://127.0.0.1/hook",
+      { isProduction: false }
+    );
+  assert.equal(
+    local.address,
+    "127.0.0.1"
+  );
+});
+
