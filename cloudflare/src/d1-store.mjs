@@ -35,6 +35,74 @@ function mapLive(row, thresholds, now = Date.now()) {
   };
 }
 
+function minuteWindowStart(date = new Date()) {
+  const value = new Date(date);
+  value.setUTCSeconds(0, 0);
+  return value.toISOString();
+}
+
+export async function enforceProjectRate(env, projectId, group) {
+  if (!["ingest","read"].includes(group)) {
+    return { ok: true, limit: 0, remaining: 0 };
+  }
+
+  const limits = await env.DB.prepare(
+    `SELECT
+      ingest_requests_per_minute,
+      read_requests_per_minute,
+      daily_ingest_quota
+     FROM project_limits
+     WHERE project_id=?`
+  ).bind(projectId).first();
+
+  const perMinute =
+    group === "ingest"
+      ? Number(limits?.ingest_requests_per_minute || 6000)
+      : Number(limits?.read_requests_per_minute || 3000);
+
+  if (group === "ingest") {
+    const day = new Date().toISOString().slice(0, 10);
+    const usage = await env.DB.prepare(
+      `SELECT location_writes
+       FROM usage_daily
+       WHERE project_id=? AND usage_date=?`
+    ).bind(projectId, day).first();
+    const dailyQuota = Number(limits?.daily_ingest_quota || 10000000);
+    if (Number(usage?.location_writes || 0) >= dailyQuota) {
+      return {
+        ok: false,
+        status: 429,
+        error: "daily_ingest_quota_exceeded",
+        limit: dailyQuota,
+        remaining: 0
+      };
+    }
+  }
+
+  const windowStart = minuteWindowStart();
+  const now = new Date().toISOString();
+  const row = await env.DB.prepare(
+    `INSERT INTO rate_limit_windows(
+      project_id,bucket,window_start,request_count,updated_at
+    ) VALUES(?,?,?,1,?)
+    ON CONFLICT(project_id,bucket,window_start)
+    DO UPDATE SET
+      request_count=rate_limit_windows.request_count+1,
+      updated_at=excluded.updated_at
+    RETURNING request_count`
+  ).bind(projectId,group,windowStart,now).first();
+
+  const count = Number(row?.request_count || 1);
+  return {
+    ok: count <= perMinute,
+    status: count <= perMinute ? 200 : 429,
+    error: count <= perMinute ? null : "rate_limit_exceeded",
+    limit: perMinute,
+    remaining: Math.max(0, perMinute - count),
+    resetAt: new Date(new Date(windowStart).getTime() + 60000).toISOString()
+  };
+}
+
 export async function recordUsage(env, projectId, field, amount = 1) {
   const allowed = new Set([
     "location_writes",
@@ -619,11 +687,15 @@ export async function cleanupRetention(env) {
     const realtimeBefore = new Date(now - Number(p.realtime_hours)*3600000).toISOString();
     const geofenceBefore = new Date(now - Number(p.geofence_days)*86400000).toISOString();
     const webhookBefore = new Date(now - Number(p.webhook_days)*86400000).toISOString();
+    const metricsBefore = new Date(now - 90 * 86400000).toISOString().slice(0,10);
+    const limiterBefore = new Date(now - 10 * 60000).toISOString();
     await env.DB.batch([
       env.DB.prepare("DELETE FROM location_history WHERE project_id=? AND received_at<?").bind(p.id,historyBefore),
       env.DB.prepare("DELETE FROM realtime_events WHERE project_id=? AND created_at<?").bind(p.id,realtimeBefore),
       env.DB.prepare("DELETE FROM webhook_deliveries WHERE project_id=? AND created_at<?").bind(p.id,webhookBefore),
-      env.DB.prepare("DELETE FROM geofence_events WHERE project_id=? AND created_at<?").bind(p.id,geofenceBefore)
+      env.DB.prepare("DELETE FROM geofence_events WHERE project_id=? AND created_at<?").bind(p.id,geofenceBefore),
+      env.DB.prepare("DELETE FROM usage_daily WHERE project_id=? AND usage_date<?").bind(p.id,metricsBefore),
+      env.DB.prepare("DELETE FROM rate_limit_windows WHERE project_id=? AND window_start<?").bind(p.id,limiterBefore)
     ]);
   }
 }
