@@ -27,6 +27,9 @@ const publicConfig =
   globalThis
     .__GEOLIVE_PUBLIC_CONFIG__ ||
   {};
+const runtimeCapabilities =
+  publicConfig.capabilities ||
+  {};
 const globeRenderer =
   new GeoGlobeRenderer(
     earthCanvas,
@@ -275,10 +278,26 @@ function populateProjectSelect() {
   document.querySelector("#manageOps").disabled = !state.projectId;
   document.querySelector("#manageAutomation").disabled = !state.projectId;
   document.querySelector("#loadHeatmap").disabled = !state.projectId;
+  const billingSupported =
+    runtimeCapabilities.commercial !== false;
   document.querySelector("#manageBilling").disabled =
-    state.accounts.length === 0;
+    state.accounts.length === 0 ||
+    !billingSupported;
+  document.querySelector("#manageBilling").hidden =
+    !billingSupported;
+
+  const issuerOption =
+    document.querySelector(
+      '#keyType option[value="issuer"]'
+    );
+  if (issuerOption) {
+    issuerOption.disabled =
+      runtimeCapabilities.clientTokens === false;
+  }
+
   document.querySelector("#platformConsole").hidden =
-    !state.platformRole;
+    !state.platformRole ||
+    runtimeCapabilities.platformConsole === false;
 }
 
 function applyIdentity() {
