@@ -38,7 +38,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.resolve(__dirname, "../../dashboard");
-const SERVICE_VERSION = "0.16.1";
+const SERVICE_VERSION = "0.17.0";
 const DASHBOARD_CSP =
   "default-src 'self'; " +
   "img-src 'self' data: blob: https://cdn.jsdelivr.net https://tile.googleapis.com; " +
