@@ -16,6 +16,7 @@ import {
   summary
 } from "./d1-store.mjs";
 import { parseWindow, normalizeGridDegrees } from "./geo.mjs";
+import { handleAutomationAdmin } from "./automation-admin.mjs";
 
 const COOKIE = "gla_session";
 
@@ -513,6 +514,15 @@ export async function handleAdmin(request, env, thresholds) {
     return json({ project: { ...project, ...body } });
   }
 
+  const automationResponse = await handleAutomationAdmin({
+    request,
+    env,
+    project,
+    resource,
+    adminUserId: auth.user.id
+  });
+  if (automationResponse) return automationResponse;
+
   if (resource === "summary" && request.method === "GET") {
     return json(await summary(env,projectId,thresholds));
   }
@@ -543,9 +553,6 @@ export async function handleAdmin(request, env, thresholds) {
   }
   if (resource === "operations/metrics" && request.method === "GET") {
     return json(await projectMetrics(env,projectId,url.searchParams.get("hours")||24));
-  }
-  if (resource === "geofences" && request.method === "GET") {
-    return json(await listGeofences(env,projectId));
   }
   if (resource === "history" && request.method === "GET") {
     const userId=String(url.searchParams.get("userId")||"").trim();
