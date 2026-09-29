@@ -32,6 +32,12 @@ import {
   parseHeatmapQuery,
   parseMovementHistoryQuery
 } from "./geospatial-validation.mjs";
+import {
+  parseAutomationListQuery,
+  validateAlertRule,
+  validateGeofence,
+  validateWebhookEndpoint
+} from "./automation-validation.mjs";
 
 const COOKIE_NAME = "geolive_admin_session";
 
@@ -271,6 +277,7 @@ export async function handleAdminApi({
   opsStore,
   clientSecurityStore,
   commercialStore,
+  automationStore,
   geoStore
 }) {
   const adminRequest =
@@ -1262,6 +1269,481 @@ export async function handleAdminApi({
         });
         sendJson(res, 200, { projectId, ...page });
         return true;
+      }
+    }
+
+    const automationCollectionMatch =
+      url.pathname.match(
+        /^\/v1\/admin\/projects\/([0-9a-f-]{36})\/(geofences|webhook-endpoints|alert-rules|geofence-events|webhook-deliveries)$/
+      );
+
+    if (automationCollectionMatch) {
+      if (!automationStore) {
+        sendJson(res, 503, {
+          error:
+            "automation_requires_postgres"
+        });
+        return true;
+      }
+
+      const projectId =
+        automationCollectionMatch[1];
+      const resource =
+        automationCollectionMatch[2];
+      const project =
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId,
+          {
+            write:
+              req.method !== "GET"
+          }
+        );
+
+      if (
+        resource === "geofences" ||
+        resource ===
+          "geofence-events"
+      ) {
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              projectId,
+              "geofences"
+            );
+        }
+      } else if (commercialStore) {
+        await commercialStore
+          .assertProjectFeature(
+            projectId,
+            "webhooks"
+          );
+      }
+
+      if (
+        req.method === "GET" &&
+        resource === "geofences"
+      ) {
+        const geofences =
+          await automationStore
+            .listGeofences(
+              projectId
+            );
+        sendJson(res, 200, {
+          projectId,
+          geofences
+        });
+        return true;
+      }
+
+      if (
+        req.method === "POST" &&
+        resource === "geofences"
+      ) {
+        requireCsrf(req, session);
+        const input =
+          validateGeofence(
+            await readJson(
+              req,
+              64 * 1024
+            )
+          );
+        const geofence =
+          await automationStore
+            .createGeofence({
+              project,
+              actorUserId:
+                session.user.id,
+              input
+            });
+        sendJson(res, 201, {
+          geofence
+        });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource ===
+          "webhook-endpoints"
+      ) {
+        const endpoints =
+          await automationStore
+            .listWebhookEndpoints(
+              projectId
+            );
+        sendJson(res, 200, {
+          projectId,
+          endpoints
+        });
+        return true;
+      }
+
+      if (
+        req.method === "POST" &&
+        resource ===
+          "webhook-endpoints"
+      ) {
+        requireCsrf(req, session);
+        const input =
+          validateWebhookEndpoint(
+            await readJson(req),
+            {
+              isProduction:
+                config.isProduction
+            }
+          );
+        const created =
+          await automationStore
+            .createWebhookEndpoint({
+              project,
+              actorUserId:
+                session.user.id,
+              input
+            });
+        sendJson(res, 201, {
+          endpoint:
+            created.endpoint,
+          secret:
+            created.secret
+        });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource === "alert-rules"
+      ) {
+        const alertRules =
+          await automationStore
+            .listAlertRules(
+              projectId
+            );
+        sendJson(res, 200, {
+          projectId,
+          alertRules
+        });
+        return true;
+      }
+
+      if (
+        req.method === "POST" &&
+        resource === "alert-rules"
+      ) {
+        requireCsrf(req, session);
+        const input =
+          validateAlertRule(
+            await readJson(req)
+          );
+        const alertRule =
+          await automationStore
+            .createAlertRule({
+              project,
+              actorUserId:
+                session.user.id,
+              input
+            });
+        sendJson(res, 201, {
+          alertRule
+        });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource ===
+          "geofence-events"
+      ) {
+        const query =
+          parseAutomationListQuery(
+            url.searchParams
+          );
+        const page =
+          await automationStore
+            .listEvents(
+              projectId,
+              query
+            );
+        sendJson(res, 200, {
+          projectId,
+          ...page
+        });
+        return true;
+      }
+
+      if (
+        req.method === "GET" &&
+        resource ===
+          "webhook-deliveries"
+      ) {
+        const query =
+          parseAutomationListQuery(
+            url.searchParams
+          );
+        const page =
+          await automationStore
+            .listDeliveries(
+              projectId,
+              query
+            );
+        sendJson(res, 200, {
+          projectId,
+          ...page
+        });
+        return true;
+      }
+    }
+
+    const automationItemMatch =
+      url.pathname.match(
+        /^\/v1\/admin\/projects\/([0-9a-f-]{36})\/(geofences|webhook-endpoints|alert-rules)\/([0-9a-f-]{36})(?:\/(rotate))?$/
+      );
+
+    if (automationItemMatch) {
+      if (!automationStore) {
+        sendJson(res, 503, {
+          error:
+            "automation_requires_postgres"
+        });
+        return true;
+      }
+
+      const projectId =
+        automationItemMatch[1];
+      const resource =
+        automationItemMatch[2];
+      const itemId =
+        automationItemMatch[3];
+      const action =
+        automationItemMatch[4] || "";
+      const project =
+        await adminStore.authorizeProject(
+          session.user.id,
+          projectId,
+          { write: true }
+        );
+
+      if (
+        resource === "geofences"
+      ) {
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              projectId,
+              "geofences"
+            );
+        }
+
+        if (
+          req.method === "PATCH" &&
+          !action
+        ) {
+          requireCsrf(
+            req,
+            session
+          );
+          const patch =
+            validateGeofence(
+              await readJson(
+                req,
+                64 * 1024
+              ),
+              { partial: true }
+            );
+          const geofence =
+            await automationStore
+              .updateGeofence({
+                project,
+                actorUserId:
+                  session.user.id,
+                geofenceId:
+                  itemId,
+                patch
+              });
+          sendJson(res, 200, {
+            geofence
+          });
+          return true;
+        }
+
+        if (
+          req.method === "DELETE" &&
+          !action
+        ) {
+          requireCsrf(
+            req,
+            session
+          );
+          await automationStore
+            .deleteGeofence({
+              project,
+              actorUserId:
+                session.user.id,
+              geofenceId:
+                itemId
+            });
+          sendJson(res, 200, {
+            ok: true
+          });
+          return true;
+        }
+      }
+
+      if (
+        resource ===
+          "webhook-endpoints"
+      ) {
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              projectId,
+              "webhooks"
+            );
+        }
+
+        if (
+          req.method === "PATCH" &&
+          !action
+        ) {
+          requireCsrf(
+            req,
+            session
+          );
+          const patch =
+            validateWebhookEndpoint(
+              await readJson(req),
+              {
+                partial: true,
+                isProduction:
+                  config.isProduction
+              }
+            );
+          const endpoint =
+            await automationStore
+              .updateWebhookEndpoint({
+                project,
+                actorUserId:
+                  session.user.id,
+                endpointId:
+                  itemId,
+                patch
+              });
+          sendJson(res, 200, {
+            endpoint
+          });
+          return true;
+        }
+
+        if (
+          req.method === "POST" &&
+          action === "rotate"
+        ) {
+          requireCsrf(
+            req,
+            session
+          );
+          const rotated =
+            await automationStore
+              .rotateWebhookSecret({
+                project,
+                actorUserId:
+                  session.user.id,
+                endpointId:
+                  itemId
+              });
+          sendJson(res, 201, {
+            endpoint:
+              rotated.endpoint,
+            secret:
+              rotated.secret
+          });
+          return true;
+        }
+
+        if (
+          req.method === "DELETE" &&
+          !action
+        ) {
+          requireCsrf(
+            req,
+            session
+          );
+          await automationStore
+            .deleteWebhookEndpoint({
+              project,
+              actorUserId:
+                session.user.id,
+              endpointId:
+                itemId
+            });
+          sendJson(res, 200, {
+            ok: true
+          });
+          return true;
+        }
+      }
+
+      if (
+        resource === "alert-rules"
+      ) {
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              projectId,
+              "webhooks"
+            );
+        }
+
+        if (
+          req.method === "PATCH" &&
+          !action
+        ) {
+          requireCsrf(
+            req,
+            session
+          );
+          const patch =
+            validateAlertRule(
+              await readJson(req),
+              { partial: true }
+            );
+          const alertRule =
+            await automationStore
+              .updateAlertRule({
+                project,
+                actorUserId:
+                  session.user.id,
+                alertRuleId:
+                  itemId,
+                patch
+              });
+          sendJson(res, 200, {
+            alertRule
+          });
+          return true;
+        }
+
+        if (
+          req.method === "DELETE" &&
+          !action
+        ) {
+          requireCsrf(
+            req,
+            session
+          );
+          await automationStore
+            .deleteAlertRule({
+              project,
+              actorUserId:
+                session.user.id,
+              alertRuleId:
+                itemId
+            });
+          sendJson(res, 200, {
+            ok: true
+          });
+          return true;
+        }
       }
     }
 
