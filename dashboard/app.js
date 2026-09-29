@@ -2511,6 +2511,8 @@ function renderBilling(payload) {
     "realtime",
     "movementHistory",
     "heatmap",
+    "geofences",
+    "webhooks",
     "clientTokens",
     "androidAttestation",
     "prioritySupport"
@@ -3212,6 +3214,16 @@ function renderPlatformAccountDetail(payload) {
     "heatmap"
   );
   setOverrideControl(
+    "entitlementGeofences",
+    overrides,
+    "geofences"
+  );
+  setOverrideControl(
+    "entitlementWebhooks",
+    overrides,
+    "webhooks"
+  );
+  setOverrideControl(
     "entitlementClientTokens",
     overrides,
     "clientTokens"
@@ -3746,6 +3758,14 @@ document.querySelector("#platformEntitlementForm").addEventListener(
               nullableBooleanValue(
                 "entitlementHeatmap"
               ),
+            geofences:
+              nullableBooleanValue(
+                "entitlementGeofences"
+              ),
+            webhooks:
+              nullableBooleanValue(
+                "entitlementWebhooks"
+              ),
             clientTokens:
               nullableBooleanValue(
                 "entitlementClientTokens"
@@ -3885,6 +3905,10 @@ document.querySelector("#platformPlanForm").addEventListener(
               document.querySelector("#platformFeatureMovementHistory").checked,
             heatmap:
               document.querySelector("#platformFeatureHeatmap").checked,
+            geofences:
+              document.querySelector("#platformFeatureGeofences").checked,
+            webhooks:
+              document.querySelector("#platformFeatureWebhooks").checked,
             clientTokens:
               document.querySelector("#platformFeatureClientTokens").checked,
             androidAttestation:
