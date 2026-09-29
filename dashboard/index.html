@@ -84,6 +84,37 @@
         <canvas id="globe" class="globe-overlay" aria-label="Interactive live user globe"></canvas>
         <div class="renderer-badge" id="rendererBadge">3D WebGL</div>
         <div class="globe-tools"><button id="center" title="Reset globe">⌾</button><button id="pause" title="Pause rotation">◉</button><button id="zoomIn" title="Zoom in">＋</button><button id="zoomOut" title="Zoom out">−</button></div>
+        <section class="geofence-editor" id="geofenceEditor" hidden>
+          <div class="geofence-editor-head">
+            <div>
+              <small>GLOBE GEOFENCE EDITOR</small>
+              <strong id="geofenceEditorTitle">Draw geofence</strong>
+            </div>
+            <button type="button" class="close" id="geofenceEditorCancel" title="Cancel">×</button>
+          </div>
+          <div class="geofence-editor-fields">
+            <label>Name<input id="geofenceEditorName" maxlength="120" /></label>
+            <label>Shape
+              <select id="geofenceEditorShape">
+                <option value="circle">Circle</option>
+                <option value="polygon">Polygon</option>
+              </select>
+            </label>
+            <label>Dwell seconds<input id="geofenceEditorDwell" type="number" min="0" max="604800" value="300" /></label>
+          </div>
+          <p id="geofenceEditorHint">Choose a shape and click the globe.</p>
+          <div class="geofence-editor-meta">
+            <span id="geofenceEditorCoords">No points selected</span>
+            <span id="geofenceEditorMeasure">—</span>
+          </div>
+          <div class="geofence-editor-actions">
+            <button type="button" class="text-button" id="geofenceEditorUndo">Undo</button>
+            <button type="button" class="text-button" id="geofenceEditorClear">Redraw</button>
+            <button type="button" class="text-button" id="geofenceEditorFinish">Finish polygon</button>
+            <button type="button" class="primary-button" id="geofenceEditorSave">Save geofence</button>
+          </div>
+          <div class="form-error" id="geofenceEditorError"></div>
+        </section>
         <div class="legend">
           <small>USER ACTIVITY</small>
           <span><i class="dot online"></i>Online</span>
@@ -341,7 +372,10 @@
             <textarea id="geofencePoints" rows="4" placeholder="81.6200,21.2400&#10;81.6400,21.2400&#10;81.6400,21.2600&#10;81.6200,21.2600"></textarea>
             <small>One longitude,latitude pair per line. The polygon closes automatically.</small>
           </label>
-          <button type="submit" class="primary-button">Create geofence</button>
+          <div class="geofence-create-actions">
+            <button type="button" class="text-button" id="geofenceDrawNew">Draw on globe</button>
+            <button type="submit" class="primary-button">Create geofence</button>
+          </div>
         </form>
 
         <form id="webhookForm" class="limits-form">
