@@ -80,8 +80,10 @@
       </section>
 
       <section class="globe-card">
-        <canvas id="globe"></canvas>
-        <div class="globe-tools"><button id="center">⌾</button><button id="pause">◉</button><button id="zoomIn">＋</button><button id="zoomOut">−</button></div>
+        <canvas id="earthGlobe" class="globe-surface" aria-hidden="true"></canvas>
+        <canvas id="globe" class="globe-overlay" aria-label="Interactive live user globe"></canvas>
+        <div class="renderer-badge" id="rendererBadge">3D WebGL</div>
+        <div class="globe-tools"><button id="center" title="Reset globe">⌾</button><button id="pause" title="Pause rotation">◉</button><button id="zoomIn" title="Zoom in">＋</button><button id="zoomOut" title="Zoom out">−</button></div>
         <div class="legend">
           <small>USER ACTIVITY</small>
           <span><i class="dot online"></i>Online</span>
