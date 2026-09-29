@@ -240,6 +240,7 @@ export async function postWebhook({
   return new Promise(
     (resolve, reject) => {
       let settled = false;
+      let totalTimer = null;
 
       const request = transport.request(
         {
@@ -314,6 +315,9 @@ export async function postWebhook({
             () => {
               if (settled) return;
               settled = true;
+              if (totalTimer) {
+                clearTimeout(totalTimer);
+              }
               resolve({
                 statusCode:
                   Number(
@@ -332,7 +336,7 @@ export async function postWebhook({
         }
       );
 
-      request.setTimeout(
+      const boundedTimeout =
         Math.min(
           Math.max(
             Number(timeoutMs) ||
@@ -340,7 +344,10 @@ export async function postWebhook({
             1000
           ),
           30000
-        ),
+        );
+
+      request.setTimeout(
+        boundedTimeout,
         () => {
           request.destroy(
             new Error(
@@ -350,11 +357,26 @@ export async function postWebhook({
         }
       );
 
+      totalTimer = setTimeout(
+        () => {
+          request.destroy(
+            new Error(
+              "webhook_timeout"
+            )
+          );
+        },
+        boundedTimeout
+      );
+      totalTimer.unref?.();
+
       request.on(
         "error",
         (error) => {
           if (settled) return;
           settled = true;
+          if (totalTimer) {
+            clearTimeout(totalTimer);
+          }
           reject(error);
         }
       );
