@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Rekixo GeoLive API
-  version: 0.8.0
-  description: Project-scoped live-location API with short-lived client security, commercial plans, entitlements, usage metering, invoices, support workflows and platform administration.
+  version: 0.11.0
+  description: Project-scoped live-location API with short-lived client security, commercial plans, movement history, historical heatmaps, usage metering, invoices, support workflows and platform administration.
 servers:
   - url: https://geolive.example.com
 
@@ -81,6 +81,68 @@ paths:
           schema: { type: string }
       responses:
         "200": { description: Cursor-paginated project-scoped latest users }
+        "429": { description: Project read rate limit exceeded }
+
+  /v1/history:
+    get:
+      operationId: movementHistory
+      description: |
+        Cursor-paginated project/user movement history. Requires history:read.
+        The requested time window must be no more than 31 days and returned
+        data is bounded by the project's configured history retention.
+      security:
+        - integrationBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PackageHeader"
+        - in: query
+          name: userId
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 160 }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 250 }
+        - in: query
+          name: cursor
+          schema: { type: string, maxLength: 1024 }
+      responses:
+        "200": { description: Project/user-scoped historical location points and next cursor }
+        "400": { description: Invalid user, cursor or history window }
+        "402": { description: Movement-history feature not entitled }
+        "429": { description: Project read rate limit exceeded }
+
+  /v1/heatmap:
+    get:
+      operationId: historicalHeatmap
+      description: |
+        Aggregates retained project location history into geographic cells.
+        Requires history:read and a maximum 31-day query window.
+      security:
+        - integrationBearer: []
+      parameters:
+        - $ref: "#/components/parameters/PackageHeader"
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: gridDegrees
+          schema: { type: number, minimum: 0.25, maximum: 45, default: 2 }
+        - in: query
+          name: userId
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "200": { description: Project-scoped historical heatmap cells }
+        "400": { description: Invalid grid or history window }
+        "402": { description: Heatmap feature not entitled }
         "429": { description: Project read rate limit exceeded }
 
   /v1/clusters:
@@ -252,6 +314,70 @@ paths:
       responses:
         "200": { description: Latest users for an authorized project }
 
+  /v1/admin/projects/{projectId}/facets:
+    get:
+      operationId: adminProjectLocationFacets
+      description: Project-scoped country, state and city values for scalable dashboard filtering.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Bounded location facet values for the authorized project }
+
+  /v1/admin/projects/{projectId}/history:
+    get:
+      operationId: adminProjectMovementHistory
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: userId
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 160 }
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 250 }
+        - in: query
+          name: cursor
+          schema: { type: string, maxLength: 1024 }
+      responses:
+        "200": { description: Authorized project/user movement history }
+        "400": { description: Invalid history query }
+        "402": { description: Movement-history feature not entitled }
+
+  /v1/admin/projects/{projectId}/heatmap:
+    get:
+      operationId: adminProjectHistoricalHeatmap
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: from
+          schema: { type: string, format: date-time }
+        - in: query
+          name: to
+          schema: { type: string, format: date-time }
+        - in: query
+          name: gridDegrees
+          schema: { type: number, minimum: 0.25, maximum: 45, default: 2 }
+        - in: query
+          name: userId
+          required: false
+          schema: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "200": { description: Authorized project historical heatmap cells }
+        "400": { description: Invalid heatmap query }
+        "402": { description: Heatmap feature not entitled }
+
   /v1/admin/projects/{projectId}/summary:
     get:
       operationId: adminProjectSummary
@@ -260,7 +386,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/ProjectId"
       responses:
-        "200": { description: Status totals for an authorized project }
+        "200": { description: Status totals plus UTC-day active-user count for an authorized project }
 
   /v1/admin/projects/{projectId}/clusters:
     get:
@@ -272,8 +398,232 @@ paths:
         - in: query
           name: gridDegrees
           schema: { type: number, minimum: 0.25, maximum: 45, default: 8 }
+        - in: query
+          name: status
+          schema: { type: string, enum: [online, recent, offline, inactive] }
+        - in: query
+          name: country
+          schema: { type: string }
+        - in: query
+          name: state
+          schema: { type: string }
+        - in: query
+          name: city
+          schema: { type: string }
       responses:
         "200": { description: Aggregate cluster centers for an authorized project }
+
+  /v1/admin/projects/{projectId}/geofences:
+    get:
+      operationId: adminListGeofences
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project geofence definitions }
+        "402": { description: Geofence feature not entitled }
+    post:
+      operationId: adminCreateGeofence
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Circle or polygon geofence created }
+        "402": { description: Geofence feature not entitled }
+
+  /v1/admin/projects/{projectId}/geofences/{geofenceId}:
+    patch:
+      operationId: adminUpdateGeofence
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: geofenceId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Geofence updated }
+    delete:
+      operationId: adminDeleteGeofence
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: geofenceId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Geofence soft-deleted and related rules disabled }
+
+  /v1/admin/projects/{projectId}/webhook-endpoints:
+    get:
+      operationId: adminListWebhookEndpoints
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project webhook endpoint metadata }
+        "402": { description: Webhook feature not entitled }
+    post:
+      operationId: adminCreateWebhookEndpoint
+      description: Creates an endpoint and returns its signing secret exactly once.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Webhook endpoint created; signing secret returned once }
+        "402": { description: Webhook feature not entitled }
+        "503": { description: Webhook signing keys are not configured }
+
+  /v1/admin/projects/{projectId}/webhook-endpoints/{endpointId}:
+    patch:
+      operationId: adminUpdateWebhookEndpoint
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: endpointId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Webhook endpoint metadata updated }
+    delete:
+      operationId: adminDeleteWebhookEndpoint
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: endpointId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Endpoint soft-deleted and pending deliveries dead-lettered }
+
+  /v1/admin/projects/{projectId}/webhook-endpoints/{endpointId}/rotate:
+    post:
+      operationId: adminRotateWebhookSecret
+      description: Rotates the derived endpoint signing secret and returns the new secret once.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: endpointId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Webhook signing secret rotated }
+
+  /v1/admin/projects/{projectId}/alert-rules:
+    get:
+      operationId: adminListAlertRules
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+      responses:
+        "200": { description: Project geofence alert rules }
+    post:
+      operationId: adminCreateAlertRule
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "201": { description: Alert rule created }
+
+  /v1/admin/projects/{projectId}/alert-rules/{alertRuleId}:
+    patch:
+      operationId: adminUpdateAlertRule
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: alertRuleId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Alert rule updated }
+    delete:
+      operationId: adminDeleteAlertRule
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: alertRuleId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Alert rule soft-deleted }
+
+  /v1/admin/projects/{projectId}/geofence-events:
+    get:
+      operationId: adminListGeofenceEvents
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        "200": { description: Cursor-paginated project geofence event history }
+
+  /v1/admin/projects/{projectId}/webhook-deliveries:
+    get:
+      operationId: adminListWebhookDeliveries
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        "200": { description: Cursor-paginated webhook delivery and dead-letter state }
+
+  /v1/admin/projects/{projectId}/webhook-deliveries/{deliveryId}/retry:
+    post:
+      operationId: adminRetryWebhookDelivery
+      description: Resets a terminal dead-letter delivery for an audited manual retry.
+      security:
+        - adminCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ProjectId"
+        - in: path
+          name: deliveryId
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200": { description: Dead-letter delivery requeued }
+        "409": { description: Delivery is not in the dead-letter state }
 
   /v1/admin/realtime:
     get:
@@ -869,6 +1219,8 @@ components:
             - { type: integer, minimum: 0 }
             - { type: "null" }
         realtime: { type: [boolean, "null"] }
+        movementHistory: { type: [boolean, "null"] }
+        heatmap: { type: [boolean, "null"] }
         clientTokens: { type: [boolean, "null"] }
         androidAttestation: { type: [boolean, "null"] }
         prioritySupport: { type: [boolean, "null"] }
@@ -999,7 +1351,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [location:write, users:read, summary:read, events:read, tokens:issue]
+            enum: [location:write, users:read, history:read, summary:read, events:read, tokens:issue]
         allowedOrigins:
           type: array
           maxItems: 50

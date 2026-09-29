@@ -8,7 +8,9 @@ const DEFAULT_LIMITS = Object.freeze({
   historyRetentionDays: 30,
   securityEventRetentionDays: 90,
   metricsRetentionDays: 90,
-  realtimeEventRetentionHours: 24
+  realtimeEventRetentionHours: 24,
+  geofenceEventRetentionDays: 90,
+  webhookDeliveryRetentionDays: 30
 });
 
 function int(value) {
@@ -55,6 +57,14 @@ function mapLimits(row = {}) {
     realtimeEventRetentionHours: int(
       row.realtime_event_retention_hours ??
       DEFAULT_LIMITS.realtimeEventRetentionHours
+    ),
+    geofenceEventRetentionDays: int(
+      row.geofence_event_retention_days ??
+      DEFAULT_LIMITS.geofenceEventRetentionDays
+    ),
+    webhookDeliveryRetentionDays: int(
+      row.webhook_delivery_retention_days ??
+      DEFAULT_LIMITS.webhookDeliveryRetentionDays
     ),
     updatedAt: row.updated_at ? iso(row.updated_at) : null
   };
@@ -120,6 +130,8 @@ export class PostgresOperationsStore {
           l.security_event_retention_days,
           l.metrics_retention_days,
           l.realtime_event_retention_hours,
+          l.geofence_event_retention_days,
+          l.webhook_delivery_retention_days,
           l.updated_at
        FROM projects p
        LEFT JOIN project_limits l ON l.project_id = p.id
@@ -152,8 +164,10 @@ export class PostgresOperationsStore {
         security_event_retention_days,
         metrics_retention_days,
         realtime_event_retention_hours,
+        geofence_event_retention_days,
+        webhook_delivery_retention_days,
         updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now())
       ON CONFLICT (project_id)
       DO UPDATE SET
         ingest_requests_per_minute = EXCLUDED.ingest_requests_per_minute,
@@ -164,6 +178,8 @@ export class PostgresOperationsStore {
         security_event_retention_days = EXCLUDED.security_event_retention_days,
         metrics_retention_days = EXCLUDED.metrics_retention_days,
         realtime_event_retention_hours = EXCLUDED.realtime_event_retention_hours,
+        geofence_event_retention_days = EXCLUDED.geofence_event_retention_days,
+        webhook_delivery_retention_days = EXCLUDED.webhook_delivery_retention_days,
         updated_at = now()
       RETURNING *`,
       [
@@ -175,7 +191,9 @@ export class PostgresOperationsStore {
         next.historyRetentionDays,
         next.securityEventRetentionDays,
         next.metricsRetentionDays,
-        next.realtimeEventRetentionHours
+        next.realtimeEventRetentionHours,
+        next.geofenceEventRetentionDays,
+        next.webhookDeliveryRetentionDays
       ]
     );
 
@@ -613,6 +631,78 @@ export class PostgresOperationsStore {
         [size, DEFAULT_LIMITS.realtimeEventRetentionHours]
       );
 
+      const webhookDeliveries =
+        await this.pool.query(
+          `WITH doomed AS (
+            SELECT d.ctid
+            FROM webhook_deliveries d
+            JOIN projects p
+              ON p.id = d.project_id
+            LEFT JOIN project_limits l
+              ON l.project_id = p.id
+            WHERE d.status IN (
+                'delivered',
+                'dead'
+              )
+              AND d.updated_at <
+                now() - (
+                  COALESCE(
+                    l.webhook_delivery_retention_days,
+                    $2
+                  )::double precision
+                  * interval '1 day'
+                )
+            ORDER BY d.updated_at ASC
+            LIMIT $1
+          )
+          DELETE FROM webhook_deliveries d
+          USING doomed x
+          WHERE d.ctid = x.ctid
+          RETURNING d.id`,
+          [
+            size,
+            DEFAULT_LIMITS
+              .webhookDeliveryRetentionDays
+          ]
+        );
+
+      const geofenceEvents =
+        await this.pool.query(
+          `WITH doomed AS (
+            SELECT e.ctid
+            FROM geofence_events e
+            JOIN projects p
+              ON p.id = e.project_id
+            LEFT JOIN project_limits l
+              ON l.project_id = p.id
+            WHERE e.created_at <
+                now() - (
+                  COALESCE(
+                    l.geofence_event_retention_days,
+                    $2
+                  )::double precision
+                  * interval '1 day'
+                )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM webhook_deliveries d
+                WHERE d.geofence_event_id =
+                  e.id
+              )
+            ORDER BY e.created_at ASC
+            LIMIT $1
+          )
+          DELETE FROM geofence_events e
+          USING doomed x
+          WHERE e.ctid = x.ctid
+          RETURNING e.id`,
+          [
+            size,
+            DEFAULT_LIMITS
+              .geofenceEventRetentionDays
+          ]
+        );
+
       const exchangeNonces =
         await this.pool.query(
           `WITH doomed AS (
@@ -689,6 +779,10 @@ export class PostgresOperationsStore {
         securityEventsDeleted: security.rowCount,
         metricsDeleted: metrics.rowCount,
         realtimeEventsDeleted: realtime.rowCount,
+        geofenceEventsDeleted:
+          geofenceEvents.rowCount,
+        webhookDeliveriesDeleted:
+          webhookDeliveries.rowCount,
         clientExchangeNoncesDeleted:
           exchangeNonces.rowCount,
         clientRequestNoncesDeleted:
@@ -706,11 +800,13 @@ export class PostgresOperationsStore {
              security_events_deleted = $3,
              metrics_deleted = $4,
              realtime_events_deleted = $5,
-             client_exchange_nonces_deleted = $6,
-             client_request_nonces_deleted = $7,
-             billing_tracked_users_deleted = $8,
-             rate_counters_deleted = $9,
-             sessions_deleted = $10,
+             geofence_events_deleted = $6,
+             webhook_deliveries_deleted = $7,
+             client_exchange_nonces_deleted = $8,
+             client_request_nonces_deleted = $9,
+             billing_tracked_users_deleted = $10,
+             rate_counters_deleted = $11,
+             sessions_deleted = $12,
              status = 'success'
          WHERE id = $1`,
         [
@@ -719,6 +815,8 @@ export class PostgresOperationsStore {
           summary.securityEventsDeleted,
           summary.metricsDeleted,
           summary.realtimeEventsDeleted,
+          summary.geofenceEventsDeleted,
+          summary.webhookDeliveriesDeleted,
           summary.clientExchangeNoncesDeleted,
           summary.clientRequestNoncesDeleted,
           summary.billingTrackedUsersDeleted,

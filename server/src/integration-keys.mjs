@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 export const API_KEY_SCOPES = Object.freeze([
   "location:write",
   "users:read",
+  "history:read",
   "summary:read",
   "events:read",
   "tokens:issue"

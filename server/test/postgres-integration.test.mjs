@@ -68,6 +68,24 @@ test("Postgres store persists and isolates project live state", {
     const summaryA = await store.summary(a.rows[0].id);
     assert.equal(summaryA.total, 1);
     assert.equal(summaryA.online, 1);
+    assert.equal(summaryA.todayActive, 1);
+
+    const facetsA =
+      await store.locationFacets(
+        a.rows[0].id
+      );
+    assert.deepEqual(
+      facetsA.countries,
+      ["India"]
+    );
+    assert.deepEqual(
+      facetsA.states,
+      ["Chhattisgarh"]
+    );
+    assert.deepEqual(
+      facetsA.cities,
+      ["Raipur"]
+    );
   } finally {
     await pool.query("DELETE FROM accounts WHERE id = $1", [account.rows[0].id]);
     await store.close();

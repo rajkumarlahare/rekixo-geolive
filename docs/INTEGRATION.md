@@ -19,7 +19,7 @@ Never put a `tokens:issue` key in an APK, Flutter bundle or browser JavaScript.
 From the GeoLive dashboard, create separate credentials:
 
 - ingest key: `location:write` for trusted/legacy ingest;
-- read key: `users:read`, `summary:read`, `events:read`;
+- read key: `users:read`, `history:read`, `summary:read`, `events:read`;
 - client-token issuer: `tokens:issue` only.
 
 The full `rgl_live_...` secret is displayed once.
@@ -232,3 +232,106 @@ Do not treat `402` as an authentication failure. The product backend should surf
 Existing trusted `location:write` calls are not automatically blocked by the P3 rollout; the `legacy` plan preserves compatibility.
 
 Billing usage is computed server-side. Client applications should not calculate authoritative invoice totals.
+
+
+## 14. Movement history
+
+Historical location reads use a dedicated `history:read` scope so a key that only reads current users does not automatically receive retained movement data.
+
+```http
+GET /v1/history?userId=user_123&from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&limit=250
+Authorization: Bearer rgl_live_<read-key>
+```
+
+Rules:
+
+- the project comes from the authenticated key;
+- `userId` is required and is scoped inside that project;
+- default window is the previous 24 hours ending now;
+- the maximum requested window is 31 days;
+- page size is 1–1,000 and the response may contain `nextCursor`;
+- returned data cannot outlive the project's configured history retention.
+
+The dashboard uses the equivalent authenticated admin route under `/v1/admin/projects/:projectId/history`.
+
+## 15. Historical heatmap
+
+```http
+GET /v1/heatmap?from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&gridDegrees=2
+Authorization: Bearer rgl_live_<read-key>
+```
+
+`gridDegrees` accepts 0.25–45 degrees. An optional `userId` narrows the aggregation to one project user.
+
+Each cell returns a center coordinate, historical location-point count, distinct-user count, first-seen timestamp and last-seen timestamp. The heatmap API aggregates server-side rather than returning every identity represented in a cell.
+
+Movement history and heatmap are commercial feature entitlements. A denied feature returns HTTP `402` with `feature_not_entitled` or `subscription_not_active`.
+
+## 16. Geofence automation
+
+Tenant admins configure circle or polygon geofences from **Geofences & Webhooks** or the admin API. Each geofence is project-scoped and can be active or paused.
+
+GeoLive emits:
+
+- `geofence.enter` when an observed user moves from outside to inside;
+- `geofence.exit` when an observed user moves from inside to outside;
+- `geofence.dwell` once per visit after the configured dwell duration.
+
+Enter/exit evaluation commits in the same PostgreSQL transaction as the location observation. Dwell state is durable and a multi-instance scheduler claims due dwell rows with database locks, so a user can generate a dwell event even when no new location update arrives exactly at the threshold.
+
+Realtime readers receive the same geofence event types through the existing WebSocket stream. Admins can inspect durable event history under:
+
+```http
+GET /v1/admin/projects/<projectId>/geofence-events
+```
+
+## 17. Signed outbound webhooks
+
+Create a webhook endpoint from the dashboard or admin API. Production endpoint URLs must use HTTPS. The full `rgl_whsec_...` signing secret is returned only after endpoint creation or secret rotation.
+
+Every delivery contains a JSON event envelope:
+
+```json
+{
+  "id": "<event-uuid>",
+  "type": "geofence.enter",
+  "createdAt": "2026-09-29T00:00:00.000Z",
+  "data": {
+    "type": "geofence.enter",
+    "projectId": "<project-uuid>",
+    "geofence": {
+      "id": "<geofence-uuid>",
+      "name": "Warehouse"
+    },
+    "userId": "user_123",
+    "occurredAt": "2026-09-29T00:00:00.000Z",
+    "location": {
+      "latitude": 21.2514,
+      "longitude": 81.6296,
+      "accuracyM": 8
+    }
+  }
+}
+```
+
+Headers include:
+
+```text
+X-Rekixo-Timestamp: <unix-seconds>
+X-Rekixo-Signature: v1=<hex-hmac-sha256>
+X-Rekixo-Event-Id: <event-uuid>
+X-Rekixo-Delivery-Id: <delivery-uuid>
+Idempotency-Key: <delivery-uuid>
+```
+
+Verify the signature using the endpoint secret over the exact UTF-8 bytes:
+
+```text
+HMAC_SHA256(secret, "<timestamp>.<raw-request-body>")
+```
+
+Consumers should also reject stale timestamps and deduplicate by event or delivery ID.
+
+Webhook delivery is **at least once**. Non-2xx/network failures use bounded exponential retry. Exhausted deliveries enter a terminal `dead` state and an authorized tenant admin can explicitly requeue a dead letter. Production delivery resolves DNS before each attempt, rejects non-public/private targets, pins the request to the validated address and does not follow redirects.
+
+`geofences` and `webhooks` are separate commercial entitlements. Disabling either entitlement fails closed for the corresponding runtime behavior without blocking ordinary location ingestion.

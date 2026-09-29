@@ -12,7 +12,7 @@ GeoLive has three integration credential classes:
 
 Full database API-key secrets are returned only on create/rotate. PostgreSQL stores their visible prefix and SHA-256 secret hash.
 
-A `tokens:issue` key cannot be mixed with ingest or read scopes. The legacy environment-key bridge cannot mint client tokens.
+A `tokens:issue` key cannot be mixed with ingest or read scopes. Historical location reads require the dedicated `history:read` scope. The legacy environment-key bridge cannot mint client tokens.
 
 ## Short-lived client tokens
 
@@ -54,6 +54,10 @@ Platform roles are:
 
 Sensitive plan, entitlement, subscription, invoice and support mutations are audited.
 
+Admin realtime WebSocket upgrades enforce same-origin Host/Origin matching in production. Requests without an Origin header are rejected in production. Reverse-proxy client IP forwarding is ignored unless `GEOLIVE_TRUST_PROXY=true` is explicitly configured; the trusted proxy must overwrite `X-Forwarded-For`.
+
+Project creation enforces account project limits under an account-scoped PostgreSQL transaction/advisory lock so concurrent create requests cannot both consume the last entitlement slot. Project and API-key mutations commit their audit records in the same transaction as the protected state change.
+
 ## Commercial integrity
 
 Existing/new accounts default to the backward-compatible `legacy` subscription until deliberately reassigned.
@@ -78,19 +82,43 @@ Tenant support APIs verify account membership.
 
 Messages marked `internal=true` are available only through platform support APIs and are excluded from tenant message responses.
 
+## Historical location privacy
+
+Movement history is more sensitive than a latest-location snapshot, so P4A does not reuse `users:read` as implicit permission. Public movement-history and heatmap endpoints require `history:read`.
+
+The authenticated integration key determines the project. Public clients cannot pass an arbitrary project ID to cross tenant boundaries. Admin historical routes separately verify the signed-in user's project membership.
+
+Historical queries are bounded to a maximum 31-day requested window. This bounds accidental large scans, but it does not extend retention: records removed by the configured location-history retention policy are no longer available through P4A.
+
+Movement-history and heatmap APIs fail closed when the account subscription is not active/trialing or the corresponding commercial feature entitlement is disabled.
+
+Heatmap responses aggregate location points into cells and expose counts plus distinct-user totals. They do not add user identity lists to aggregate cells.
+
 ## Rate limits, events and secrets
 
 Public authenticated traffic uses PostgreSQL-backed distributed limits.
 
 GeoLive does not copy raw API secrets, client tokens, Play Integrity tokens, passwords, admin sessions, CSRF tokens, payment secrets or exact location payloads into security/metrics tables.
 
+## Geofence automation and outbound webhooks
+
+Geofence transitions are evaluated inside the same PostgreSQL transaction that persists each location observation. Per-project/user advisory locking keeps enter/exit state transitions ordered for concurrent writes. Dwell events are claimed with row locks and `SKIP LOCKED` so horizontally scaled servers do not emit the same due dwell twice.
+
+Webhook deliveries are durable database records with at-least-once semantics, stable event/delivery IDs, bounded exponential retries and a terminal dead-letter state. Signing secrets are derived from deployment-held master keys and are shown only when an endpoint is created or rotated; plaintext webhook secrets are not stored in PostgreSQL.
+
+Production webhook URLs require HTTPS. Before every outbound attempt GeoLive resolves the target and rejects loopback, link-local, RFC1918/private, carrier-grade NAT, multicast and other non-public address ranges. The HTTP request is pinned to the validated DNS result and redirects are not followed, reducing SSRF and DNS-rebinding exposure.
+
+Each webhook request includes `X-Rekixo-Timestamp`, `X-Rekixo-Signature: v1=<hex-hmac>`, `X-Rekixo-Event-Id`, `X-Rekixo-Delivery-Id` and `Idempotency-Key`. Consumers should verify the HMAC over `<timestamp>.<raw-body>`, enforce a timestamp freshness window and deduplicate by event or delivery ID.
+
+Geofence and webhook execution also fails closed when the corresponding commercial entitlement is disabled.
+
 ## Retention
 
-Location history, realtime replay events, P2 replay nonces, security events and operational metrics have bounded cleanup. Commercial invoice/support records are not deleted by the generic retention worker because they represent business records and require an explicit retention policy before automatic deletion.
+Location history, realtime replay events, geofence events, terminal webhook deliveries and their attempt records, P2 replay nonces, security events and operational metrics have bounded cleanup. Geofence-event retention defaults to 90 days and terminal webhook-delivery retention defaults to 30 days; both are project-configurable within bounded ranges. Pending/retrying webhook deliveries are never removed by generic retention, and a geofence event is retained while any delivery still references it. Commercial invoice/support records are not deleted by the generic retention worker because they represent business records and require an explicit retention policy before automatic deletion.
 
 ## Compatibility
 
-Existing trusted `location:write` integrations continue to work. P2/P3 are additive, and the legacy plan preserves pre-commercial accounts.
+Existing trusted `location:write` integrations continue to work. P2/P3/P4A are additive, and the legacy plan preserves pre-commercial accounts while enabling movement history and heatmap.
 
 
 ### Entitlement override reset

@@ -6,7 +6,7 @@
 
 ## Current implementation
 
-P0 through P3 now provide:
+P0 through the P4C console foundation now provide:
 
 - project-scoped live-location ingestion
 - PostgreSQL/PostGIS latest-state and append-only history
@@ -27,6 +27,16 @@ P0 through P3 now provide:
 - **tenant support cases plus platform support workflow**
 - **separate superadmin / billing / support / viewer platform roles**
 - **billing/support and commercial platform dashboard controls**
+- **cursor-paginated project/user movement history**
+- **project-scoped historical heatmap aggregation**
+- **dashboard movement trails and historical heatmap overlays**
+- **circle/polygon geofences with enter, exit and dwell events**
+- **durable signed webhook delivery with retries and dead-letter handling**
+- **SSRF-resistant production webhook networking and one-time signing-secret reveal**
+- **dashboard geofence, alert-rule, endpoint, event and delivery controls**
+- **self-hosted dependency-free WebGL globe renderer with 2D fallback**
+- **shared rotation/zoom projection for live markers, clusters, heatmaps and movement trails**
+- **pointer drag + wheel zoom interaction with server-side clustering refresh**
 
 Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
@@ -99,7 +109,7 @@ A plan defines:
 - included tracked users
 - maximum projects
 - optional ingest/read/user overage prices
-- feature flags such as realtime, client tokens, Android attestation and priority support
+- feature flags such as realtime, movement history, heatmap, geofences, webhooks, client tokens, Android attestation and priority support
 
 Account-specific entitlement overrides can change limits/features without mutating the shared plan.
 
@@ -139,6 +149,71 @@ Platform-role users get a separate commercial console for plans, subscriptions, 
 
 An entitlement override can be reset to **Inherit**, which deletes the account override and resumes the shared plan value. Billing-role users can manage subscriptions/invoices but do not receive support-case metadata through commercial account detail.
 
+## P4A advanced geospatial reads
+
+P4A turns the existing retained `location_history` into bounded, project-scoped historical read APIs.
+
+Create a read key with:
+
+```text
+users:read
+history:read
+summary:read
+events:read
+```
+
+Movement history:
+
+```http
+GET /v1/history?userId=user_123&from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&limit=250
+Authorization: Bearer rgl_live_<read-key>
+```
+
+The response is newest-first and cursor paginated. Query windows are limited to 31 days.
+
+Historical heatmap:
+
+```http
+GET /v1/heatmap?from=2026-09-27T00:00:00.000Z&to=2026-09-28T00:00:00.000Z&gridDegrees=2
+Authorization: Bearer rgl_live_<read-key>
+```
+
+Heatmap cells contain aggregate point counts and distinct-user counts. They do not return additional user identities.
+
+Both public APIs derive the project from the authenticated integration key; clients cannot select another project in the query. Tenant dashboard equivalents use the authenticated admin session and account membership.
+
+Movement-history and heatmap access are independent commercial feature entitlements. The compatibility `legacy` plan enables both so upgrading to P4A does not remove existing access.
+
+Historical visibility is still bounded by the project's location-history retention. P4A does not create a second indefinite copy of raw location history.
+
+See [P4A advanced geospatial](docs/P4A-ADVANCED-GEOSPATIAL.md).
+
+## P4B geofence automation
+
+P4B evaluates project geofences as location observations are committed. Circle and polygon definitions support enter, exit and dwell events. The geofence state transition and the location observation share one PostgreSQL transaction, while dwell events are claimed safely across multiple server instances.
+
+Alert rules connect geofence event types to signed webhook endpoints. Production webhook targets must use HTTPS and pass public-network DNS checks before each attempt. Requests are pinned to the validated address, redirects are not followed, and endpoint signing secrets are derived from deployment-held master keys instead of being stored in plaintext.
+
+Configure a webhook signing key ring in deployment secrets:
+
+```text
+GEOLIVE_WEBHOOK_SIGNING_KEYS_JSON=[{"kid":"2026-09","secret":"<base64url-secret-at-least-32-bytes>"}]
+```
+
+The first key signs newly created or rotated endpoint secrets. Keep older keys in the ring until every endpoint that references them has been rotated.
+
+Webhook delivery is at least once. Failed attempts use bounded exponential backoff and eventually enter a `dead` state. Authorized tenant admins can explicitly retry a dead-letter delivery from the dashboard.
+
+See [Integration guide](docs/INTEGRATION.md) for the event envelope, signature verification and idempotency contract.
+
+## P4C geospatial console foundation
+
+The tenant dashboard now renders the Earth with a self-hosted WebGL sphere and a locally served dark Earth texture. No external map/CDN token is required for the globe renderer. Live markers, clusters, historical heatmap cells and movement trails continue to use the same geographic projection so overlays remain aligned while the globe rotates or zooms.
+
+If WebGL is unavailable or the context is lost, the existing 2D globe path remains available as a functional fallback.
+
+The current P4C foundation does not yet include direct geofence drawing/editing on the globe, trip/route analytics or export workflows; those remain explicit follow-up items rather than being silently represented as complete.
+
 ## Production realtime
 
 Integration readers connect to:
@@ -161,7 +236,7 @@ This cleans location history, realtime replay events, operational data, expired 
 
 ## Compatibility
 
-Existing trusted database-backed `location:write` integrations continue to work. P2 and P3 are additive.
+Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B and the P4C console foundation are additive.
 
 The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
 
@@ -173,7 +248,7 @@ The legacy `GEOLIVE_KEYS_JSON` credential bridge remains migration-only.
 npm run check
 ```
 
-CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 plans/entitlements/metering/invoices/support and the billing rollup worker.
+CI applies all migrations and verifies PostgreSQL/PostGIS, API-key lifecycle, quotas, realtime replay, Redis fanout, P2 client security, P3 commercial controls, P4A geospatial isolation, P4B geofence/webhook validation and PostgreSQL transitions, webhook signing/delivery behavior, dashboard asset serving, and the billing rollup worker.
 
 See:
 
@@ -182,6 +257,7 @@ See:
 - [Integration guide](docs/INTEGRATION.md)
 - [P2 client security](docs/P2-CLIENT-SECURITY.md)
 - [P3 commercial layer](docs/P3-COMMERCIAL-LAYER.md)
+- [P4A advanced geospatial](docs/P4A-ADVANCED-GEOSPATIAL.md)
 - [P1E production realtime](docs/P1E-PRODUCTION-REALTIME.md)
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)

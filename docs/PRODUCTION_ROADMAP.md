@@ -99,12 +99,51 @@
 - idempotent billing usage rollup worker
 - PostgreSQL commercial integration tests
 
-## Next — Advanced geospatial
-- movement history
-- heatmap
-- geofence
-- alerts
-- webhooks
+## Completed — P4A advanced geospatial reads
+- dedicated `history:read` integration scope
+- bounded 31-day historical query windows
+- cursor-paginated project/user movement history
+- PostgreSQL history indexes for project/time and project/user/time reads
+- server-side historical heatmap aggregation
+- optional heatmap user filter
+- movement-history and heatmap commercial feature entitlements
+- legacy-plan compatibility for both geospatial features
+- authenticated tenant-admin history/heatmap routes
+- dashboard movement-trail overlay
+- dashboard historical-heatmap overlay
+- memory and PostgreSQL isolation/pagination coverage
+
+## Completed — P4B geofence automation
+- circle and polygon geofence definitions
+- project-scoped active/paused lifecycle
+- transactionally ordered enter / exit evaluation
+- due dwell scheduler with multi-instance row claiming
+- durable geofence event history
+- project/geofence alert rules
+- one-time endpoint signing-secret reveal and rotation
+- signed outbound webhooks
+- SSRF-resistant DNS validation and pinned delivery
+- exponential retries with idempotent delivery IDs
+- terminal dead-letter state and attempt history
+- geofence/webhook commercial entitlement enforcement
+- tenant admin APIs for geofences, rules, endpoints, events and deliveries
+- PostgreSQL transition/isolation coverage plus webhook signing/worker tests
+
+## In progress — P4C product-grade geospatial console
+Completed foundation:
+- self-hosted dependency-free WebGL/3D earth renderer
+- 2D fallback when WebGL is unavailable
+- shared projection for markers, clusters, heatmap and movement trails
+- pointer drag, wheel/button zoom and reset/pause controls
+- real Today Active and 24-hour API-request dashboard metrics
+- server-side user filtering/facets and large-project clustering
+- WebGL dashboard assets covered by server regression tests
+
+Remaining P4C work:
+- geofence editing/drawing directly on the globe
+- richer event/delivery observability views
+- explicit pagination UX for very broad text-search results above 500 users
+- route/trip analytics and export workflows
 
 ## Later — Product administration
 - team/invite management

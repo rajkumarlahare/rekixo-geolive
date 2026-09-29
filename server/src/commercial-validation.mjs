@@ -199,6 +199,10 @@ export function validateEntitlementOverrides(body) {
     "includedRead",
     "includedTrackedUsers",
     "realtime",
+    "movementHistory",
+    "heatmap",
+    "geofences",
+    "webhooks",
     "clientTokens",
     "androidAttestation",
     "prioritySupport"

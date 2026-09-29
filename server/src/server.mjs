@@ -16,6 +16,12 @@ import { PostgresOperationsStore } from "./operations-store-postgres.mjs";
 import { PostgresRealtimeStore } from "./realtime-store-postgres.mjs";
 import { PostgresClientSecurityStore } from "./client-security-store-postgres.mjs";
 import { PostgresCommercialStore } from "./commercial-store-postgres.mjs";
+import {
+  PostgresAutomationStore
+} from "./automation-store-postgres.mjs";
+import {
+  WebhookDeliveryWorker
+} from "./webhook-worker.mjs";
 import { ClientTokenService } from "./client-token.mjs";
 import { PlayIntegrityVerifier } from "./play-integrity.mjs";
 import {
@@ -25,6 +31,10 @@ import {
 import { createRealtimeGateway } from "./realtime-gateway.mjs";
 import { handleAdminApi } from "./admin-api.mjs";
 import { InputError, validateLocation } from "./validation.mjs";
+import {
+  parseHeatmapQuery,
+  parseMovementHistoryQuery
+} from "./geospatial-validation.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.resolve(__dirname, "../../dashboard");
@@ -137,14 +147,23 @@ function validateClientRestrictions(req, origin, config, key) {
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8"
+  ".js": "text/javascript; charset=utf-8",
+  ".svg": "image/svg+xml"
 };
 
 async function serveDashboard(res, pathname) {
   const relative = pathname === "/" || pathname === "/dashboard" || pathname === "/dashboard/"
     ? "index.html"
     : pathname.replace(/^\/dashboard\//, "");
-  if (!["index.html", "styles.css", "app.js"].includes(relative)) return false;
+  if (
+    ![
+      "index.html",
+      "styles.css",
+      "app.js",
+      "globe-webgl.js",
+      "earth-dark.svg"
+    ].includes(relative)
+  ) return false;
 
   try {
     const content = await fs.readFile(path.join(dashboardDir, relative));
@@ -169,17 +188,48 @@ export function createGeoLiveServer({
   opsStore = null,
   clientSecurityStore = null,
   commercialStore = null,
+  automationStore = null,
   clientTokenService = null,
   playIntegrityVerifier = null,
   realtimeGateway = null
 } = {}) {
   const eventClients = new Map();
 
-  function publish(projectId, payload) {
-    const clients = eventClients.get(projectId);
+  function publish(
+    projectId,
+    payload,
+    eventName = "location"
+  ) {
+    const clients =
+      eventClients.get(projectId);
     if (!clients) return;
-    const frame = `event: location\ndata: ${JSON.stringify(payload)}\n\n`;
-    for (const response of clients) response.write(frame);
+    const frame =
+      `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
+    for (const response of clients) {
+      response.write(frame);
+    }
+  }
+
+  async function emitAutomationEvent(
+    automationEvent
+  ) {
+    const realtime =
+      automationEvent?.realtime;
+    if (!realtime) return;
+
+    publish(
+      realtime.projectId,
+      {
+        type: realtime.type,
+        event: realtime.payload
+      },
+      realtime.type
+    );
+    if (realtimeGateway) {
+      await realtimeGateway.publish(
+        realtime
+      );
+    }
   }
 
   async function authorizePublic(req, requiredScope) {
@@ -306,7 +356,7 @@ export function createGeoLiveServer({
     });
   }
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", "http://localhost");
       const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
@@ -333,6 +383,7 @@ export function createGeoLiveServer({
         opsStore,
         clientSecurityStore,
         commercialStore,
+        automationStore,
         geoStore: store
       })) {
         return;
@@ -346,7 +397,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.8.0"
+          version: "0.11.0"
         });
       }
 
@@ -374,6 +425,10 @@ export function createGeoLiveServer({
           commercialStore
             ? await commercialStore.ready()
             : !config.isProduction;
+        const automationReady =
+          automationStore
+            ? await automationStore.ready()
+            : !config.isProduction;
         const clientTokensConfigured =
           Boolean(clientTokenService?.configured);
         const clientTokensReady =
@@ -386,32 +441,15 @@ export function createGeoLiveServer({
           && realtimeReady
           && clientSecurityReady
           && commercialReady
+          && automationReady
           && clientTokensReady
           && (!config.isProduction || config.persistence === "postgres");
 
         return json(res, ready ? 200 : 503, {
           ready,
-          persistence: config.persistence,
-          persistenceReady,
-          adminReady,
-          apiKeyReady,
-          operationsReady,
-          realtimeReady,
-          clientSecurityReady,
-          commercialReady,
-          clientTokensConfigured,
-          clientTokensRequired:
-            Boolean(
-              config.clientTokens?.required
-            ),
-          playIntegrityConfiguredPackages:
-            playIntegrityVerifier
-              ?.configuredPackages || [],
-          realtime: realtimeGateway
-            ? realtimeGateway.status()
-            : null,
-          environmentCredentialCount: config.keys.length,
-          legacyCredentialBridgeActive: config.keys.length > 0
+          service: "rekixo-geolive",
+          version: "0.11.0",
+          persistence: config.persistence
         });
       }
 
@@ -960,8 +998,15 @@ export function createGeoLiveServer({
                 _realtimeEvent: undefined
               }
             };
+          const automationEvents =
+            Array.isArray(
+              record._automationEvents
+            )
+              ? record._automationEvents
+              : [];
           const publicRecord = { ...record };
           delete publicRecord._realtimeEvent;
+          delete publicRecord._automationEvents;
 
           publish(
             auth.key.projectId,
@@ -973,6 +1018,15 @@ export function createGeoLiveServer({
                 payload: publicRecord
               })
             : realtimeEvent;
+
+          for (
+            const automationEvent
+            of automationEvents
+          ) {
+            await emitAutomationEvent(
+              automationEvent
+            );
+          }
 
           await recordUsage({
             auth,
@@ -1208,6 +1262,270 @@ export function createGeoLiveServer({
         );
       }
 
+      if (
+        req.method === "GET" &&
+        url.pathname === "/v1/history"
+      ) {
+        const startedAt = Date.now();
+        const auth = await authorizePublic(
+          req,
+          "history:read"
+        );
+        if (!auth.ok) {
+          return json(
+            res,
+            auth.status,
+            { error: auth.error }
+          );
+        }
+
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              auth.key.projectId,
+              "movementHistory"
+            );
+        }
+
+        const restrictions =
+          validateClientRestrictions(
+            req,
+            origin,
+            config,
+            auth.key
+          );
+        if (!restrictions.ok) {
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "history.read"
+          );
+          await recordUsage({
+            auth,
+            route: "history.read",
+            statusCode:
+              restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            {
+              error:
+                restrictions.error
+            }
+          );
+        }
+
+        const operations =
+          await enforceOperations(
+            auth,
+            "read",
+            "history.read"
+          );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "history.read",
+            statusCode:
+              operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            {
+              error:
+                operations.error
+            },
+            operations.headers
+          );
+        }
+
+        if (
+          typeof store
+            .listMovementHistoryPage !==
+          "function"
+        ) {
+          return json(res, 501, {
+            error:
+              "movement_history_unavailable"
+          });
+        }
+
+        const query =
+          parseMovementHistoryQuery(
+            url.searchParams
+          );
+        const page =
+          await store
+            .listMovementHistoryPage(
+              auth.key.projectId,
+              query
+            );
+
+        await recordUsage({
+          auth,
+          route: "history.read",
+          statusCode: 200,
+          startedAt
+        });
+        return json(
+          res,
+          200,
+          {
+            projectId:
+              auth.key.projectId,
+            userId: query.userId,
+            window: {
+              from: query.from,
+              to: query.to
+            },
+            ...page
+          },
+          {
+            ...corsHeaders(
+              origin,
+              config,
+              auth.key
+            ),
+            ...operations.headers
+          }
+        );
+      }
+
+      if (
+        req.method === "GET" &&
+        url.pathname === "/v1/heatmap"
+      ) {
+        const startedAt = Date.now();
+        const auth = await authorizePublic(
+          req,
+          "history:read"
+        );
+        if (!auth.ok) {
+          return json(
+            res,
+            auth.status,
+            { error: auth.error }
+          );
+        }
+
+        if (commercialStore) {
+          await commercialStore
+            .assertProjectFeature(
+              auth.key.projectId,
+              "heatmap"
+            );
+        }
+
+        const restrictions =
+          validateClientRestrictions(
+            req,
+            origin,
+            config,
+            auth.key
+          );
+        if (!restrictions.ok) {
+          await recordRestrictionFailure(
+            auth,
+            restrictions.error,
+            "heatmap.read"
+          );
+          await recordUsage({
+            auth,
+            route: "heatmap.read",
+            statusCode:
+              restrictions.status,
+            startedAt
+          });
+          return json(
+            res,
+            restrictions.status,
+            {
+              error:
+                restrictions.error
+            }
+          );
+        }
+
+        const operations =
+          await enforceOperations(
+            auth,
+            "read",
+            "heatmap.read"
+          );
+        if (!operations.ok) {
+          await recordUsage({
+            auth,
+            route: "heatmap.read",
+            statusCode:
+              operations.status,
+            startedAt
+          });
+          return json(
+            res,
+            operations.status,
+            {
+              error:
+                operations.error
+            },
+            operations.headers
+          );
+        }
+
+        if (
+          typeof store.heatmapHistory !==
+          "function"
+        ) {
+          return json(res, 501, {
+            error: "heatmap_unavailable"
+          });
+        }
+
+        const query =
+          parseHeatmapQuery(
+            url.searchParams
+          );
+        const cells =
+          await store.heatmapHistory(
+            auth.key.projectId,
+            query
+          );
+
+        await recordUsage({
+          auth,
+          route: "heatmap.read",
+          statusCode: 200,
+          startedAt
+        });
+        return json(
+          res,
+          200,
+          {
+            projectId:
+              auth.key.projectId,
+            window: {
+              from: query.from,
+              to: query.to
+            },
+            gridDegrees:
+              query.gridDegrees,
+            userId:
+              query.userId || null,
+            cells
+          },
+          {
+            ...corsHeaders(
+              origin,
+              config,
+              auth.key
+            ),
+            ...operations.headers
+          }
+        );
+      }
+
       if (req.method === "GET" && url.pathname === "/v1/summary") {
         const startedAt = Date.now();
         const auth = await authorizePublic(req, "summary:read");
@@ -1386,6 +1704,47 @@ export function createGeoLiveServer({
       return json(res, 500, { error: "internal_error" });
     }
   });
+
+  let dwellRunning = false;
+  const dwellTimer =
+    automationStore
+      ? setInterval(
+          async () => {
+            if (dwellRunning) return;
+            dwellRunning = true;
+            try {
+              const events =
+                await automationStore
+                  .emitDueDwellEvents({
+                    limit: 100
+                  });
+              for (const event of events) {
+                await emitAutomationEvent(
+                  event
+                );
+              }
+            } catch (error) {
+              console.error(
+                "GeoLive dwell scheduler failed",
+                error
+              );
+            } finally {
+              dwellRunning = false;
+            }
+          },
+          config.webhooks
+            ?.dwellPollMs || 15000
+        )
+      : null;
+  dwellTimer?.unref?.();
+
+  server.on("close", () => {
+    if (dwellTimer) {
+      clearInterval(dwellTimer);
+    }
+  });
+
+  return server;
 }
 
 async function start() {
@@ -1415,6 +1774,15 @@ async function start() {
           pool: store.pool
         })
       : null;
+  const automationStore =
+    config.persistence === "postgres"
+      ? new PostgresAutomationStore({
+          pool: store.pool,
+          webhookSigningKeys:
+            config.webhooks
+              ?.signingKeys || []
+        })
+      : null;
   const clientTokenService =
     new ClientTokenService({
       signingKeys:
@@ -1436,6 +1804,7 @@ async function start() {
     await realtimeStore.assertReady();
     await clientSecurityStore.assertReady();
     await commercialStore.assertReady();
+    await automationStore.assertReady();
   }
 
   const realtimeGateway = createRealtimeGateway({
@@ -1455,12 +1824,22 @@ async function start() {
     opsStore,
     clientSecurityStore,
     commercialStore,
+    automationStore,
     clientTokenService,
     playIntegrityVerifier,
     realtimeGateway
   });
   realtimeGateway.attach(server);
   realtimeGateway.start();
+
+  const webhookWorker =
+    automationStore
+      ? new WebhookDeliveryWorker({
+          automationStore,
+          config
+        })
+      : null;
+  webhookWorker?.start();
 
   server.listen(config.port, () => {
     console.log(
@@ -1472,6 +1851,7 @@ async function start() {
     console.log(`GeoLive received ${signal}; shutting down.`);
     server.close(async () => {
       try {
+        webhookWorker?.close();
         realtimeGateway.close();
         if (typeof store.close === "function") await store.close();
       } finally {

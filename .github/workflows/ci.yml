@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: geolive-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -13,19 +14,13 @@ permissions:
   contents: read
 
 jobs:
-  verify:
+  ci:
+    # Keep the full suite in one hosted job. GitHub bills private-repo
+    # hosted-runner jobs per job/minute, so this avoids paying the
+    # one-minute minimum twice while preserving the same coverage.
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run check
+    timeout-minutes: 12
 
-  postgres-integration:
-    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -49,11 +44,7 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 20
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/geolive
-      DATABASE_SSL: disable
-      NODE_ENV: test
-      REDIS_URL: redis://localhost:6379
+
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -61,8 +52,44 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npm run migrate
-      - run: npm run test:postgres
-      - run: node --test server/test/realtime-redis.test.mjs
-      - run: npm run retention
-      - run: npm run billing:rollup -- current
+
+      # DATABASE_URL is deliberately absent here so npm test keeps
+      # database-backed tests skipped until migrations are applied.
+      - name: Static and memory verification
+        run: npm run check
+
+      - name: Apply PostgreSQL migrations
+        run: npm run migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/geolive
+          DATABASE_SSL: disable
+          NODE_ENV: test
+
+      - name: PostgreSQL integration tests
+        run: npm run test:postgres
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/geolive
+          DATABASE_SSL: disable
+          NODE_ENV: test
+
+      - name: Redis realtime integration
+        run: node --test server/test/realtime-redis.test.mjs
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/geolive
+          DATABASE_SSL: disable
+          NODE_ENV: test
+          REDIS_URL: redis://localhost:6379
+
+      - name: Retention worker smoke test
+        run: npm run retention
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/geolive
+          DATABASE_SSL: disable
+          NODE_ENV: test
+
+      - name: Billing rollup smoke test
+        run: npm run billing:rollup -- current
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/geolive
+          DATABASE_SSL: disable
+          NODE_ENV: test

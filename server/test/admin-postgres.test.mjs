@@ -90,6 +90,48 @@ test("admin control plane isolates account projects and enforces roles", {
     const afterDelete = await store.listProjects(owner.userId);
     assert.equal(afterDelete.some((item) => item.id === project.id), false);
 
+    const concurrentCreates =
+      await Promise.allSettled([
+        store.createProject(
+          owner.userId,
+          {
+            accountId: owner.accountId,
+            slug: "cap-race-a",
+            name: "Cap Race A",
+            maxProjects: 1
+          }
+        ),
+        store.createProject(
+          owner.userId,
+          {
+            accountId: owner.accountId,
+            slug: "cap-race-b",
+            name: "Cap Race B",
+            maxProjects: 1
+          }
+        )
+      ]);
+    const fulfilled =
+      concurrentCreates.filter(
+        (result) =>
+          result.status === "fulfilled"
+      );
+    const rejected =
+      concurrentCreates.filter(
+        (result) =>
+          result.status === "rejected"
+      );
+    assert.equal(fulfilled.length, 1);
+    assert.equal(rejected.length, 1);
+    assert.equal(
+      rejected[0].reason.code,
+      "project_entitlement_exceeded"
+    );
+    assert.equal(
+      rejected[0].reason.status,
+      402
+    );
+
     await pool.query("DELETE FROM admin_users WHERE id = $1", [viewerUser.rows[0].id]);
   } finally {
     await pool.query("DELETE FROM admin_users WHERE id = $1", [owner.userId]);

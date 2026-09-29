@@ -2,6 +2,9 @@ import {
   decodeCursor,
   encodeCursor
 } from "./cursor.mjs";
+import {
+  evaluateLocationAutomation
+} from "./automation-store-postgres.mjs";
 
 function iso(value) {
   if (!value) return undefined;
@@ -48,6 +51,37 @@ function mapRow(row) {
     status: row.status ?? undefined
   };
 }
+function mapHistoryRow(row) {
+  if (!row) return null;
+  return {
+    projectId: row.project_id,
+    userId: row.external_user_id,
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    accuracyM:
+      row.accuracy_m == null
+        ? undefined
+        : Number(row.accuracy_m),
+    altitudeM:
+      row.altitude_m == null
+        ? undefined
+        : Number(row.altitude_m),
+    headingDeg:
+      row.heading_deg == null
+        ? undefined
+        : Number(row.heading_deg),
+    speedMps:
+      row.speed_mps == null
+        ? undefined
+        : Number(row.speed_mps),
+    capturedAt: iso(row.captured_at),
+    receivedAt: iso(row.received_at),
+    country: row.country ?? undefined,
+    state: row.state ?? undefined,
+    city: row.city ?? undefined
+  };
+}
+
 
 export class GeoLiveStoreError extends Error {
   constructor(code, status = 400, message = code) {
@@ -108,6 +142,16 @@ export class PostgresGeoLiveStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+
+      // Serialize writes for one project/user pair so geofence state
+      // transitions are evaluated in arrival order.
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || $2::text, 0))",
+        [
+          projectId,
+          observation.userId
+        ]
+      );
 
       const project = await client.query(
         "SELECT status FROM projects WHERE id = $1 FOR SHARE",
@@ -315,7 +359,7 @@ export class PostgresGeoLiveStore {
         values
       );
 
-      await client.query(
+      const history = await client.query(
         `INSERT INTO location_history (
           project_id,
           external_user_id,
@@ -350,7 +394,8 @@ export class PostgresGeoLiveStore {
           $13,
           $14::jsonb,
           $15::jsonb
-        )`,
+        )
+        RETURNING id`,
         values
       );
 
@@ -414,6 +459,22 @@ export class PostgresGeoLiveStore {
         ]
       );
 
+      // Geofence realtime rows are appended after the location row so
+      // live broadcast order matches durable replay sequence order.
+      const automationEvents =
+        await evaluateLocationAutomation(
+          client,
+          {
+            projectId,
+            userId:
+              observation.userId,
+            historyId:
+              history.rows[0]?.id ||
+              null,
+            record: mapped
+          }
+        );
+
       await client.query("COMMIT");
 
       const eventRow = realtime.rows[0];
@@ -430,7 +491,9 @@ export class PostgresGeoLiveStore {
             eventRow.created_at instanceof Date
               ? eventRow.created_at.toISOString()
               : new Date(eventRow.created_at).toISOString()
-        }
+        },
+        _automationEvents:
+          automationEvents
       };
     } catch (error) {
       try {
@@ -645,6 +708,248 @@ export class PostgresGeoLiveStore {
     return page.users;
   }
 
+  async listMovementHistoryPage(
+    projectId,
+    {
+      userId,
+      from,
+      to,
+      limit = 250,
+      cursor = ""
+    } = {}
+  ) {
+    const pageSize = Math.min(
+      Math.max(Number(limit) || 250, 1),
+      1000
+    );
+    const params = [
+      projectId,
+      userId,
+      from,
+      to
+    ];
+    const where = [
+      "project_id = $1",
+      "external_user_id = $2",
+      "received_at >= $3::timestamptz",
+      "received_at < $4::timestamptz"
+    ];
+
+    if (cursor) {
+      const decoded = decodeCursor(
+        cursor,
+        ["receivedAt", "id"]
+      );
+      const receivedAt =
+        new Date(decoded.receivedAt);
+      if (
+        Number.isNaN(
+          receivedAt.getTime()
+        ) ||
+        !/^\d+$/.test(
+          String(decoded.id)
+        )
+      ) {
+        throw Object.assign(
+          new Error(
+            "invalid_cursor"
+          ),
+          {
+            code: "invalid_cursor",
+            status: 400
+          }
+        );
+      }
+
+      params.push(
+        receivedAt.toISOString(),
+        String(decoded.id)
+      );
+      const timeParam =
+        params.length - 1;
+      const idParam =
+        params.length;
+      const timePlaceholder =
+        "$" + timeParam;
+      const idPlaceholder =
+        "$" + idParam;
+      where.push(
+        `(
+          received_at < ${timePlaceholder}::timestamptz
+          OR (
+            received_at = ${timePlaceholder}::timestamptz
+            AND id < ${idPlaceholder}::bigint
+          )
+        )`
+      );
+    }
+
+    params.push(pageSize + 1);
+    const limitParam =
+      params.length;
+    const limitPlaceholder =
+      "$" + limitParam;
+
+    const result =
+      await this.pool.query(
+        `SELECT
+          id,
+          project_id,
+          external_user_id,
+          latitude,
+          longitude,
+          accuracy_m,
+          altitude_m,
+          heading_deg,
+          speed_mps,
+          captured_at,
+          received_at,
+          country,
+          state,
+          city
+        FROM location_history
+        WHERE ${where.join(
+          " AND "
+        )}
+        ORDER BY
+          received_at DESC,
+          id DESC
+        LIMIT ${limitPlaceholder}`,
+        params
+      );
+
+    const hasMore =
+      result.rows.length >
+      pageSize;
+    const rows =
+      result.rows.slice(
+        0,
+        pageSize
+      );
+    const points =
+      rows.map(mapHistoryRow);
+    const last =
+      rows.at(-1);
+
+    return {
+      points,
+      nextCursor:
+        hasMore && last
+          ? encodeCursor({
+              receivedAt:
+                iso(
+                  last.received_at
+                ),
+              id: String(last.id)
+            })
+          : null
+    };
+  }
+
+  async heatmapHistory(
+    projectId,
+    {
+      from,
+      to,
+      gridDegrees = 2,
+      userId = ""
+    } = {}
+  ) {
+    const grid = Math.min(
+      Math.max(
+        Number(gridDegrees) || 2,
+        0.25
+      ),
+      45
+    );
+    const params = [
+      projectId,
+      from,
+      to,
+      grid
+    ];
+    const where = [
+      "project_id = $1",
+      "received_at >= $2::timestamptz",
+      "received_at < $3::timestamptz"
+    ];
+
+    if (userId) {
+      params.push(
+        String(userId)
+      );
+      const userPlaceholder =
+        "$" + params.length;
+      where.push(
+        `external_user_id = ${userPlaceholder}`
+      );
+    }
+
+    const result =
+      await this.pool.query(
+        `SELECT
+          (
+            floor(
+              (latitude + 90.0) /
+              $4
+            ) * $4
+            - 90.0
+            + $4 / 2.0
+          )::double precision
+            AS latitude,
+          (
+            floor(
+              (longitude + 180.0) /
+              $4
+            ) * $4
+            - 180.0
+            + $4 / 2.0
+          )::double precision
+            AS longitude,
+          count(*)::int
+            AS count,
+          count(
+            DISTINCT external_user_id
+          )::int
+            AS unique_users,
+          min(received_at)
+            AS first_seen_at,
+          max(received_at)
+            AS last_seen_at
+        FROM location_history
+        WHERE ${where.join(
+          " AND "
+        )}
+        GROUP BY 1, 2
+        ORDER BY count DESC
+        LIMIT 10000`,
+        params
+      );
+
+    return result.rows.map(
+      (row) => ({
+        latitude:
+          Number(row.latitude),
+        longitude:
+          Number(row.longitude),
+        count:
+          Number(row.count),
+        uniqueUsers:
+          Number(
+            row.unique_users
+          ),
+        firstSeenAt:
+          iso(
+            row.first_seen_at
+          ),
+        lastSeenAt:
+          iso(
+            row.last_seen_at
+          )
+      })
+    );
+  }
+
   async clusterUsers(
     projectId,
     {
@@ -758,6 +1063,51 @@ export class PostgresGeoLiveStore {
     }));
   }
 
+  async locationFacets(projectId) {
+    const values = async (column, limit) => {
+      const allowed = new Set([
+        "country",
+        "state",
+        "city"
+      ]);
+      if (!allowed.has(column)) {
+        throw new GeoLiveStoreError(
+          "invalid_facet",
+          400
+        );
+      }
+      const result = await this.pool.query(
+        `SELECT DISTINCT ${column} AS value
+           FROM live_user_state
+          WHERE project_id = $1
+            AND ${column} IS NOT NULL
+            AND btrim(${column}) <> ''
+          ORDER BY value ASC
+          LIMIT $2`,
+        [projectId, limit]
+      );
+      return result.rows.map(
+        (row) => row.value
+      );
+    };
+
+    const [
+      countries,
+      states,
+      cities
+    ] = await Promise.all([
+      values("country", 300),
+      values("state", 1000),
+      values("city", 2000)
+    ]);
+
+    return {
+      countries,
+      states,
+      cities
+    };
+  }
+
   async summary(projectId, thresholds = {}) {
     const online = Number(
       thresholds.onlineSeconds ?? 120
@@ -772,6 +1122,9 @@ export class PostgresGeoLiveStore {
     const result = await this.pool.query(
       `SELECT
         count(*)::int AS total,
+        count(*) FILTER (
+          WHERE received_at >= date_trunc('day', now())
+        )::int AS today_active,
         count(*) FILTER (
           WHERE received_at >=
             now() - (
@@ -817,6 +1170,7 @@ export class PostgresGeoLiveStore {
     const row = result.rows[0];
     return {
       total: Number(row.total),
+      todayActive: Number(row.today_active),
       online: Number(row.online),
       recent: Number(row.recent),
       offline: Number(row.offline),

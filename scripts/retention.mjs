@@ -22,6 +22,8 @@ try {
     securityEventsDeleted: 0,
     metricsDeleted: 0,
     realtimeEventsDeleted: 0,
+    geofenceEventsDeleted: 0,
+    webhookDeliveriesDeleted: 0,
     clientExchangeNoncesDeleted: 0,
     clientRequestNoncesDeleted: 0,
     billingTrackedUsersDeleted: 0,
@@ -38,6 +40,8 @@ try {
       "securityEventsDeleted",
       "metricsDeleted",
       "realtimeEventsDeleted",
+      "geofenceEventsDeleted",
+      "webhookDeliveriesDeleted",
       "clientExchangeNoncesDeleted",
       "clientRequestNoncesDeleted",
       "billingTrackedUsersDeleted",
@@ -52,6 +56,8 @@ try {
       result.securityEventsDeleted < batchSize &&
       result.metricsDeleted < batchSize &&
       result.realtimeEventsDeleted < batchSize &&
+      result.geofenceEventsDeleted < batchSize &&
+      result.webhookDeliveriesDeleted < batchSize &&
       result.clientExchangeNoncesDeleted < batchSize &&
       result.clientRequestNoncesDeleted < batchSize &&
       result.billingTrackedUsersDeleted < batchSize

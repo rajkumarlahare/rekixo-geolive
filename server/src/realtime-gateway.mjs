@@ -52,6 +52,37 @@ function validProjectId(value) {
     .test(String(value || ""));
 }
 
+export function adminWebSocketOriginAllowed(
+  req,
+  { isProduction = false } = {}
+) {
+  const origin =
+    typeof req.headers?.origin === "string"
+      ? req.headers.origin.trim()
+      : "";
+  if (!origin) {
+    return !isProduction;
+  }
+
+  const host =
+    String(req.headers?.host || "")
+      .trim()
+      .toLowerCase();
+  if (!host) return false;
+
+  try {
+    const parsed = new URL(origin);
+    return (
+      ["http:", "https:"].includes(
+        parsed.protocol
+      ) &&
+      parsed.host.toLowerCase() === host
+    );
+  } catch {
+    return false;
+  }
+}
+
 function sequenceGreater(a, b) {
   try {
     return BigInt(String(a || "0")) > BigInt(String(b || "0"));
@@ -279,6 +310,19 @@ export function createRealtimeGateway({
         ok: false,
         status: 503,
         error: "admin_requires_postgres"
+      };
+    }
+
+    if (
+      !adminWebSocketOriginAllowed(
+        req,
+        config
+      )
+    ) {
+      return {
+        ok: false,
+        status: 403,
+        error: "origin_not_allowed"
       };
     }
 

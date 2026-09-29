@@ -46,6 +46,32 @@ try {
       continue;
     }
 
+    const nonTransactional =
+      /^-- geolive:nontransactional\b/m.test(
+        sql
+      );
+
+    if (nonTransactional) {
+      const statements = sql
+        .split(
+          /\n-- geolive:split\s*\n/
+        )
+        .map((value) => value.trim())
+        .filter(Boolean);
+
+      for (const statement of statements) {
+        await pool.query(statement);
+      }
+      await pool.query(
+        "INSERT INTO geolive_schema_migrations (name, checksum) VALUES ($1, $2)",
+        [name, hash]
+      );
+      console.log(
+        `applied ${name} (nontransactional)`
+      );
+      continue;
+    }
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");

@@ -32,6 +32,8 @@ test("P1D limits, distributed counters, metrics and security events are project 
 
     const defaults = await ops.getProjectLimits(project.id);
     assert.equal(defaults.ingestRequestsPerMinute, 600);
+    assert.equal(defaults.geofenceEventRetentionDays, 90);
+    assert.equal(defaults.webhookDeliveryRetentionDays, 30);
 
     const limits = await ops.updateProjectLimits({
       project,
@@ -39,11 +41,15 @@ test("P1D limits, distributed counters, metrics and security events are project 
       patch: {
         ingestRequestsPerMinute: 2,
         dailyIngestQuota: 2,
-        historyRetentionDays: 7
+        historyRetentionDays: 7,
+        geofenceEventRetentionDays: 45,
+        webhookDeliveryRetentionDays: 14
       }
     });
     assert.equal(limits.ingestRequestsPerMinute, 2);
     assert.equal(limits.historyRetentionDays, 7);
+    assert.equal(limits.geofenceEventRetentionDays, 45);
+    assert.equal(limits.webhookDeliveryRetentionDays, 14);
 
     const one = await ops.consumeProjectRateLimit(
       project.id,

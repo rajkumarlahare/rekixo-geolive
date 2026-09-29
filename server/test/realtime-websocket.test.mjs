@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { loadConfig } from "../src/config.mjs";
 import { MemoryGeoLiveStore } from "../src/store-memory.mjs";
 import { createGeoLiveServer } from "../src/server.mjs";
-import { createRealtimeGateway } from "../src/realtime-gateway.mjs";
+import {
+  adminWebSocketOriginAllowed,
+  createRealtimeGateway
+} from "../src/realtime-gateway.mjs";
 
 function waitForMessage(socket, predicate, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
@@ -28,6 +31,55 @@ function waitForMessage(socket, predicate, timeoutMs = 5000) {
     socket.addEventListener("message", onMessage);
   });
 }
+
+test("admin WebSocket origin policy rejects cross-site production upgrades", () => {
+  assert.equal(
+    adminWebSocketOriginAllowed(
+      {
+        headers: {
+          origin: "https://geolive.example.com",
+          host: "geolive.example.com"
+        }
+      },
+      { isProduction: true }
+    ),
+    true
+  );
+  assert.equal(
+    adminWebSocketOriginAllowed(
+      {
+        headers: {
+          origin: "https://evil.example.com",
+          host: "geolive.example.com"
+        }
+      },
+      { isProduction: true }
+    ),
+    false
+  );
+  assert.equal(
+    adminWebSocketOriginAllowed(
+      {
+        headers: {
+          host: "geolive.example.com"
+        }
+      },
+      { isProduction: true }
+    ),
+    false
+  );
+  assert.equal(
+    adminWebSocketOriginAllowed(
+      {
+        headers: {
+          host: "127.0.0.1:8787"
+        }
+      },
+      { isProduction: false }
+    ),
+    true
+  );
+});
 
 test("P1E integration WebSocket authenticates and receives live location", {
   skip:

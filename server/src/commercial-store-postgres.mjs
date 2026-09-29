@@ -484,6 +484,16 @@ export class PostgresCommercialStore {
         plan.includedTrackedUsers,
       realtime:
         Boolean(plan.features.realtime),
+      movementHistory:
+        Boolean(
+          plan.features.movementHistory
+        ),
+      heatmap:
+        Boolean(plan.features.heatmap),
+      geofences:
+        Boolean(plan.features.geofences),
+      webhooks:
+        Boolean(plan.features.webhooks),
       clientTokens:
         Boolean(plan.features.clientTokens),
       androidAttestation:
