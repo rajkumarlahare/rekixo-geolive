@@ -228,6 +228,29 @@ test("P4B Postgres geofence enter/dwell/exit schedules idempotent webhook delive
       ]
     );
 
+    const realtime =
+      await pool.query(
+        `SELECT id, event_type
+        FROM realtime_events
+        WHERE project_id = $1
+        ORDER BY id ASC`,
+        [project.id]
+      );
+    assert.deepEqual(
+      realtime.rows
+        .map((row) => row.event_type)
+        .filter((type) =>
+          type.startsWith(
+            "geofence."
+          )
+        ),
+      [
+        "geofence.enter",
+        "geofence.dwell",
+        "geofence.exit"
+      ]
+    );
+
     const deliveries =
       await automation
         .listDeliveries(
