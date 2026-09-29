@@ -112,8 +112,8 @@ npx wrangler@latest queues create rekixo-geolive-webhooks-dlq
 
 ## Required secrets
 
-The Wrangler config declares these required secret names but contains no secret
-values:
+The production Worker uses these runtime secrets. Their names are documented here,
+but no secret values are committed to Git:
 
 - `GEOLIVE_BOOTSTRAP_TOKEN`
 - `GEOLIVE_WEBHOOK_SIGNING_SECRET`
@@ -135,6 +135,18 @@ key by design; its API/referrer restrictions are the security boundary.
 
 For local Worker development, use `cloudflare/.dev.vars`. That path is ignored
 by Git.
+
+## First Worker creation
+
+Use the Worker name `rekixo-geolive-prod`. It is intentionally different from
+the existing Pages project `rekixo-geolive`, so the public demo and the real
+production Worker stay isolated.
+
+The first Worker deployment is allowed before runtime secrets exist. In that
+state bootstrap is denied, webhook signing is unavailable, and the dashboard
+falls back if the Google map key is missing. Add the three runtime secrets in
+the Worker dashboard immediately after the Worker is created, then redeploy
+before creating any admin or production API key.
 
 ## Build, migrate and deploy
 
