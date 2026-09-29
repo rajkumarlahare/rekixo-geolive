@@ -203,6 +203,14 @@ Webhook delivery is at least once. Failed attempts use bounded exponential backo
 
 See [Integration guide](docs/INTEGRATION.md) for the event envelope, signature verification and idempotency contract.
 
+## P4C WebGL globe
+
+The tenant dashboard now renders Earth with a dependency-free WebGL sphere and a self-hosted dark Earth texture. Existing live markers, clusters, heatmaps and movement trails remain on the 2D interaction overlay so hit-testing and analytics behavior stay compatible.
+
+The globe supports drag rotation, mouse-wheel/button zoom and automatic rotation. If WebGL is unavailable or lost, the dashboard falls back to the previous 2D globe instead of failing the live map.
+
+All globe assets are served from the GeoLive dashboard origin and remain compatible with the existing strict Content Security Policy; no third-party map or texture host is required.
+
 ## Production realtime
 
 Integration readers connect to:
@@ -225,7 +233,7 @@ This cleans location history, realtime replay events, operational data, expired 
 
 ## Compatibility
 
-Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A and P4B are additive.
+Existing trusted database-backed `location:write` integrations continue to work. P2, P3, P4A, P4B and the P4C globe renderer are additive.
 
 The `legacy` commercial plan intentionally preserves existing accounts while commercial subscriptions are introduced.
 
