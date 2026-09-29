@@ -6,7 +6,7 @@ CREATE TABLE geofences (
     REFERENCES projects(id) ON DELETE CASCADE,
   name text NOT NULL,
   status text NOT NULL DEFAULT 'active'
-    CHECK (status IN ('active','paused')),
+    CHECK (status IN ('active','paused','deleted')),
   shape_type text NOT NULL
     CHECK (shape_type IN ('circle','polygon')),
   center geography(Point, 4326),
@@ -21,6 +21,7 @@ CREATE TABLE geofences (
     REFERENCES admin_users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
   CHECK (
     (
       shape_type = 'circle'
@@ -57,7 +58,7 @@ CREATE TABLE webhook_endpoints (
   name text NOT NULL,
   url text NOT NULL,
   status text NOT NULL DEFAULT 'active'
-    CHECK (status IN ('active','paused')),
+    CHECK (status IN ('active','paused','deleted')),
   signing_key_id text NOT NULL,
   secret_generation integer NOT NULL DEFAULT 1
     CHECK (secret_generation BETWEEN 1 AND 1000000000),
@@ -66,7 +67,8 @@ CREATE TABLE webhook_endpoints (
   updated_by_admin_user_id uuid
     REFERENCES admin_users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz
 );
 
 CREATE INDEX webhook_endpoints_project_status_idx
@@ -89,6 +91,7 @@ CREATE TABLE alert_rules (
     REFERENCES admin_users(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
+  deleted_at timestamptz,
   CHECK (
     cardinality(event_types) BETWEEN 1 AND 3
     AND event_types <@ ARRAY['enter','exit','dwell']::text[]
@@ -104,7 +107,7 @@ CREATE INDEX alert_rules_geofence_idx
 CREATE TABLE geofence_user_state (
   project_id uuid NOT NULL,
   geofence_id uuid NOT NULL
-    REFERENCES geofences(id) ON DELETE CASCADE,
+    REFERENCES geofences(id) ON DELETE RESTRICT,
   external_user_id text NOT NULL,
   is_inside boolean NOT NULL DEFAULT false,
   entered_at timestamptz,
@@ -174,9 +177,9 @@ CREATE TABLE webhook_deliveries (
   project_id uuid NOT NULL
     REFERENCES projects(id) ON DELETE CASCADE,
   webhook_endpoint_id uuid NOT NULL
-    REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
+    REFERENCES webhook_endpoints(id) ON DELETE RESTRICT,
   alert_rule_id uuid NOT NULL
-    REFERENCES alert_rules(id) ON DELETE CASCADE,
+    REFERENCES alert_rules(id) ON DELETE RESTRICT,
   geofence_event_id bigint NOT NULL
     REFERENCES geofence_events(id) ON DELETE CASCADE,
   status text NOT NULL DEFAULT 'pending'
