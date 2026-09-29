@@ -124,7 +124,7 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   const config = JSON.parse(configText);
   assert.equal(
     config.name,
-    "rekixo-geolive"
+    "rekixo-geolive-prod"
   );
   assert.equal(
     config.d1_databases?.[0]
@@ -224,24 +224,27 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
 });
 
-test("Cloudflare production declares required secrets without committing values", async () => {
+test("Cloudflare production config is first-deploy safe and keeps secrets out of vars", async () => {
   const configText = await readFile(
     "cloudflare/wrangler.jsonc",
     "utf8"
   );
   const config = JSON.parse(configText);
   assert.deepEqual(
-    config.secrets?.required,
-    [
-      "GEOLIVE_BOOTSTRAP_TOKEN",
-      "GEOLIVE_WEBHOOK_SIGNING_SECRET",
-      "GEOLIVE_GOOGLE_MAPS_API_KEY"
-    ]
+    config.compatibility_flags,
+    ["nodejs_compat"]
+  );
+  assert.equal(
+    config.name,
+    "rekixo-geolive-prod"
   );
   const committedVars =
     config.vars || {};
-  for (const secretName of
-    config.secrets.required) {
+  for (const secretName of [
+    "GEOLIVE_BOOTSTRAP_TOKEN",
+    "GEOLIVE_WEBHOOK_SIGNING_SECRET",
+    "GEOLIVE_GOOGLE_MAPS_API_KEY"
+  ]) {
     assert.equal(
       Object.hasOwn(
         committedVars,
