@@ -174,7 +174,9 @@ function validateLimitsInput(body) {
     historyRetentionDays: [1, 3650],
     securityEventRetentionDays: [7, 3650],
     metricsRetentionDays: [7, 3650],
-    realtimeEventRetentionHours: [1, 720]
+    realtimeEventRetentionHours: [1, 720],
+    geofenceEventRetentionDays: [7, 3650],
+    webhookDeliveryRetentionDays: [7, 3650]
   };
   const out = {};
   for (const [key, [min, max]] of Object.entries(ranges)) {
