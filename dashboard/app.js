@@ -419,8 +419,11 @@ function resetUserSearchPaging({
 }
 
 function userSearchQueryKey() {
-  return currentFilterParams()
-    .toString();
+  return [
+    state.projectId,
+    currentFilterParams()
+      .toString()
+  ].join("|");
 }
 
 function updateUserSearchPager() {
@@ -914,16 +917,43 @@ function applyRealtimeLocation(message) {
   };
   if (!user.userId) return;
 
-  const index = state.users.findIndex(
-    (item) => item.userId === user.userId
-  );
-  if (index >= 0) {
-    state.users[index] = {
-      ...state.users[index],
-      ...user
-    };
-  } else if (state.users.length < 500) {
-    state.users.unshift(user);
+  const hasServerFilters =
+    Boolean(
+      search.value.trim() ||
+      state.activeStatus ||
+      document.querySelector(
+        "#country"
+      ).value ||
+      document.querySelector(
+        "#state"
+      ).value ||
+      document.querySelector(
+        "#city"
+      ).value
+    );
+
+  if (
+    !state.useClusters &&
+    !hasServerFilters
+  ) {
+    const index =
+      state.users.findIndex(
+        (item) =>
+          item.userId ===
+          user.userId
+      );
+    if (index >= 0) {
+      state.users[index] = {
+        ...state.users[index],
+        ...user
+      };
+    } else if (
+      state.users.length < 500
+    ) {
+      state.users.unshift(
+        user
+      );
+    }
   }
 
   if (
@@ -1170,6 +1200,7 @@ projectSelect.addEventListener("change", () => {
   stopRealtime({ resetSequence: true });
   cancelGeofenceEditor();
   resetAutomationHistoryFilters();
+  resetUserSearchPaging();
   state.projectId = projectSelect.value;
   state.geofenceOverlayProjectId = "";
   state.automation.geofences = [];
@@ -6416,9 +6447,29 @@ document.querySelector("#reset").addEventListener("click", () => {
   document.querySelectorAll(".status-filter").forEach((item, index) => {
     item.classList.toggle("active", index === 0);
   });
+  resetUserSearchPaging();
   scheduleFilterRefresh(0);
 });
 
+document.querySelector(
+  "#searchPrev"
+).addEventListener(
+  "click",
+  () =>
+    goUserSearchPage(
+      "previous"
+    )
+);
+
+document.querySelector(
+  "#searchNext"
+).addEventListener(
+  "click",
+  () =>
+    goUserSearchPage(
+      "next"
+    )
+);
 
 document.querySelector("#pause").onclick = () => {
   if (state.geofenceEditor.active) {
