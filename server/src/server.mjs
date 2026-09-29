@@ -16,6 +16,12 @@ import { PostgresOperationsStore } from "./operations-store-postgres.mjs";
 import { PostgresRealtimeStore } from "./realtime-store-postgres.mjs";
 import { PostgresClientSecurityStore } from "./client-security-store-postgres.mjs";
 import { PostgresCommercialStore } from "./commercial-store-postgres.mjs";
+import {
+  PostgresAutomationStore
+} from "./automation-store-postgres.mjs";
+import {
+  WebhookDeliveryWorker
+} from "./webhook-worker.mjs";
 import { ClientTokenService } from "./client-token.mjs";
 import { PlayIntegrityVerifier } from "./play-integrity.mjs";
 import {
@@ -173,17 +179,26 @@ export function createGeoLiveServer({
   opsStore = null,
   clientSecurityStore = null,
   commercialStore = null,
+  automationStore = null,
   clientTokenService = null,
   playIntegrityVerifier = null,
   realtimeGateway = null
 } = {}) {
   const eventClients = new Map();
 
-  function publish(projectId, payload) {
-    const clients = eventClients.get(projectId);
+  function publish(
+    projectId,
+    payload,
+    eventName = "location"
+  ) {
+    const clients =
+      eventClients.get(projectId);
     if (!clients) return;
-    const frame = `event: location\ndata: ${JSON.stringify(payload)}\n\n`;
-    for (const response of clients) response.write(frame);
+    const frame =
+      `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
+    for (const response of clients) {
+      response.write(frame);
+    }
   }
 
   async function authorizePublic(req, requiredScope) {
@@ -337,6 +352,7 @@ export function createGeoLiveServer({
         opsStore,
         clientSecurityStore,
         commercialStore,
+        automationStore,
         geoStore: store
       })) {
         return;
@@ -378,6 +394,10 @@ export function createGeoLiveServer({
           commercialStore
             ? await commercialStore.ready()
             : !config.isProduction;
+        const automationReady =
+          automationStore
+            ? await automationStore.ready()
+            : !config.isProduction;
         const clientTokensConfigured =
           Boolean(clientTokenService?.configured);
         const clientTokensReady =
@@ -390,6 +410,7 @@ export function createGeoLiveServer({
           && realtimeReady
           && clientSecurityReady
           && commercialReady
+          && automationReady
           && clientTokensReady
           && (!config.isProduction || config.persistence === "postgres");
 
@@ -946,8 +967,15 @@ export function createGeoLiveServer({
                 _realtimeEvent: undefined
               }
             };
+          const automationEvents =
+            Array.isArray(
+              record._automationEvents
+            )
+              ? record._automationEvents
+              : [];
           const publicRecord = { ...record };
           delete publicRecord._realtimeEvent;
+          delete publicRecord._automationEvents;
 
           publish(
             auth.key.projectId,
@@ -959,6 +987,28 @@ export function createGeoLiveServer({
                 payload: publicRecord
               })
             : realtimeEvent;
+
+          for (
+            const automationEvent
+            of automationEvents
+          ) {
+            const realtime =
+              automationEvent.realtime;
+            if (!realtime) continue;
+            publish(
+              auth.key.projectId,
+              {
+                type: realtime.type,
+                event: realtime.payload
+              },
+              realtime.type
+            );
+            if (realtimeGateway) {
+              await realtimeGateway.publish(
+                realtime
+              );
+            }
+          }
 
           await recordUsage({
             auth,
@@ -1665,6 +1715,15 @@ async function start() {
           pool: store.pool
         })
       : null;
+  const automationStore =
+    config.persistence === "postgres"
+      ? new PostgresAutomationStore({
+          pool: store.pool,
+          webhookSigningKeys:
+            config.webhooks
+              ?.signingKeys || []
+        })
+      : null;
   const clientTokenService =
     new ClientTokenService({
       signingKeys:
@@ -1686,6 +1745,7 @@ async function start() {
     await realtimeStore.assertReady();
     await clientSecurityStore.assertReady();
     await commercialStore.assertReady();
+    await automationStore.assertReady();
   }
 
   const realtimeGateway = createRealtimeGateway({
@@ -1705,12 +1765,61 @@ async function start() {
     opsStore,
     clientSecurityStore,
     commercialStore,
+    automationStore,
     clientTokenService,
     playIntegrityVerifier,
     realtimeGateway
   });
   realtimeGateway.attach(server);
   realtimeGateway.start();
+
+  const webhookWorker =
+    automationStore
+      ? new WebhookDeliveryWorker({
+          automationStore,
+          config
+        })
+      : null;
+  webhookWorker?.start();
+
+  let dwellRunning = false;
+  const dwellTimer =
+    automationStore
+      ? setInterval(
+          async () => {
+            if (dwellRunning) return;
+            dwellRunning = true;
+            try {
+              const events =
+                await automationStore
+                  .emitDueDwellEvents({
+                    limit: 100
+                  });
+              for (const event of events) {
+                if (
+                  event.realtime &&
+                  realtimeGateway
+                ) {
+                  await realtimeGateway
+                    .publish(
+                      event.realtime
+                    );
+                }
+              }
+            } catch (error) {
+              console.error(
+                "GeoLive dwell scheduler failed",
+                error
+              );
+            } finally {
+              dwellRunning = false;
+            }
+          },
+          config.webhooks
+            ?.dwellPollMs || 15000
+        )
+      : null;
+  dwellTimer?.unref?.();
 
   server.listen(config.port, () => {
     console.log(
@@ -1722,6 +1831,10 @@ async function start() {
     console.log(`GeoLive received ${signal}; shutting down.`);
     server.close(async () => {
       try {
+        if (dwellTimer) {
+          clearInterval(dwellTimer);
+        }
+        webhookWorker?.close();
         realtimeGateway.close();
         if (typeof store.close === "function") await store.close();
       } finally {
