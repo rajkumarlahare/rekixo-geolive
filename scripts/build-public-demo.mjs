@@ -41,7 +41,7 @@ const index = sourceIndex
   )
   .replace(
     '  <script type="module" src="/dashboard/app.js"></script>',
-    '  <script src="./demo-config.js"></script>\\n  <script type="module" src="./app.js"></script>'
+    '  <script src="./demo-config.js"></script>\n  <script type="module" src="./app.js"></script>'
   );
 
 const googleMapsApiKey =
@@ -58,7 +58,7 @@ await writeFile(
   ),
   `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${JSON.stringify({
     googleMapsApiKey
-  })});\\n`,
+  })});\n`,
   "utf8"
 );
 
