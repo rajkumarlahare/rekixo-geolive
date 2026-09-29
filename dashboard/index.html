@@ -80,9 +80,11 @@
       </section>
 
       <section class="globe-card">
+        <div id="realEarth" class="real-earth" aria-hidden="true"></div>
         <canvas id="earthGlobe" class="globe-surface" aria-hidden="true"></canvas>
         <canvas id="globe" class="globe-overlay" aria-label="Interactive live user globe"></canvas>
         <div class="renderer-badge" id="rendererBadge">3D WebGL</div>
+        <div id="realEarthCredits" class="real-earth-credits" aria-label="Map data attribution"></div>
         <div class="globe-tools"><button id="center" title="Reset globe">⌾</button><button id="pause" title="Pause rotation">◉</button><button id="zoomIn" title="Zoom in">＋</button><button id="zoomOut" title="Zoom out">−</button></div>
         <section class="geofence-editor" id="geofenceEditor" hidden>
           <div class="geofence-editor-head">
