@@ -350,8 +350,15 @@ export async function facets(env, projectId) {
       "SELECT city AS value,COUNT(*) AS count FROM live_user_state WHERE project_id=? AND city IS NOT NULL GROUP BY city ORDER BY count DESC,value ASC LIMIT 1000"
     ).bind(projectId)
   ]);
-  const map = (r) => (r.results || []).map((x) => ({ value: x.value, count: Number(x.count || 0) }));
-  return { countries: map(countries), states: map(states), cities: map(cities) };
+  const values = (r) =>
+    (r.results || [])
+      .map((x) => String(x.value || "").trim())
+      .filter(Boolean);
+  return {
+    countries: values(countries),
+    states: values(states),
+    cities: values(cities)
+  };
 }
 
 export async function clusterUsers(env, projectId, options = {}) {
