@@ -156,15 +156,17 @@ Build the Worker Static Assets:
 npm run build:cloudflare
 ```
 
-Apply D1 migrations:
+For Cloudflare Git builds, the production deploy command is intentionally
+migration-first so schema changes land before the Worker version:
+
+```bash
+npx wrangler@latest d1 migrations apply DB --remote --config cloudflare/wrangler.jsonc && npx wrangler@latest deploy --config cloudflare/wrangler.jsonc
+```
+
+For local/manual release work, the equivalent split commands remain:
 
 ```bash
 npm run cloudflare:d1:migrate
-```
-
-Deploy:
-
-```bash
 npm run cloudflare:deploy
 ```
 
