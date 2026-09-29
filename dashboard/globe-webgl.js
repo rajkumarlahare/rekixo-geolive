@@ -411,6 +411,7 @@ export class GeoGlobeRenderer {
         ).href,
       realContainer = null,
       googleMapsApiKey = "",
+      googleTilesRootUrl = "",
       creditContainer = null
     } = {}
   ) {
@@ -425,6 +426,8 @@ export class GeoGlobeRenderer {
         {
           apiKey:
             googleMapsApiKey,
+          tilesRootUrl:
+            googleTilesRootUrl,
           creditContainer
         }
       );
