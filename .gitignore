@@ -9,3 +9,7 @@ dist/
 *.log
 dist-demo/
 dist-cloudflare/
+.dev.vars
+.dev.vars.*
+cloudflare/.dev.vars
+cloudflare/.dev.vars.*
