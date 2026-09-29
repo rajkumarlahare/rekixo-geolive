@@ -1027,6 +1027,10 @@ export class PostgresAutomationStore {
         patch.radiusM !==
           undefined ||
         patch.points !==
+          undefined ||
+        patch.dwellSeconds !==
+          undefined ||
+        patch.status !==
           undefined
       ) {
         await client.query(
@@ -1836,6 +1840,32 @@ export class PostgresAutomationStore {
             actorUserId
           ]
         );
+
+      if (
+        current.enabled &&
+        !next.enabled
+      ) {
+        await client.query(
+          `UPDATE webhook_deliveries
+          SET status = 'dead',
+              last_error =
+                'alert_rule_disabled',
+              locked_at = NULL,
+              locked_by = NULL,
+              updated_at = now()
+          WHERE project_id = $1
+            AND alert_rule_id = $2
+            AND status IN (
+              'pending',
+              'retry'
+            )`,
+          [
+            project.id,
+            alertRuleId
+          ]
+        );
+      }
+
       await client.query(
         `INSERT INTO audit_log (
           admin_user_id,
@@ -2336,7 +2366,10 @@ export class PostgresAutomationStore {
               next_attempt_at = now(),
               locked_at = NULL,
               locked_by = NULL,
+              response_status = NULL,
+              response_body_excerpt = NULL,
               last_error = NULL,
+              delivered_at = NULL,
               updated_at = now()
           WHERE project_id = $1
             AND delivery_id = $2
