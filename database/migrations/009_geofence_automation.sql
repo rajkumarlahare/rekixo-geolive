@@ -1,5 +1,15 @@
 -- P4B geofence automation, alert rules and durable webhook delivery.
 
+ALTER TABLE project_limits
+  ADD COLUMN geofence_event_retention_days integer NOT NULL DEFAULT 90
+    CHECK (geofence_event_retention_days BETWEEN 7 AND 3650),
+  ADD COLUMN webhook_delivery_retention_days integer NOT NULL DEFAULT 30
+    CHECK (webhook_delivery_retention_days BETWEEN 7 AND 3650);
+
+ALTER TABLE retention_runs
+  ADD COLUMN geofence_events_deleted bigint NOT NULL DEFAULT 0,
+  ADD COLUMN webhook_deliveries_deleted bigint NOT NULL DEFAULT 0;
+
 CREATE TABLE geofences (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id uuid NOT NULL
