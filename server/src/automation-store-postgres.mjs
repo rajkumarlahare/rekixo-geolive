@@ -289,6 +289,34 @@ async function createEvent(
   );
 
   const row = inserted.rows[0];
+
+  const realtime =
+    await client.query(
+      `INSERT INTO realtime_events (
+        event_id,
+        project_id,
+        event_type,
+        external_user_id,
+        payload
+      ) VALUES (
+        $1,$2,$3,$4,$5::jsonb
+      )
+      RETURNING
+        id,
+        event_id,
+        project_id,
+        event_type,
+        external_user_id,
+        created_at`,
+      [
+        row.event_id,
+        projectId,
+        `geofence.${eventType}`,
+        userId,
+        JSON.stringify(payload)
+      ]
+    );
+
   await scheduleDeliveries(
     client,
     {
@@ -306,6 +334,13 @@ async function createEvent(
         geofence.name
     }),
     realtime: {
+      sequence:
+        String(
+          realtime.rows[0].id
+        ),
+      eventId:
+        realtime.rows[0]
+          .event_id,
       projectId,
       type:
         `geofence.${eventType}`,
@@ -313,7 +348,12 @@ async function createEvent(
       payload: {
         ...payload,
         eventId: row.event_id
-      }
+      },
+      createdAt:
+        iso(
+          realtime.rows[0]
+            .created_at
+        )
     }
   };
 }
