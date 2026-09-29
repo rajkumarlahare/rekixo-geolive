@@ -41,7 +41,7 @@
     {
       "binding": "DB",
       "database_name": "rekixo-geolive-production",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "cd14b948-d3f8-4bd6-a5eb-44e5a910e145",
       "migrations_dir": "migrations"
     }
   ],
