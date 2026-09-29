@@ -387,9 +387,32 @@ export class MemoryGeoLiveStore {
   }
 
   async summary(projectId, thresholds) {
-    const users = await this.listUsers(projectId, { limit: 1000, thresholds });
-    const counts = { total: users.length, online: 0, recent: 0, offline: 0, inactive: 0 };
-    for (const user of users) counts[user.status] += 1;
+    const users = await this.listUsers(
+      projectId,
+      {
+        limit: 1000,
+        thresholds
+      }
+    );
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const counts = {
+      total: users.length,
+      todayActive: 0,
+      online: 0,
+      recent: 0,
+      offline: 0,
+      inactive: 0
+    };
+    for (const user of users) {
+      counts[user.status] += 1;
+      if (
+        user.lastSeenAt &&
+        new Date(user.lastSeenAt) >= todayStart
+      ) {
+        counts.todayActive += 1;
+      }
+    }
     return counts;
   }
 
