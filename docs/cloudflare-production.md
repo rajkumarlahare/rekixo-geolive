@@ -4,6 +4,26 @@ GeoLive 0.17.0 introduces a Cloudflare-native production runtime. The existing
 Cloudflare Pages site remains a synthetic public demo; real tenant traffic is
 served by a separate Cloudflare Worker.
 
+## Canonical production domain
+
+The canonical production origin is:
+
+```text
+https://geolive.rekixo.com
+```
+
+Use it for the authenticated dashboard and all new production integrations:
+
+- dashboard: `https://geolive.rekixo.com/dashboard/`
+- API: `https://geolive.rekixo.com/v1/...`
+- health: `https://geolive.rekixo.com/health`
+- readiness: `https://geolive.rekixo.com/ready`
+- realtime: `wss://geolive.rekixo.com/v1/realtime`
+
+The generated `workers.dev` hostname remains an operational fallback. Browser
+entry points on that hostname redirect to the canonical dashboard; API and
+health endpoints remain directly reachable for rollback/diagnostics.
+
 ## Production topology
 
 ```text
@@ -215,7 +235,7 @@ or unrestricted production key in an Android/Web client.
 After bootstrap, open:
 
 ```text
-https://<worker-domain>/dashboard/
+https://geolive.rekixo.com/dashboard/
 ```
 
 and sign in with the bootstrapped admin account.
