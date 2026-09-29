@@ -2599,6 +2599,25 @@ export class PostgresAutomationStore {
       await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const historyAttemptResult =
+        await client.query(
+          `SELECT
+            COALESCE(
+              max(attempt_number),
+              0
+            ) + 1 AS attempt_number
+          FROM webhook_delivery_attempts
+          WHERE webhook_delivery_id =
+            $1`,
+          [delivery.id]
+        );
+      const historyAttempt =
+        Number(
+          historyAttemptResult
+            .rows[0]
+            ?.attempt_number || 1
+        );
+
       await client.query(
         `INSERT INTO webhook_delivery_attempts (
           webhook_delivery_id,
@@ -2617,7 +2636,7 @@ export class PostgresAutomationStore {
         ) DO NOTHING`,
         [
           delivery.id,
-          attempt,
+          historyAttempt,
           startedAt,
           responseStatus,
           Math.max(
