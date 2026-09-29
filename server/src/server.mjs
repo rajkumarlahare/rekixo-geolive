@@ -182,6 +182,7 @@ async function serveDashboard(res, pathname, config) {
 
   if (relative === "runtime-config.js") {
     const publicConfig = JSON.stringify({
+      demoMode: false,
       googleMapsApiKey:
         config?.public?.googleMapsApiKey || ""
     }).replace(/</g, "\\u003c");
