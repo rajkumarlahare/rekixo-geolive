@@ -12,6 +12,11 @@ function cleanApiKey(value) {
   return String(value || "").trim();
 }
 
+function cleanTilesRootUrl(value) {
+  return String(value || "").trim();
+}
+
+
 function emitRendererStatus(detail) {
   if (
     typeof globalThis.dispatchEvent !== "function" ||
@@ -71,7 +76,27 @@ function rendererFailureCode(error) {
   return "google_tiles_unavailable";
 }
 
-async function probeGoogleTiles(apiKey) {
+function googleTilesRequestUrl(
+  {
+    tilesRootUrl = "",
+    apiKey = ""
+  } = {}
+) {
+  if (tilesRootUrl) {
+    return tilesRootUrl;
+  }
+  if (apiKey) {
+    return (
+      `${GOOGLE_TILES_ROOT}?key=${encodeURIComponent(apiKey)}`
+    );
+  }
+  return "";
+}
+
+async function probeGoogleTiles({
+  tilesRootUrl = "",
+  apiKey = ""
+} = {}) {
   if (
     typeof fetch !== "function" ||
     typeof location === "undefined"
@@ -80,17 +105,37 @@ async function probeGoogleTiles(apiKey) {
   }
 
   const url =
-    `${GOOGLE_TILES_ROOT}?key=${encodeURIComponent(apiKey)}`;
+    googleTilesRequestUrl({
+      tilesRootUrl,
+      apiKey
+    });
+  if (!url) {
+    throw new Error(
+      "google_tiles_not_configured"
+    );
+  }
+
+  const sameOrigin =
+    new URL(
+      url,
+      location.href
+    ).origin ===
+    location.origin;
+
   const response =
     await fetch(
       url,
       {
         method: "GET",
-        mode: "cors",
-        credentials: "omit",
+        credentials:
+          sameOrigin
+            ? "same-origin"
+            : "omit",
         cache: "no-store",
         referrerPolicy:
-          "strict-origin-when-cross-origin"
+          sameOrigin
+            ? "no-referrer"
+            : "strict-origin-when-cross-origin"
       }
     );
 
@@ -287,6 +332,7 @@ export class PhotorealisticEarthRenderer {
     container,
     {
       apiKey = "",
+      tilesRootUrl = "",
       creditContainer = null
     } = {}
   ) {
@@ -295,10 +341,17 @@ export class PhotorealisticEarthRenderer {
       creditContainer;
     this.apiKey =
       cleanApiKey(apiKey);
+    this.tilesRootUrl =
+      cleanTilesRootUrl(
+        tilesRootUrl
+      );
     this.configured =
       Boolean(
         container &&
-        this.apiKey
+        (
+          this.tilesRootUrl ||
+          this.apiKey
+        )
       );
     this.ready = false;
     this.status =
@@ -414,9 +467,12 @@ export class PhotorealisticEarthRenderer {
     let viewer = null;
 
     try {
-      await probeGoogleTiles(
-        this.apiKey
-      );
+      await probeGoogleTiles({
+        tilesRootUrl:
+          this.tilesRootUrl,
+        apiKey:
+          this.apiKey
+      });
 
       const Cesium =
         await loadCesium();
@@ -425,9 +481,19 @@ export class PhotorealisticEarthRenderer {
         Cesium.RequestScheduler
           ?.requestsByServer
       ) {
+        const tilesHost =
+          new URL(
+            googleTilesRequestUrl({
+              tilesRootUrl:
+                this.tilesRootUrl,
+              apiKey:
+                this.apiKey
+            }),
+            location.href
+          ).host;
         Cesium.RequestScheduler
           .requestsByServer[
-            "tile.googleapis.com:443"
+            `${tilesHost}:443`
           ] = 18;
       }
 
@@ -469,7 +535,12 @@ export class PhotorealisticEarthRenderer {
         await Cesium
           .Cesium3DTileset
           .fromUrl(
-            `https://tile.googleapis.com/v1/3dtiles/root.json?key=${encodeURIComponent(this.apiKey)}`,
+            googleTilesRequestUrl({
+              tilesRootUrl:
+                this.tilesRootUrl,
+              apiKey:
+                this.apiKey
+            }),
             {
               showCreditsOnScreen:
                 true,
