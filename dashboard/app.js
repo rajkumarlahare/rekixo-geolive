@@ -949,6 +949,51 @@ function automationErrorText(error) {
     "Automation request failed.";
 }
 
+async function loadGeofenceOverlay() {
+  const project =
+    projectById();
+  if (!project) {
+    state.automation.geofences = [];
+    state.geofenceOverlayProjectId = "";
+    return false;
+  }
+
+  try {
+    const payload = await api(
+      `/v1/admin/projects/${project.id}/geofences`
+    );
+    state.automation.geofencesEnabled =
+      true;
+    state.automation.geofences =
+      payload.geofences || [];
+    state.geofenceOverlayProjectId =
+      project.id;
+    return true;
+  } catch (error) {
+    if (
+      [
+        "feature_not_entitled",
+        "subscription_not_active"
+      ].includes(error.code)
+    ) {
+      state.automation.geofencesEnabled =
+        false;
+      state.automation.geofences = [];
+      state.geofenceOverlayProjectId =
+        project.id;
+      return false;
+    }
+    if (error.status === 401) {
+      throw error;
+    }
+    console.warn(
+      "GeoLive geofence overlay refresh failed",
+      error
+    );
+    return false;
+  }
+}
+
 function clearAutomationList(id) {
   const node =
     document.querySelector("#" + id);
@@ -1191,6 +1236,16 @@ function renderAutomation() {
         ],
         actions: geofenceWritable
           ? [
+              {
+                label: "Edit on globe",
+                onClick:
+                  () => {
+                    beginGeofenceEditor({
+                      mode: "edit",
+                      geofence
+                    });
+                  }
+              },
               {
                 label:
                   geofence.status ===
@@ -1631,6 +1686,8 @@ async function loadAutomation() {
     );
   }
 
+  state.geofenceOverlayProjectId =
+    project.id;
   setText(
     "automationError",
     errors.join(" ")
