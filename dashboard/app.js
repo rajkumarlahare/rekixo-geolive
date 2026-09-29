@@ -1,6 +1,12 @@
 import {
   GeoGlobeRenderer
 } from "./globe-webgl.js";
+import {
+  circlePoints,
+  closePolygon,
+  haversineMeters,
+  screenToGeo
+} from "./geofence-editor.js";
 
 const earthCanvas =
   document.querySelector(
@@ -66,6 +72,17 @@ const state = {
     rules: [],
     events: [],
     deliveries: []
+  },
+  geofenceOverlayProjectId: "",
+  geofenceEditor: {
+    active: false,
+    mode: "create",
+    geofenceId: "",
+    center: null,
+    radiusM: null,
+    points: [],
+    finished: false,
+    previousPaused: false
   },
   facets: {
     countries: [],
@@ -225,12 +242,15 @@ function resetData() {
   state.users = [];
   state.filtered = [];
   state.automation = {
+    geofencesEnabled: true,
+    webhooksEnabled: true,
     geofences: [],
     endpoints: [],
     rules: [],
     events: [],
     deliveries: []
   };
+  state.geofenceOverlayProjectId = "";
   state.facets = {
     countries: [],
     states: [],
@@ -569,6 +589,12 @@ async function loadProject({ quiet = false } = {}) {
 
     rebuildGeoFilters();
     await refreshMapData();
+    if (
+      state.geofenceOverlayProjectId !==
+      project.id
+    ) {
+      await loadGeofenceOverlay();
+    }
     updateStats();
     setText(
       "lastUpdated",
@@ -862,7 +888,12 @@ document.querySelector("#logout").addEventListener("click", async () => {
 
 projectSelect.addEventListener("change", () => {
   stopRealtime({ resetSequence: true });
+  cancelGeofenceEditor({
+    restorePause: false
+  });
   state.projectId = projectSelect.value;
+  state.geofenceOverlayProjectId = "";
+  state.automation.geofences = [];
   clearGeoAnalytics();
   showDetail({});
   document.querySelector("#editProject").disabled = !canWriteProject();
