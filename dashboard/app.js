@@ -601,11 +601,33 @@ function applyFilters() {
   const markerCount = state.useClusters
     ? state.clusters.length
     : state.filtered.length;
-  document.querySelector("#emptyState").hidden =
+  const emptyState =
+    document.querySelector("#emptyState");
+  emptyState.hidden =
     Boolean(
       state.projectId &&
       markerCount
     );
+
+  const title =
+    emptyState.querySelector("strong");
+  const detail =
+    emptyState.querySelector("span");
+  if (state.projectId) {
+    title.textContent =
+      markerCount
+        ? ""
+        : "No live users yet";
+    detail.textContent =
+      markerCount
+        ? ""
+        : "Send the first production location to see it on the globe.";
+  } else {
+    title.textContent =
+      "Select a project";
+    detail.textContent =
+      "Live project users will appear here.";
+  }
 }
 
 async function refreshMapData() {
