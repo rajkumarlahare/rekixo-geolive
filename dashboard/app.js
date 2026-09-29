@@ -1,5 +1,27 @@
-const canvas = document.querySelector("#globe");
-const ctx = canvas.getContext("2d");
+import {
+  GeoGlobeRenderer
+} from "./globe-webgl.js";
+
+const earthCanvas =
+  document.querySelector(
+    "#earthGlobe"
+  );
+const canvas =
+  document.querySelector("#globe");
+const ctx =
+  canvas.getContext("2d");
+const globeRenderer =
+  new GeoGlobeRenderer(
+    earthCanvas
+  );
+const rendererBadge =
+  document.querySelector(
+    "#rendererBadge"
+  );
+rendererBadge.textContent =
+  globeRenderer.available
+    ? "3D WebGL"
+    : "2D fallback";
 const search = document.querySelector("#search");
 const projectSelect = document.querySelector("#project");
 const authOverlay = document.querySelector("#authOverlay");
@@ -4292,6 +4314,132 @@ document.querySelector("#zoomOut").onclick = () => {
 };
 document.querySelector("#center").onclick = () => state.rotation = -20;
 
+let suppressGlobeClick = false;
+const globeDrag = {
+  active: false,
+  pointerId: null,
+  startX: 0,
+  lastX: 0,
+  moved: false
+};
+
+canvas.addEventListener(
+  "pointerdown",
+  (event) => {
+    if (
+      event.button !== 0 ||
+      globeDrag.active
+    ) {
+      return;
+    }
+    globeDrag.active = true;
+    globeDrag.pointerId =
+      event.pointerId;
+    globeDrag.startX =
+      event.clientX;
+    globeDrag.lastX =
+      event.clientX;
+    globeDrag.moved = false;
+    canvas.classList.add(
+      "dragging"
+    );
+    canvas.setPointerCapture?.(
+      event.pointerId
+    );
+  }
+);
+
+canvas.addEventListener(
+  "pointermove",
+  (event) => {
+    if (
+      !globeDrag.active ||
+      event.pointerId !==
+        globeDrag.pointerId
+    ) {
+      return;
+    }
+
+    const deltaX =
+      event.clientX -
+      globeDrag.lastX;
+    globeDrag.lastX =
+      event.clientX;
+
+    if (
+      Math.abs(
+        event.clientX -
+        globeDrag.startX
+      ) >= 4
+    ) {
+      globeDrag.moved = true;
+    }
+
+    state.rotation =
+      (
+        state.rotation -
+        deltaX * 0.35 +
+        540
+      ) %
+        360 -
+      180;
+  }
+);
+
+function endGlobeDrag(event) {
+  if (
+    !globeDrag.active ||
+    event.pointerId !==
+      globeDrag.pointerId
+  ) {
+    return;
+  }
+
+  suppressGlobeClick =
+    globeDrag.moved;
+  globeDrag.active = false;
+  globeDrag.pointerId = null;
+  canvas.classList.remove(
+    "dragging"
+  );
+  try {
+    canvas.releasePointerCapture?.(
+      event.pointerId
+    );
+  } catch {}
+}
+
+canvas.addEventListener(
+  "pointerup",
+  endGlobeDrag
+);
+canvas.addEventListener(
+  "pointercancel",
+  endGlobeDrag
+);
+
+canvas.addEventListener(
+  "wheel",
+  (event) => {
+    event.preventDefault();
+    const direction =
+      event.deltaY < 0
+        ? 1
+        : -1;
+    state.zoom =
+      Math.min(
+        1.5,
+        Math.max(
+          0.7,
+          state.zoom +
+            direction * 0.08
+        )
+      );
+    scheduleClusterRefresh();
+  },
+  { passive: false }
+);
+
 function resize() {
   const rect = canvas.getBoundingClientRect();
   const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -4326,34 +4474,80 @@ function starfield(width, height) {
 function draw() {
   const width = canvas.clientWidth;
   const height = canvas.clientHeight;
-  ctx.clearRect(0, 0, width, height);
-  starfield(width, height);
+  ctx.clearRect(
+    0,
+    0,
+    width,
+    height
+  );
+
+  const webglRendered =
+    globeRenderer.render({
+      rotationDegrees:
+        state.rotation,
+      zoom: state.zoom
+    });
+
+  if (
+    !webglRendered &&
+    rendererBadge.textContent !==
+      "2D fallback"
+  ) {
+    rendererBadge.textContent =
+      "2D fallback";
+  }
 
   const cx = width * .5;
   const cy = height * .48;
-  const radius = Math.min(width * .37, height * .43) * state.zoom;
-  const grad = ctx.createRadialGradient(
-    cx - radius * .35,
-    cy - radius * .35,
-    radius * .1,
-    cx,
-    cy,
-    radius
-  );
-  grad.addColorStop(0, "#0a3653");
-  grad.addColorStop(.65, "#061e31");
-  grad.addColorStop(1, "#020812");
+  const radius =
+    Math.min(
+      width * .37,
+      height * .43
+    ) *
+    state.zoom;
 
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.fillStyle = grad;
-  ctx.fill();
-  ctx.strokeStyle = "#2d9cff";
-  ctx.lineWidth = 1.4;
-  ctx.shadowColor = "#2d9cff";
-  ctx.shadowBlur = 18;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  if (!webglRendered) {
+    const grad =
+      ctx.createRadialGradient(
+        cx - radius * .35,
+        cy - radius * .35,
+        radius * .1,
+        cx,
+        cy,
+        radius
+      );
+    grad.addColorStop(
+      0,
+      "#0a3653"
+    );
+    grad.addColorStop(
+      .65,
+      "#061e31"
+    );
+    grad.addColorStop(
+      1,
+      "#020812"
+    );
+
+    ctx.beginPath();
+    ctx.arc(
+      cx,
+      cy,
+      radius,
+      0,
+      Math.PI * 2
+    );
+    ctx.fillStyle = grad;
+    ctx.fill();
+    ctx.strokeStyle =
+      "#2d9cff";
+    ctx.lineWidth = 1.4;
+    ctx.shadowColor =
+      "#2d9cff";
+    ctx.shadowBlur = 18;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
 
   ctx.save();
   ctx.beginPath();
@@ -4589,6 +4783,11 @@ function draw() {
 draw();
 
 canvas.addEventListener("click", (event) => {
+  if (suppressGlobeClick) {
+    suppressGlobeClick = false;
+    return;
+  }
+
   const rect = canvas.getBoundingClientRect();
   const x = event.clientX - rect.left;
   const y = event.clientY - rect.top;
