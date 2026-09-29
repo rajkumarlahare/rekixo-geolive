@@ -107,7 +107,7 @@ CREATE INDEX alert_rules_geofence_idx
 CREATE TABLE geofence_user_state (
   project_id uuid NOT NULL,
   geofence_id uuid NOT NULL
-    REFERENCES geofences(id) ON DELETE RESTRICT,
+    REFERENCES geofences(id) ON DELETE CASCADE,
   external_user_id text NOT NULL,
   is_inside boolean NOT NULL DEFAULT false,
   entered_at timestamptz,
@@ -177,9 +177,9 @@ CREATE TABLE webhook_deliveries (
   project_id uuid NOT NULL
     REFERENCES projects(id) ON DELETE CASCADE,
   webhook_endpoint_id uuid NOT NULL
-    REFERENCES webhook_endpoints(id) ON DELETE RESTRICT,
+    REFERENCES webhook_endpoints(id) ON DELETE CASCADE,
   alert_rule_id uuid NOT NULL
-    REFERENCES alert_rules(id) ON DELETE RESTRICT,
+    REFERENCES alert_rules(id) ON DELETE CASCADE,
   geofence_event_id bigint NOT NULL
     REFERENCES geofence_events(id) ON DELETE CASCADE,
   status text NOT NULL DEFAULT 'pending'
