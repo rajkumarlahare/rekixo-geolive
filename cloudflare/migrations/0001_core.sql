@@ -70,6 +70,17 @@ CREATE TABLE IF NOT EXISTS project_limits (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS client_security_policy (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  client_token_ttl_seconds INTEGER NOT NULL DEFAULT 300,
+  request_max_age_seconds INTEGER NOT NULL DEFAULT 120,
+  token_exchange_requests_per_minute INTEGER NOT NULL DEFAULT 120,
+  require_request_proof INTEGER NOT NULL DEFAULT 1,
+  android_attestation_mode TEXT NOT NULL DEFAULT 'off'
+    CHECK (android_attestation_mode IN ('off','optional','required')),
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS api_keys (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
