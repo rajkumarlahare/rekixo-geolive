@@ -1231,6 +1231,467 @@ function populateAutomationSelects() {
   );
 }
 
+function automationHistoryParams(
+  kind,
+  cursor = ""
+) {
+  const params =
+    new URLSearchParams({
+      limit: "50"
+    });
+  if (cursor) {
+    params.set(
+      "cursor",
+      cursor
+    );
+  }
+
+  if (kind === "events") {
+    const eventType =
+      document.querySelector(
+        "#eventTypeFilter"
+      )?.value || "";
+    const geofenceId =
+      document.querySelector(
+        "#eventGeofenceFilter"
+      )?.value || "";
+    const userId =
+      document.querySelector(
+        "#eventUserFilter"
+      )?.value.trim() || "";
+    if (eventType) {
+      params.set(
+        "eventType",
+        eventType
+      );
+    }
+    if (geofenceId) {
+      params.set(
+        "geofenceId",
+        geofenceId
+      );
+    }
+    if (userId) {
+      params.set(
+        "userId",
+        userId
+      );
+    }
+  } else {
+    const status =
+      document.querySelector(
+        "#deliveryStatusFilter"
+      )?.value || "";
+    const endpointId =
+      document.querySelector(
+        "#deliveryEndpointFilter"
+      )?.value || "";
+    const eventType =
+      document.querySelector(
+        "#deliveryEventTypeFilter"
+      )?.value || "";
+    if (status) {
+      params.set(
+        "status",
+        status
+      );
+    }
+    if (endpointId) {
+      params.set(
+        "endpointId",
+        endpointId
+      );
+    }
+    if (eventType) {
+      params.set(
+        "eventType",
+        eventType
+      );
+    }
+  }
+
+  return params;
+}
+
+function safeLocalTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(
+    date.getTime()
+  )
+    ? "—"
+    : date.toLocaleString();
+}
+
+function renderAutomationObservability() {
+  const events =
+    state.automation.events || [];
+  const deliveries =
+    state.automation.deliveries || [];
+
+  const eventCounts = {
+    enter: 0,
+    exit: 0,
+    dwell: 0
+  };
+  for (const event of events) {
+    if (
+      event.eventType in
+      eventCounts
+    ) {
+      eventCounts[
+        event.eventType
+      ] += 1;
+    }
+  }
+
+  const deliveryCounts = {
+    pending: 0,
+    retry: 0,
+    delivered: 0,
+    dead: 0
+  };
+  for (
+    const delivery of deliveries
+  ) {
+    if (
+      delivery.status in
+      deliveryCounts
+    ) {
+      deliveryCounts[
+        delivery.status
+      ] += 1;
+    }
+  }
+
+  const totalDeliveries =
+    deliveries.length;
+  const deliveryRate =
+    totalDeliveries
+      ? Math.round(
+          deliveryCounts.delivered /
+            totalDeliveries *
+            100
+        )
+      : 0;
+
+  setText(
+    "obsEvents",
+    formatCount(events.length)
+  );
+  setText(
+    "obsEventMix",
+    `Enter ${eventCounts.enter} · Exit ${eventCounts.exit} · Dwell ${eventCounts.dwell}`
+  );
+  setText(
+    "obsDelivered",
+    formatCount(
+      deliveryCounts.delivered
+    )
+  );
+  setText(
+    "obsDeliveryRate",
+    `${deliveryRate}% of loaded deliveries`
+  );
+  setText(
+    "obsAttention",
+    formatCount(
+      deliveryCounts.pending +
+      deliveryCounts.retry
+    )
+  );
+  setText(
+    "obsDead",
+    formatCount(
+      deliveryCounts.dead
+    )
+  );
+  setText(
+    "obsDeadHint",
+    deliveryCounts.dead
+      ? "Open a dead delivery to inspect failures."
+      : "No terminal failures loaded"
+  );
+  setText(
+    "automationHistoryScope",
+    `Loaded ${events.length} events · ${deliveries.length} deliveries`
+  );
+
+  const moreEvents =
+    document.querySelector(
+      "#loadMoreEvents"
+    );
+  if (moreEvents) {
+    moreEvents.hidden =
+      !state.automation
+        .eventsNextCursor;
+  }
+  const moreDeliveries =
+    document.querySelector(
+      "#loadMoreDeliveries"
+    );
+  if (moreDeliveries) {
+    moreDeliveries.hidden =
+      !state.automation
+        .deliveriesNextCursor;
+  }
+}
+
+function closeWebhookDeliveryDetail() {
+  state.automation
+    .selectedDeliveryId = "";
+  const panel =
+    document.querySelector(
+      "#webhookDeliveryDetail"
+    );
+  if (panel) {
+    panel.hidden = true;
+  }
+}
+
+function renderWebhookAttemptTimeline(
+  attempts
+) {
+  const timeline =
+    document.querySelector(
+      "#webhookAttemptTimeline"
+    );
+  timeline.replaceChildren();
+
+  setText(
+    "deliveryAttemptCount",
+    `${attempts.length} ${attempts.length === 1 ? "attempt" : "attempts"}`
+  );
+
+  if (!attempts.length) {
+    automationEmpty(
+      timeline,
+      "No delivery attempts have completed yet."
+    );
+    return;
+  }
+
+  for (const attempt of attempts) {
+    const item =
+      document.createElement(
+        "article"
+      );
+    const success =
+      Number(
+        attempt.responseStatus
+      ) >= 200 &&
+      Number(
+        attempt.responseStatus
+      ) < 300;
+    item.className =
+      `webhook-attempt ${success ? "success" : attempt.errorText || attempt.responseStatus ? "failure" : "pending"}`;
+
+    const head =
+      document.createElement(
+        "div"
+      );
+    head.className =
+      "webhook-attempt-head";
+    const title =
+      document.createElement(
+        "strong"
+      );
+    title.textContent =
+      `Attempt #${attempt.attemptNumber}`;
+    const result =
+      document.createElement(
+        "span"
+      );
+    result.textContent =
+      attempt.responseStatus
+        ? `HTTP ${attempt.responseStatus}`
+        : attempt.errorText ||
+          "No response";
+    head.append(
+      title,
+      result
+    );
+
+    const timing =
+      document.createElement(
+        "small"
+      );
+    timing.textContent =
+      `${safeLocalTime(attempt.startedAt)} · ${formatCount(attempt.latencyMs)} ms`;
+    item.append(
+      head,
+      timing
+    );
+
+    if (attempt.errorText) {
+      const error =
+        document.createElement(
+          "small"
+        );
+      error.textContent =
+        `Error: ${attempt.errorText}`;
+      item.appendChild(error);
+    }
+
+    timeline.appendChild(item);
+  }
+}
+
+function renderWebhookDeliveryDetail(
+  payload
+) {
+  const delivery =
+    payload.delivery || {};
+  setText(
+    "deliveryDetailTitle",
+    delivery.endpointName ||
+      "Webhook delivery"
+  );
+  setText(
+    "deliveryDetailStatus",
+    String(
+      delivery.status || "—"
+    ).toUpperCase()
+  );
+  setText(
+    "deliveryDetailId",
+    delivery.deliveryId || "—"
+  );
+  setText(
+    "deliveryDetailEndpoint",
+    delivery.endpointName || "—"
+  );
+  setText(
+    "deliveryDetailUrl",
+    delivery.endpointUrl || "—"
+  );
+  setText(
+    "deliveryDetailEvent",
+    delivery.eventType
+      ? `${delivery.eventType.toUpperCase()} · ${delivery.eventId || "—"}`
+      : delivery.eventId || "—"
+  );
+  setText(
+    "deliveryDetailUser",
+    delivery.userId || "—"
+  );
+  setText(
+    "deliveryDetailGeofence",
+    delivery.geofenceName ||
+      delivery.geofenceId ||
+      "—"
+  );
+  setText(
+    "deliveryDetailRule",
+    delivery.alertRuleName ||
+      delivery.alertRuleId ||
+      "—"
+  );
+  setText(
+    "deliveryDetailCreated",
+    safeLocalTime(
+      delivery.createdAt
+    )
+  );
+
+  const schedule =
+    delivery.status === "delivered"
+      ? `Delivered ${safeLocalTime(delivery.deliveredAt)}`
+      : delivery.status === "dead"
+        ? "Dead letter · manual retry available"
+        : `Next attempt ${safeLocalTime(delivery.nextAttemptAt)}`;
+  setText(
+    "deliveryDetailSchedule",
+    schedule
+  );
+  setText(
+    "deliveryDetailResponse",
+    delivery.responseStatus
+      ? `HTTP ${delivery.responseStatus}`
+      : "No HTTP response"
+  );
+  setText(
+    "deliveryDetailError",
+    delivery.lastError || "—"
+  );
+  setText(
+    "deliveryResponseBody",
+    delivery.responseBodyExcerpt ||
+      "No response body captured."
+  );
+
+  renderWebhookAttemptTimeline(
+    payload.attempts || []
+  );
+}
+
+async function openWebhookDeliveryDetail(
+  deliveryId
+) {
+  const project =
+    projectById();
+  if (!project || !deliveryId) {
+    return;
+  }
+
+  state.automation
+    .selectedDeliveryId =
+      deliveryId;
+  const panel =
+    document.querySelector(
+      "#webhookDeliveryDetail"
+    );
+  panel.hidden = false;
+  setText(
+    "deliveryDetailTitle",
+    "Loading delivery…"
+  );
+  setText(
+    "deliveryAttemptCount",
+    "Loading attempts…"
+  );
+  document.querySelector(
+    "#webhookAttemptTimeline"
+  ).replaceChildren();
+
+  try {
+    const payload =
+      await api(
+        `/v1/admin/projects/${project.id}/webhook-deliveries/${deliveryId}`
+      );
+    if (
+      state.automation
+        .selectedDeliveryId !==
+      deliveryId
+    ) {
+      return;
+    }
+    renderWebhookDeliveryDetail(
+      payload
+    );
+    panel.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest"
+    });
+  } catch (error) {
+    if (
+      state.automation
+        .selectedDeliveryId !==
+      deliveryId
+    ) {
+      return;
+    }
+    setText(
+      "deliveryDetailTitle",
+      "Delivery unavailable"
+    );
+    setText(
+      "deliveryAttemptCount",
+      automationErrorText(error)
+    );
+  }
+}
+
 function renderAutomation() {
   populateAutomationSelects();
   const writable =
