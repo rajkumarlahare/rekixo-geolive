@@ -42,7 +42,30 @@ P0 through the P4C console foundation now provide:
 
 Only `rekixo-geolive` is changed by this product. Existing FinWorkar, Rekixo AR3D, EntroNex, LudoProof and other repositories remain independently deployable.
 
-## Production setup
+## Production runtime
+
+GeoLive 0.17.0 adds a **Cloudflare-native production runtime** under
+`cloudflare/`:
+
+- Cloudflare Workers for the real API/admin control plane;
+- D1 for tenant, live-state, history, geofence, webhook and operational data;
+- Durable Objects for project-scoped realtime WebSockets and replay;
+- Queues for signed webhook delivery, retry and dead-letter handling;
+- Cron for dwell processing and retention;
+- Worker Static Assets for the authenticated production dashboard.
+
+The existing `rekixo-geolive.pages.dev` deployment remains the synthetic,
+read-only public demo. It is intentionally not the production database/API.
+
+See [Cloudflare-native production runbook](docs/cloudflare-production.md) for
+resource creation, secrets, D1 migrations, deployment, bootstrap and the
+real-location cutover checklist.
+
+### Legacy Node/PostgreSQL runtime
+
+The Node/PostgreSQL/PostGIS/Redis implementation remains maintained as the
+reference/compatibility runtime while Cloudflare feature parity is completed.
+Do not connect both runtimes to one production dataset.
 
 Configure PostgreSQL/PostGIS:
 
