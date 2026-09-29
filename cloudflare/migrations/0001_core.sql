@@ -304,6 +304,17 @@ CREATE TABLE IF NOT EXISTS webhook_delivery_attempts (
   UNIQUE(webhook_delivery_id, attempt_number)
 );
 
+CREATE TABLE IF NOT EXISTS rate_limit_windows (
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  bucket TEXT NOT NULL CHECK (bucket IN ('ingest','read','token_exchange')),
+  window_start TEXT NOT NULL,
+  request_count INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(project_id, bucket, window_start)
+);
+CREATE INDEX IF NOT EXISTS rate_limit_windows_time_idx
+  ON rate_limit_windows(window_start);
+
 CREATE TABLE IF NOT EXISTS usage_daily (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   usage_date TEXT NOT NULL,
