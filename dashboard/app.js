@@ -23,18 +23,43 @@ const canvas =
   document.querySelector("#globe");
 const ctx =
   canvas.getContext("2d");
+const publicConfig =
+  globalThis
+    .__GEOLIVE_PUBLIC_CONFIG__ ||
+  {};
 const globeRenderer =
   new GeoGlobeRenderer(
-    earthCanvas
+    earthCanvas,
+    {
+      realContainer:
+        document.querySelector(
+          "#realEarth"
+        ),
+      googleMapsApiKey:
+        publicConfig
+          .googleMapsApiKey ||
+        "",
+      creditContainer:
+        document.querySelector(
+          "#realEarthCredits"
+        )
+    }
   );
 const rendererBadge =
   document.querySelector(
     "#rendererBadge"
   );
-rendererBadge.textContent =
-  globeRenderer.available
-    ? "3D WebGL"
-    : "2D fallback";
+const syncRendererBadge =
+  (event) => {
+    rendererBadge.textContent =
+      event?.detail?.label ||
+      globeRenderer.label;
+  };
+syncRendererBadge();
+addEventListener(
+  "geolive:renderer",
+  syncRendererBadge
+);
 const search = document.querySelector("#search");
 const projectSelect = document.querySelector("#project");
 const authOverlay = document.querySelector("#authOverlay");
@@ -74,6 +99,7 @@ const state = {
     requestId: 0
   },
   rotation: -20,
+  cameraLatitude: 12,
   zoom: 1,
   paused: false,
   refreshes: 0,
@@ -760,7 +786,12 @@ function clusterGridDegrees() {
   if (state.zoom <= 1.0) return 10;
   if (state.zoom <= 1.2) return 6;
   if (state.zoom <= 1.35) return 4;
-  return 2.5;
+  if (state.zoom <= 1.8) return 2.5;
+  if (state.zoom <= 3) return 1;
+  if (state.zoom <= 5) return 0.25;
+  if (state.zoom <= 7) return 0.05;
+  if (state.zoom <= 9) return 0.01;
+  return 0.0025;
 }
 
 async function loadClusters() {
@@ -6506,21 +6537,42 @@ document.querySelector("#pause").onclick = () => {
   state.paused = !state.paused;
 };
 document.querySelector("#zoomIn").onclick = () => {
-  state.zoom = Math.min(1.5, state.zoom + .1);
+  const step =
+    globeRenderer.zoomStep(
+      state.zoom
+    );
+  state.zoom =
+    Math.min(
+      globeRenderer.maxZoom(),
+      state.zoom + step
+    );
   scheduleClusterRefresh();
 };
 document.querySelector("#zoomOut").onclick = () => {
-  state.zoom = Math.max(.7, state.zoom - .1);
+  const step =
+    globeRenderer.zoomStep(
+      state.zoom
+    );
+  state.zoom =
+    Math.max(
+      0.7,
+      state.zoom - step
+    );
   scheduleClusterRefresh();
 };
-document.querySelector("#center").onclick = () => state.rotation = -20;
+document.querySelector("#center").onclick = () => {
+  state.rotation = -20;
+  state.cameraLatitude = 12;
+};
 
 let suppressGlobeClick = false;
 const globeDrag = {
   active: false,
   pointerId: null,
   startX: 0,
+  startY: 0,
   lastX: 0,
+  lastY: 0,
   moved: false
 };
 
@@ -6539,8 +6591,12 @@ canvas.addEventListener(
       event.pointerId;
     globeDrag.startX =
       event.clientX;
+    globeDrag.startY =
+      event.clientY;
     globeDrag.lastX =
       event.clientX;
+    globeDrag.lastY =
+      event.clientY;
     globeDrag.moved = false;
     canvas.classList.add(
       "dragging"
@@ -6565,13 +6621,20 @@ canvas.addEventListener(
     const deltaX =
       event.clientX -
       globeDrag.lastX;
+    const deltaY =
+      event.clientY -
+      globeDrag.lastY;
     globeDrag.lastX =
       event.clientX;
+    globeDrag.lastY =
+      event.clientY;
 
     if (
-      Math.abs(
+      Math.hypot(
         event.clientX -
-        globeDrag.startX
+          globeDrag.startX,
+        event.clientY -
+          globeDrag.startY
       ) >= 4
     ) {
       globeDrag.moved = true;
@@ -6585,6 +6648,21 @@ canvas.addEventListener(
       ) %
         360 -
       180;
+
+    if (
+      globeRenderer
+        .photorealisticActive
+    ) {
+      state.cameraLatitude =
+        Math.min(
+          80,
+          Math.max(
+            -80,
+            state.cameraLatitude +
+              deltaY * 0.22
+          )
+        );
+    }
   }
 );
 
@@ -6628,13 +6706,19 @@ canvas.addEventListener(
       event.deltaY < 0
         ? 1
         : -1;
+    const step =
+      globeRenderer.zoomStep(
+        state.zoom
+      );
     state.zoom =
       Math.min(
-        1.5,
+        globeRenderer.maxZoom(),
         Math.max(
           0.7,
           state.zoom +
-            direction * 0.08
+            direction *
+              step *
+              0.8
         )
       );
     scheduleClusterRefresh();
@@ -6654,6 +6738,15 @@ addEventListener("resize", resize);
 resize();
 
 function projectPoint(lat, lng, cx, cy, radius) {
+  const realPoint =
+    globeRenderer.project(
+      lat,
+      lng
+    );
+  if (realPoint) {
+    return realPoint;
+  }
+
   const phi = lat * Math.PI / 180;
   const lambda = (lng - state.rotation) * Math.PI / 180;
   const x = Math.cos(phi) * Math.sin(lambda);
@@ -7051,8 +7144,13 @@ function draw() {
     globeRenderer.render({
       rotationDegrees:
         state.rotation,
+      latitudeDegrees:
+        state.cameraLatitude,
       zoom: state.zoom
     });
+  const photorealistic =
+    globeRenderer
+      .photorealisticActive;
 
   if (
     !webglRendered &&
@@ -7116,44 +7214,96 @@ function draw() {
   }
 
   ctx.save();
-  ctx.beginPath();
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.strokeStyle = "rgba(68,150,196,.18)";
-  ctx.lineWidth = 1;
 
-  for (let lat = -60; lat <= 60; lat += 30) {
+  if (!photorealistic) {
     ctx.beginPath();
-    let started = false;
-    for (let lng = -180; lng <= 180; lng += 3) {
-      const point = projectPoint(lat, lng, cx, cy, radius);
-      if (point.z > 0) {
-        if (!started) {
-          ctx.moveTo(point.x, point.y);
-          started = true;
-        } else {
-          ctx.lineTo(point.x, point.y);
+    ctx.arc(
+      cx,
+      cy,
+      radius,
+      0,
+      Math.PI * 2
+    );
+    ctx.clip();
+    ctx.strokeStyle =
+      "rgba(68,150,196,.18)";
+    ctx.lineWidth = 1;
+
+    for (
+      let lat = -60;
+      lat <= 60;
+      lat += 30
+    ) {
+      ctx.beginPath();
+      let started = false;
+      for (
+        let lng = -180;
+        lng <= 180;
+        lng += 3
+      ) {
+        const point =
+          projectPoint(
+            lat,
+            lng,
+            cx,
+            cy,
+            radius
+          );
+        if (point.z > 0) {
+          if (!started) {
+            ctx.moveTo(
+              point.x,
+              point.y
+            );
+            started = true;
+          } else {
+            ctx.lineTo(
+              point.x,
+              point.y
+            );
+          }
         }
       }
+      ctx.stroke();
     }
-    ctx.stroke();
-  }
 
-  for (let lng = -180; lng < 180; lng += 30) {
-    ctx.beginPath();
-    let started = false;
-    for (let lat = -90; lat <= 90; lat += 3) {
-      const point = projectPoint(lat, lng, cx, cy, radius);
-      if (point.z > 0) {
-        if (!started) {
-          ctx.moveTo(point.x, point.y);
-          started = true;
-        } else {
-          ctx.lineTo(point.x, point.y);
+    for (
+      let lng = -180;
+      lng < 180;
+      lng += 30
+    ) {
+      ctx.beginPath();
+      let started = false;
+      for (
+        let lat = -90;
+        lat <= 90;
+        lat += 3
+      ) {
+        const point =
+          projectPoint(
+            lat,
+            lng,
+            cx,
+            cy,
+            radius
+          );
+        if (point.z > 0) {
+          if (!started) {
+            ctx.moveTo(
+              point.x,
+              point.y
+            );
+            started = true;
+          } else {
+            ctx.lineTo(
+              point.x,
+              point.y
+            );
+          }
         }
       }
+      ctx.stroke();
     }
-    ctx.stroke();
   }
 
   drawGeofenceOverlays(
@@ -7354,7 +7504,15 @@ function draw() {
   );
 
   ctx.restore();
-  if (!state.paused) state.rotation = (state.rotation + .025) % 360;
+  if (
+    !state.paused &&
+    !globeRenderer
+      .photorealisticActive
+  ) {
+    state.rotation =
+      (state.rotation + .025) %
+      360;
+  }
   requestAnimationFrame(draw);
 }
 

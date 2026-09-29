@@ -161,6 +161,7 @@ async function serveDashboard(res, pathname) {
       "styles.css",
       "app.js",
       "globe-webgl.js",
+      "photorealistic-earth.js",
       "geofence-editor.js",
       "demo-mode.js",
       "earth-dark.svg"
@@ -399,7 +400,7 @@ export function createGeoLiveServer({
         return json(res, 200, {
           ok: true,
           service: "rekixo-geolive",
-          version: "0.15.0"
+          version: "0.16.0"
         });
       }
 

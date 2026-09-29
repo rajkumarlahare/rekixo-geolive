@@ -1,3 +1,5 @@
+import { PhotorealisticEarthRenderer } from "./photorealistic-earth.js";
+
 const VERTEX_SHADER = `
 attribute vec3 aPosition;
 attribute vec3 aNormal;
@@ -406,7 +408,10 @@ export class GeoGlobeRenderer {
         new URL(
           "./earth-dark.svg",
           import.meta.url
-        ).href
+        ).href,
+      realContainer = null,
+      googleMapsApiKey = "",
+      creditContainer = null
     } = {}
   ) {
     this.canvas = canvas;
@@ -414,6 +419,15 @@ export class GeoGlobeRenderer {
     this.textureReady = false;
     this.lastWidth = 0;
     this.lastHeight = 0;
+    this.photorealistic =
+      new PhotorealisticEarthRenderer(
+        realContainer,
+        {
+          apiKey:
+            googleMapsApiKey,
+          creditContainer
+        }
+      );
 
     const gl =
       canvas?.getContext(
@@ -598,6 +612,47 @@ export class GeoGlobeRenderer {
     }
   }
 
+  get photorealisticActive() {
+    return Boolean(
+      this.photorealistic
+        ?.active
+    );
+  }
+
+  get label() {
+    if (
+      this.photorealistic
+        ?.label
+    ) {
+      return this.photorealistic
+        .label;
+    }
+    return this.available
+      ? "3D WebGL"
+      : "2D fallback";
+  }
+
+  maxZoom() {
+    return this.photorealistic
+      ?.maxZoom?.() || 1.5;
+  }
+
+  zoomStep(zoom) {
+    return this.photorealistic
+      ?.zoomStep?.(zoom) || 0.1;
+  }
+
+  project(
+    latitude,
+    longitude
+  ) {
+    return this.photorealistic
+      ?.project?.(
+        latitude,
+        longitude
+      ) || null;
+  }
+
   resize() {
     if (
       !this.available ||
@@ -651,8 +706,20 @@ export class GeoGlobeRenderer {
 
   render({
     rotationDegrees = -20,
+    latitudeDegrees = 12,
     zoom = 1
   } = {}) {
+    if (
+      this.photorealistic
+        ?.render({
+          rotationDegrees,
+          latitudeDegrees,
+          zoom
+        })
+    ) {
+      return true;
+    }
+
     if (
       !this.available ||
       !this.gl
