@@ -1060,6 +1060,32 @@ export class PostgresAutomationStore {
         ]
       );
       await client.query(
+        `UPDATE webhook_deliveries d
+        SET status = 'dead',
+            last_error =
+              'geofence_deleted',
+            locked_at = NULL,
+            locked_by = NULL,
+            updated_at = now()
+        WHERE d.project_id = $1
+          AND d.status IN (
+            'pending',
+            'retry'
+          )
+          AND EXISTS (
+            SELECT 1
+            FROM alert_rules r
+            WHERE r.id =
+              d.alert_rule_id
+              AND r.geofence_id = $2
+          )`,
+        [
+          project.id,
+          geofenceId
+        ]
+      );
+
+      await client.query(
         `DELETE FROM
           geofence_user_state
         WHERE project_id = $1
@@ -2346,6 +2372,42 @@ export class PostgresAutomationStore {
             AND e.deleted_at IS NULL
             AND r.enabled = true
             AND r.deleted_at IS NULL
+            AND EXISTS (
+              SELECT 1
+              FROM projects p
+              JOIN account_subscriptions sub
+                ON sub.account_id =
+                  p.account_id
+              JOIN commercial_plans plan
+                ON plan.id = sub.plan_id
+              LEFT JOIN
+                account_entitlement_overrides o
+                ON o.account_id =
+                  p.account_id
+               AND o.entitlement_key =
+                  'webhooks'
+              WHERE p.id =
+                d.project_id
+                AND sub.status IN (
+                  'active',
+                  'trialing'
+                )
+                AND COALESCE(
+                  CASE
+                    WHEN o.value IS NULL
+                      THEN NULL
+                    ELSE
+                      (o.value #>> '{}')::boolean
+                  END,
+                  COALESCE(
+                    (
+                      plan.features ->>
+                        'webhooks'
+                    )::boolean,
+                    false
+                  )
+                ) = true
+            )
           ORDER BY
             d.next_attempt_at ASC,
             d.id ASC
