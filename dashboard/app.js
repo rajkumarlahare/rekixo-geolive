@@ -7845,6 +7845,11 @@ canvas.addEventListener("click", (event) => {
 });
 
 function showClusterDetail(cluster) {
+  document.querySelector(
+    "#detail"
+  )?.classList.add(
+    "detail-open"
+  );
   state.selectedUserId = "";
   if (
     state.geospatialMode ===
@@ -7906,6 +7911,12 @@ function showClusterDetail(cluster) {
 function showDetail(user) {
   const nextUserId =
     user.userId || "";
+  document.querySelector(
+    "#detail"
+  )?.classList.toggle(
+    "detail-open",
+    Boolean(nextUserId)
+  );
   if (
     state.geospatialMode ===
       "trail" &&
@@ -8010,7 +8021,13 @@ document.addEventListener(
       return;
     }
 
-    closeVisibleModal();
+    if (!closeVisibleModal()) {
+      document.querySelector(
+        "#detail.detail-open"
+      )?.classList.remove(
+        "detail-open"
+      );
+    }
   }
 );
 
