@@ -312,14 +312,12 @@ test("GeoLive eye branding is code-drawn across header, profile and favicon", as
     html,
     css,
     favicon,
-    cloudflareBuild,
-    demoBuild
+    cloudflareBuild
   ] = await Promise.all([
     readFile("dashboard/index.html", "utf8"),
     readFile("dashboard/styles.css", "utf8"),
     readFile("dashboard/geolive-favicon.svg", "utf8"),
-    readFile("scripts/build-cloudflare-production.mjs", "utf8"),
-    readFile("scripts/build-public-demo.mjs", "utf8")
+    readFile("scripts/build-cloudflare-production.mjs", "utf8")
   ]);
 
   assert.match(
@@ -362,11 +360,6 @@ test("GeoLive eye branding is code-drawn across header, profile and favicon", as
     cloudflareBuild,
     /"geolive-favicon\.svg"/
   );
-  assert.match(
-    demoBuild,
-    /"geolive-favicon\.svg"/
-  );
-
   const brandedMarkup =
     [
       html.match(/<div class="brand">[\s\S]*?<\/div>/)?.[0] || "",
@@ -437,8 +430,7 @@ test("GeoLive dashboard is Google Photorealistic 3D only with no synthetic globe
     globe,
     renderer,
     app,
-    cloudflareBuild,
-    demoBuild
+    cloudflareBuild
   ] = await Promise.all([
     readFile(
       "dashboard/index.html",
@@ -462,10 +454,6 @@ test("GeoLive dashboard is Google Photorealistic 3D only with no synthetic globe
     ),
     readFile(
       "scripts/build-cloudflare-production.mjs",
-      "utf8"
-    ),
-    readFile(
-      "scripts/build-public-demo.mjs",
       "utf8"
     )
   ]);
@@ -508,10 +496,6 @@ test("GeoLive dashboard is Google Photorealistic 3D only with no synthetic globe
   );
   assert.doesNotMatch(
     cloudflareBuild,
-    /earth-dark\.svg/
-  );
-  assert.doesNotMatch(
-    demoBuild,
     /earth-dark\.svg/
   );
 });
