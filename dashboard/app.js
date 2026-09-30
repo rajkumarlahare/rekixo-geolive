@@ -147,7 +147,10 @@ const syncRendererBadge =
 syncRendererBadge();
 addEventListener(
   "geolive:renderer",
-  syncRendererBadge
+  (event) => {
+    syncRendererBadge(event);
+    syncGlobeControls();
+  }
 );
 const search = document.querySelector("#search");
 const projectSelect = document.querySelector("#project");
@@ -1579,6 +1582,7 @@ projectSelect.addEventListener("change", () => {
   resetAutomationHistoryFilters();
   resetUserSearchPaging();
   state.projectId = projectSelect.value;
+  setRailActive("live");
   state.projectLoadRequestId += 1;
   state.summary = {
     total: 0,
@@ -8028,6 +8032,24 @@ document.addEventListener(
         startRealtime()
       )
       .catch(() => {});
+  }
+);
+
+addEventListener(
+  "offline",
+  () => {
+    const project =
+      projectById();
+    if (
+      !state.user ||
+      !project
+    ) {
+      return;
+    }
+    setText(
+      "projectState",
+      `${project.status.toUpperCase()} · ${project.role} · OFFLINE`
+    );
   }
 );
 
