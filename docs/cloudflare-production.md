@@ -10,27 +10,28 @@ The canonical production origin is:
 https://geolive.rekixo.com
 ```
 
-Production Google Photorealistic 3D Tiles are requested directly by the
-browser from `tile.googleapis.com`. This is intentional because the production
-key is restricted as a **Websites / HTTP referrer** key for
-`https://geolive.rekixo.com/*`. The Worker publishes the key only in the
-dashboard runtime config; the restriction to **Map Tiles API** plus the exact
-website referrer is the security boundary.
+Production Google Photorealistic 3D Tiles are fetched through an
+authenticated same-origin Worker proxy at `/v1/3dtiles/*`. The Google Map Tiles
+API key remains a Cloudflare **Secret** and is never published in dashboard
+runtime config or browser JavaScript.
 
 For the production key:
 
 - keep the **API restriction** limited to **Map Tiles API**
-- keep the **Website / HTTP referrer** restriction on
-  `https://geolive.rekixo.com/*`
-- keep the dashboard referrer policy at
-  `strict-origin-when-cross-origin` so Google receives an authorized HTTPS
-  origin
-- do not route this website-restricted key through a server-side Worker proxy,
-  because that removes the browser referrer context required by the key
-  restriction
+- do **not** use a Websites / HTTP referrer application restriction for Map
+  Tiles API; Google documents Map Tiles as an IP-restricted web service
+- while Cloudflare Workers do not provide a dedicated stable egress IP for this
+  Worker, leave the application restriction unset and rely on the private
+  Worker secret plus authenticated, path-limited proxy
+- if a stable outbound IP is introduced later, restrict the Google key to that
+  IP and keep the same Worker proxy
+- store `GEOLIVE_GOOGLE_MAPS_API_KEY` as type **Secret**, never as a plaintext
+  dashboard Variable; Cloudflare preserves secrets across Wrangler deploys
 
-Google/Cesium attribution remains visible and GeoLive does not cache Google tile
-content.
+The proxy accepts only authenticated admin GET/HEAD requests under
+`/v1/3dtiles/*`, strips any caller-supplied `key` parameter, injects the
+production secret server-side, does not cache Google tile content, and preserves
+Google/Cesium attribution behavior.
 
 Use it for the authenticated dashboard and all new production integrations:
 

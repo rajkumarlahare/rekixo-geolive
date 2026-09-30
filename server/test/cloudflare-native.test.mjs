@@ -199,7 +199,7 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
   assert.match(
     worker,
-    /"referrer-policy": "strict-origin-when-cross-origin"/
+    /"referrer-policy": "no-referrer"/
   );
   assert.match(
     realtime,
@@ -240,8 +240,8 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
 });
 
-test("Photorealistic Earth uses the website-restricted browser key in production", async () => {
-  const [renderer, globe, app, worker] =
+test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy in production", async () => {
+  const [renderer, globe, app, worker, admin] =
     await Promise.all([
       readFile(
         "dashboard/photorealistic-earth.js",
@@ -258,16 +258,20 @@ test("Photorealistic Earth uses the website-restricted browser key in production
       readFile(
         "cloudflare/src/index.mjs",
         "utf8"
+      ),
+      readFile(
+        "cloudflare/src/admin.mjs",
+        "utf8"
       )
     ]);
 
   assert.match(
     renderer,
-    /tile\.googleapis\.com\/v1\/3dtiles\/root\.json/
+    /tilesRootUrl/
   );
   assert.match(
     renderer,
-    /strict-origin-when-cross-origin/
+    /google_tiles_proxy_auth/
   );
   assert.match(
     renderer,
@@ -279,7 +283,7 @@ test("Photorealistic Earth uses the website-restricted browser key in production
   );
   assert.match(
     app,
-    /googleMapsApiKey/
+    /googleTilesRootUrl/
   );
   assert.match(
     app,
@@ -287,23 +291,35 @@ test("Photorealistic Earth uses the website-restricted browser key in production
   );
   assert.match(
     worker,
-    /googleMapsApiKey:/
-  );
-  assert.match(
-    worker,
-    /https:\/\/tile\.googleapis\.com/
-  );
-  assert.doesNotMatch(
-    worker,
     /handleGoogle3dTiles/
   );
-  assert.doesNotMatch(
+  assert.match(
     worker,
     /"\/v1\/3dtiles\/root\.json"/
   );
   assert.match(
     worker,
-    /"referrer-policy": "strict-origin-when-cross-origin"/
+    /https:\/\/tile\.googleapis\.com/
+  );
+  assert.match(
+    worker,
+    /googleTilesRootUrl/
+  );
+  assert.doesNotMatch(
+    worker,
+    /googleMapsApiKey:/
+  );
+  assert.match(
+    admin,
+    /touch = true/
+  );
+  assert.match(
+    worker,
+    /touch: false/
+  );
+  assert.match(
+    worker,
+    /"referrer-policy": "no-referrer"/
   );
 });
 
