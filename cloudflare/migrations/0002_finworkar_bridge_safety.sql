@@ -17,9 +17,9 @@ CREATE INDEX IF NOT EXISTS location_ingest_idempotency_user_idx
 
 CREATE TABLE IF NOT EXISTS user_privacy_tombstones (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  external_user_id TEXT NOT NULL,
+  user_hash TEXT NOT NULL,
   deleted_at TEXT NOT NULL,
-  PRIMARY KEY(project_id, external_user_id)
+  PRIMARY KEY(project_id, user_hash)
 );
 
 CREATE INDEX IF NOT EXISTS user_privacy_tombstones_time_idx
