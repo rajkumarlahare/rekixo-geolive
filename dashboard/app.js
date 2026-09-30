@@ -7132,18 +7132,18 @@ function resize() {
 }
 
 addEventListener("resize", resize);
-if (
+const globeResizeObserver =
   typeof ResizeObserver !==
   "undefined"
-) {
-  new ResizeObserver(
-    () => resize()
-  ).observe(
-    document.querySelector(
-      ".globe-card"
-    )
-  );
-}
+    ? new ResizeObserver(
+        () => resize()
+      )
+    : null;
+globeResizeObserver?.observe(
+  document.querySelector(
+    ".globe-card"
+  )
+);
 resize();
 
 function projectPoint(lat, lng, cx, cy, radius) {
