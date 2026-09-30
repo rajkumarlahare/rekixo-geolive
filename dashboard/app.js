@@ -5011,6 +5011,10 @@ document.querySelector(
         );
       state.projectId =
         projectId;
+      sessionStorage.setItem(
+        "geolive.projectId",
+        projectId
+      );
       closeSetupModal();
       hydrateSession(me);
     } catch (error) {
