@@ -255,7 +255,7 @@
         <div><small>INTEGRATION</small><h2>API Keys</h2></div>
         <button type="button" class="close" id="keyModalClose">×</button>
       </div>
-      <p class="modal-help">Create separate ingest, read and client-token issuer keys. Full secrets are shown only once.</p>
+      <p class="modal-help">Create separate ingest, read, client-token issuer and privacy-delete keys. Full secrets are shown only once.</p>
 
       <div class="secret-reveal" id="secretReveal" hidden>
         <strong>Copy this secret now</strong>
@@ -274,6 +274,7 @@
               <option value="ingest">Ingest · location:write</option>
               <option value="read">Read · users/history/summary/events</option>
               <option value="issuer">Client token issuer · tokens:issue</option>
+              <option value="privacy">Privacy delete · privacy:delete</option>
             </select>
           </label>
           <label>Expires
