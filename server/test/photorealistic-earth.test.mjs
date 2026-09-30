@@ -23,9 +23,13 @@ test("public demo photorealistic Earth stays optional and safely attributed", as
     renderer,
     /showCreditsOnScreen:\s*true/
   );
+  assert.doesNotMatch(
+    renderer,
+    /local WebGL fallback|3D WebGL|2D fallback/
+  );
   assert.match(
     renderer,
-    /using the local WebGL fallback/
+    /mode: "google-unavailable"/
   );
   assert.match(
     build,
