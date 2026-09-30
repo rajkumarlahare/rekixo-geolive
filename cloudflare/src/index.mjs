@@ -614,7 +614,12 @@ export default {
               ).trim()
             ),
           googleTilesRootUrl:
-            "/v1/3dtiles/root.json"
+            String(
+              env.GEOLIVE_GOOGLE_MAPS_API_KEY ||
+              ""
+            ).trim()
+              ? "/v1/3dtiles/root.json"
+              : ""
         }).replace(/</g,"\\u003c");
         return new Response(
           `globalThis.__GEOLIVE_PUBLIC_CONFIG__ = Object.freeze(${publicConfig});\n`,
