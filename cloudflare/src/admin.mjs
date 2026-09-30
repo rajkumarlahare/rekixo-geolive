@@ -703,9 +703,7 @@ async function createIntegrationSetup(request, env, auth) {
   const ingestSecret = randomSecret("rgl_live_",32);
   const privacySecret = randomSecret("rgl_live_",32);
   const now = new Date().toISOString();
-  const expiresAt = new Date(
-    Date.now() + 365 * 24 * 60 * 60 * 1000
-  ).toISOString();
+  const expiresAt = null;
   const credentialMode = setupCredentialMode(platform);
 
   try {
