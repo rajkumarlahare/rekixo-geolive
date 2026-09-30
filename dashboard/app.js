@@ -117,7 +117,7 @@ const syncRendererBadge =
           copy.textContent =
             "Google Map Tiles is retrying. The legacy globe has been removed.";
         } else if (
-          mode === "fallback"
+          mode === "google-unavailable"
         ) {
           strong.textContent =
             "Google Photorealistic 3D unavailable";
