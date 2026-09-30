@@ -24,6 +24,22 @@ export function safeText(value, max, { required = false } = {}) {
   return text;
 }
 
+export function validateIdempotencyKey(value) {
+  const key = String(value || "").trim();
+  if (!key) return "";
+  if (
+    key.length < 8 ||
+    key.length > 200 ||
+    !/^[A-Za-z0-9._:-]+$/.test(key)
+  ) {
+    throw Object.assign(new Error("invalid_idempotency_key"), {
+      code: "invalid_idempotency_key",
+      status: 400
+    });
+  }
+  return key;
+}
+
 export function validateLocationInput(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw Object.assign(new Error("invalid_body"), { code: "invalid_body", status: 400 });
