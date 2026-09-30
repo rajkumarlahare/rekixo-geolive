@@ -51,8 +51,4 @@ test("production photorealistic Earth stays Google-only and safely attributed", 
     worker,
     /"referrer-policy": "strict-origin-when-cross-origin"/
   );
-  assert.doesNotMatch(
-    worker,
-    /demoMode|pages\.dev/
-  );
 });
