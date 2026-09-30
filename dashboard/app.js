@@ -7312,6 +7312,41 @@ function draw() {
     globeRenderer
       .photorealisticActive;
 
+  if (
+    !photorealistic
+  ) {
+    const markers =
+      state.useClusters
+        ? state.clusters
+        : state.filtered;
+    for (const marker of markers) {
+      marker.__screen = null;
+    }
+
+    if (
+      rendererBadge &&
+      !rendererBadge.dataset.state
+    ) {
+      rendererBadge.textContent =
+        globeRenderer.label ||
+        "Loading Google 3D";
+    }
+
+    requestAnimationFrame(draw);
+    return;
+  }
+
+  const cx = width * .5;
+  const cy = height * .48;
+  const radius =
+    Math.min(
+      width * .37,
+      height * .43
+    ) *
+    state.zoom;
+
+  ctx.save();
+
   drawGeofenceOverlays(
     cx,
     cy,
