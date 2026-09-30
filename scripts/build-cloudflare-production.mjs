@@ -22,7 +22,6 @@ const files = [
   "globe-webgl.js",
   "photorealistic-earth.js",
   "geofence-editor.js",
-  "demo-mode.js",
   "geolive-favicon.svg"
 ];
 

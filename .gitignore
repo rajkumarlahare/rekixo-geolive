@@ -7,7 +7,6 @@ coverage/
 .tmp/
 dist/
 *.log
-dist-demo/
 dist-cloudflare/
 .dev.vars
 .dev.vars.*

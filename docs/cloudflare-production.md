@@ -1,8 +1,6 @@
 # GeoLive Cloudflare-Native Production
 
-GeoLive 0.17.0 introduces a Cloudflare-native production runtime. The existing
-Cloudflare Pages site remains a synthetic public demo; real tenant traffic is
-served by a separate Cloudflare Worker.
+GeoLive 0.17.0 introduces a Cloudflare-native production runtime. Real tenant traffic, the authenticated dashboard and the API are served by the Cloudflare Worker.
 
 ## Canonical production domain
 
@@ -182,9 +180,7 @@ by Git.
 
 ## First Worker creation
 
-Use the Worker name `rekixo-geolive-prod`. It is intentionally different from
-the existing Pages project `rekixo-geolive`, so the public demo and the real
-production Worker stay isolated.
+Use the Worker name `rekixo-geolive-prod`. This Worker is the only supported GeoLive deployment target.
 
 The first Worker deployment is allowed before runtime secrets exist. In that
 state bootstrap is denied, webhook signing is unavailable, and the dashboard
@@ -282,7 +278,6 @@ Before connecting a production app:
 
 ## Rollback
 
-Do not delete the Pages demo during production rollout.
 
 If a Worker release is unhealthy:
 
@@ -301,4 +296,3 @@ If a Worker release is unhealthy:
 - Webhook targets must be HTTPS and literal private/local network targets are
   rejected.
 - Public API origin/package rules are enforced per API key.
-- Synthetic demo mode is explicitly disabled in the production Worker runtime.

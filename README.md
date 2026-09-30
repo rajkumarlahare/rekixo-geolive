@@ -58,8 +58,6 @@ The canonical production origin is **`https://geolive.rekixo.com`**. The
 authenticated control plane is served at `/dashboard/`, while production API
 and realtime endpoints use the same origin.
 
-The existing `rekixo-geolive.pages.dev` deployment remains the synthetic,
-read-only public demo. It is intentionally not the production database/API.
 
 See [Cloudflare-native production runbook](docs/cloudflare-production.md) for
 resource creation, secrets, D1 migrations, deployment, bootstrap and the
@@ -303,13 +301,3 @@ See:
 - [Production roadmap](docs/PRODUCTION_ROADMAP.md)
 - [OpenAPI](openapi.yaml)
 
-
-## Public demo
-
-A safe synthetic-data demo can be built without PostgreSQL or Redis:
-
-```bash
-npm run build:demo
-```
-
-Deploy `dist-demo/` to Cloudflare Pages. On `*.pages.dev`, the dashboard automatically enters read-only public demo mode. See [docs/cloudflare-pages-demo.md](docs/cloudflare-pages-demo.md) for the exact settings and safety model.
