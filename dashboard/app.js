@@ -198,6 +198,12 @@ const state = {
   apiRequests24h: 0,
   pollTimer: null,
   projectMode: "create",
+  setup: {
+    projectId: "",
+    platform: "backend",
+    ingestSecret: "",
+    privacySecret: ""
+  },
   keys: [],
   automation: {
     geofencesEnabled: true,
@@ -413,9 +419,7 @@ function openProjectPicker() {
             )
       );
     if (canCreate) {
-      openProjectModal(
-        "create"
-      );
+      openSetupWizard();
     }
     return;
   }
@@ -1654,13 +1658,15 @@ document.querySelector(
   openOpsModal
 );
 
-document.querySelector("#newProject").addEventListener("click", () => openProjectModal("create"));
+document.querySelector("#newProject").addEventListener("click", openSetupWizard);
 document.querySelector("#editProject").addEventListener("click", () => openProjectModal("edit"));
 document.querySelector("#manageKeys").addEventListener("click", openKeyModal);
 document.querySelector("#manageOps").addEventListener("click", openOpsModal);
 document.querySelector("#manageAutomation").addEventListener("click", openAutomationModal);
 document.querySelector("#manageBilling").addEventListener("click", openBillingModal);
 document.querySelector("#platformConsole").addEventListener("click", openPlatformModal);
+document.querySelector("#setupModalClose").addEventListener("click", closeSetupModal);
+document.querySelector("#setupCancel").addEventListener("click", closeSetupModal);
 document.querySelector("#projectModalClose").addEventListener("click", closeProjectModal);
 document.querySelector("#opsModalClose").addEventListener("click", closeOpsModal);
 document.querySelector("#refreshOps").addEventListener("click", loadOperations);
@@ -4451,6 +4457,570 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 63);
 }
+
+function setupWritableAccounts() {
+  return state.accounts.filter((account) =>
+    ["owner", "admin"].includes(account.role)
+  );
+}
+
+function setupPlatformCopy(platform) {
+  if (platform === "backend") {
+    return {
+      title: "Server key mode",
+      detail:
+        "Use the ingest key only on trusted server infrastructure. Your server sends location events directly to GeoLive."
+    };
+  }
+  if (platform === "website") {
+    return {
+      title: "Website + backend relay",
+      detail:
+        "Keep the GeoLive secret on your backend. Browser JavaScript should call your own backend, which relays trusted location events to GeoLive."
+    };
+  }
+  return {
+    title: "Mobile + backend relay",
+    detail:
+      "Keep the GeoLive secret on your backend. Do not embed it in an APK or app bundle. Direct short-lived client tokens can replace the relay when the Cloudflare P2 runtime is enabled."
+  };
+}
+
+function syncSetupPlatformFields() {
+  const platform =
+    document.querySelector(
+      "#setupPlatform"
+    ).value;
+  const originField =
+    document.querySelector(
+      "#setupOriginField"
+    );
+  const appIdField =
+    document.querySelector(
+      "#setupAppIdField"
+    );
+  const origin =
+    document.querySelector(
+      "#setupOrigin"
+    );
+  const appId =
+    document.querySelector(
+      "#setupAppId"
+    );
+
+  const needsOrigin =
+    platform === "website";
+  const needsAppId =
+    [
+      "android",
+      "ios",
+      "flutter",
+      "react-native"
+    ].includes(platform);
+
+  originField.hidden = !needsOrigin;
+  appIdField.hidden = !needsAppId;
+  origin.required = needsOrigin;
+  appId.required = needsAppId;
+
+  const copy =
+    setupPlatformCopy(platform);
+  document.querySelector(
+    "#setupSecurityNote"
+  ).innerHTML =
+    `<strong>${copy.title}</strong><span>${copy.detail}</span>`;
+}
+
+function clearSetupSecrets() {
+  state.setup = {
+    projectId: "",
+    platform: "backend",
+    ingestSecret: "",
+    privacySecret: ""
+  };
+  setText(
+    "setupIngestSecret",
+    ""
+  );
+  setText(
+    "setupPrivacySecret",
+    ""
+  );
+  setText(
+    "setupCode",
+    ""
+  );
+}
+
+function openSetupWizard() {
+  const accounts =
+    setupWritableAccounts();
+  if (!accounts.length) return;
+
+  setRailActive("projects");
+  clearSetupSecrets();
+  setText("setupError", "");
+
+  const account =
+    document.querySelector(
+      "#setupAccount"
+    );
+  account.replaceChildren();
+  for (const item of accounts) {
+    const option =
+      document.createElement(
+        "option"
+      );
+    option.value = item.id;
+    option.textContent =
+      `${item.name} · ${item.role}`;
+    account.appendChild(option);
+  }
+  account.value =
+    activeAccountId() &&
+    accounts.some(
+      (item) =>
+        item.id ===
+        activeAccountId()
+    )
+      ? activeAccountId()
+      : accounts[0].id;
+  document.querySelector(
+    "#setupAccountField"
+  ).hidden =
+    accounts.length <= 1;
+
+  document.querySelector(
+    "#setupName"
+  ).value = "";
+  const slug =
+    document.querySelector(
+      "#setupSlug"
+    );
+  slug.value = "";
+  slug.dataset.manual = "";
+  document.querySelector(
+    "#setupPlatform"
+  ).value = "backend";
+  document.querySelector(
+    "#setupOrigin"
+  ).value = "";
+  document.querySelector(
+    "#setupAppId"
+  ).value = "";
+  document.querySelector(
+    "#setupForm"
+  ).hidden = false;
+  document.querySelector(
+    "#setupResult"
+  ).hidden = true;
+  document.querySelector(
+    "#setupCodeLanguage"
+  ).value = "node";
+  syncSetupPlatformFields();
+
+  document.querySelector(
+    "#setupModal"
+  ).hidden = false;
+  document.querySelector(
+    "#setupName"
+  ).focus();
+}
+
+function closeSetupModal() {
+  document.querySelector(
+    "#setupModal"
+  ).hidden = true;
+  clearSetupSecrets();
+  setRailActive("live");
+}
+
+function setupSnippet() {
+  const language =
+    document.querySelector(
+      "#setupCodeLanguage"
+    ).value;
+  if (language === "curl") {
+    return `export GEOLIVE_API_KEY="paste-the-ingest-key-here"
+
+curl -X POST https://geolive.rekixo.com/v1/locations \\
+  -H "Authorization: Bearer $GEOLIVE_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -H "Idempotency-Key: your-user-123-location-001" \\
+  -d '{
+    "userId": "user_123",
+    "latitude": 21.203,
+    "longitude": 81.634,
+    "accuracyM": 12,
+    "capturedAt": "2026-09-30T10:00:00.000Z"
+  }'`;
+  }
+
+  return `const response = await fetch(
+  "https://geolive.rekixo.com/v1/locations",
+  {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer ${process.env.GEOLIVE_API_KEY}\`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": "your-user-123-location-001"
+    },
+    body: JSON.stringify({
+      userId: "user_123",
+      latitude: 21.203,
+      longitude: 81.634,
+      accuracyM: 12,
+      capturedAt: new Date().toISOString()
+    })
+  }
+);
+
+if (!response.ok) {
+  throw new Error(
+    \`GeoLive request failed: ${response.status}\`
+  );
+}`;
+}
+
+function renderSetupCode() {
+  setText(
+    "setupCode",
+    setupSnippet()
+  );
+  const platform =
+    state.setup.platform ||
+    document.querySelector(
+      "#setupPlatform"
+    ).value;
+  setText(
+    "setupCodeHint",
+    platform === "backend"
+      ? "Run this on your trusted server."
+      : "Run this on your backend relay, never inside the client app."
+  );
+}
+
+async function copySetupValue(
+  value,
+  button,
+  fallbackId = "setupError"
+) {
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(
+      value
+    );
+    const original =
+      button.textContent;
+    button.textContent = "Copied";
+    setTimeout(() => {
+      button.textContent =
+        original;
+    }, 1200);
+  } catch {
+    setText(
+      fallbackId,
+      "Clipboard access failed. Select and copy the value manually."
+    );
+  }
+}
+
+async function refreshSetupConnection() {
+  if (!state.setup.projectId) {
+    return;
+  }
+  const button =
+    document.querySelector(
+      "#checkSetupConnection"
+    );
+  button.disabled = true;
+  try {
+    const payload = await api(
+      `/v1/admin/projects/${state.setup.projectId}/integration-setup`
+    );
+    const connection =
+      payload.connection || {};
+    if (connection.connected) {
+      setText(
+        "setupConnectionTitle",
+        "Connected"
+      );
+      setText(
+        "setupConnectionDetail",
+        `${Number(
+          connection.trackedUsers || 0
+        ).toLocaleString()} tracked user(s) · last location ${new Date(
+          connection.lastReceivedAt
+        ).toLocaleString()}`
+      );
+    } else {
+      setText(
+        "setupConnectionTitle",
+        "Waiting for first location"
+      );
+      setText(
+        "setupConnectionDetail",
+        "The project is ready. Send the sample request, then check again."
+      );
+    }
+  } catch (error) {
+    setText(
+      "setupConnectionTitle",
+      "Connection check failed"
+    );
+    setText(
+      "setupConnectionDetail",
+      error.code ||
+        "request_failed"
+    );
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.querySelector(
+  "#setupName"
+).addEventListener(
+  "input",
+  (event) => {
+    const slug =
+      document.querySelector(
+        "#setupSlug"
+      );
+    if (!slug.dataset.manual) {
+      slug.value =
+        slugify(
+          event.target.value
+        );
+    }
+  }
+);
+
+document.querySelector(
+  "#setupSlug"
+).addEventListener(
+  "input",
+  (event) => {
+    event.target.dataset.manual =
+      event.target.value
+        ? "1"
+        : "";
+    event.target.value =
+      slugify(
+        event.target.value
+      );
+  }
+);
+
+document.querySelector(
+  "#setupPlatform"
+).addEventListener(
+  "change",
+  syncSetupPlatformFields
+);
+
+document.querySelector(
+  "#setupCodeLanguage"
+).addEventListener(
+  "change",
+  renderSetupCode
+);
+
+document.querySelector(
+  "#setupForm"
+).addEventListener(
+  "submit",
+  async (event) => {
+    event.preventDefault();
+    setText("setupError", "");
+
+    const button =
+      document.querySelector(
+        "#createIntegrationButton"
+      );
+    button.disabled = true;
+
+    try {
+      const platform =
+        document.querySelector(
+          "#setupPlatform"
+        ).value;
+      const payload = await api(
+        "/v1/admin/integration-setups",
+        {
+          method: "POST",
+          mutate: true,
+          body: JSON.stringify({
+            accountId:
+              document.querySelector(
+                "#setupAccount"
+              ).value,
+            name:
+              document.querySelector(
+                "#setupName"
+              ).value.trim(),
+            slug:
+              document.querySelector(
+                "#setupSlug"
+              ).value.trim(),
+            platform,
+            origin:
+              document.querySelector(
+                "#setupOrigin"
+              ).value.trim() ||
+              null,
+            appIdentifier:
+              document.querySelector(
+                "#setupAppId"
+              ).value.trim() ||
+              null
+          })
+        }
+      );
+
+      state.setup = {
+        projectId:
+          payload.project.id,
+        platform,
+        ingestSecret:
+          payload.keys.ingest
+            .secret,
+        privacySecret:
+          payload.keys.privacy
+            .secret
+      };
+
+      setText(
+        "setupResultSummary",
+        `${payload.project.name} · ${setupPlatformCopy(
+          platform
+        ).title}`
+      );
+      setText(
+        "setupIngestSecret",
+        state.setup.ingestSecret
+      );
+      setText(
+        "setupPrivacySecret",
+        state.setup.privacySecret
+      );
+      document.querySelector(
+        "#setupForm"
+      ).hidden = true;
+      document.querySelector(
+        "#setupResult"
+      ).hidden = false;
+      setText(
+        "setupConnectionTitle",
+        "Waiting for first location"
+      );
+      setText(
+        "setupConnectionDetail",
+        "Send the sample request, then check the connection."
+      );
+      renderSetupCode();
+    } catch (error) {
+      const messages = {
+        project_slug_exists:
+          "That project slug is already used in this account.",
+        invalid_project:
+          "Enter a valid project name and lowercase slug.",
+        invalid_integration_platform:
+          "Choose a supported integration platform.",
+        invalid_setup_origin:
+          "Use an exact HTTPS origin such as https://app.example.com.",
+        setup_origin_required:
+          "Enter the website's production origin.",
+        invalid_app_identifier:
+          "Enter a valid package or bundle identifier.",
+        app_identifier_required:
+          "Enter the app package or bundle identifier.",
+        account_role_denied:
+          "Your account role cannot create projects.",
+        integration_setup_failed:
+          "GeoLive could not create the integration. Nothing was partially configured."
+      };
+      setText(
+        "setupError",
+        messages[error.code] ||
+          `Could not create integration: ${error.code}`
+      );
+    } finally {
+      button.disabled = false;
+    }
+  }
+);
+
+document.querySelector(
+  "#copySetupIngest"
+).addEventListener(
+  "click",
+  (event) =>
+    copySetupValue(
+      state.setup.ingestSecret,
+      event.currentTarget
+    )
+);
+
+document.querySelector(
+  "#copySetupPrivacy"
+).addEventListener(
+  "click",
+  (event) =>
+    copySetupValue(
+      state.setup.privacySecret,
+      event.currentTarget
+    )
+);
+
+document.querySelector(
+  "#copySetupCode"
+).addEventListener(
+  "click",
+  (event) =>
+    copySetupValue(
+      document.querySelector(
+        "#setupCode"
+      ).textContent,
+      event.currentTarget
+    )
+);
+
+document.querySelector(
+  "#checkSetupConnection"
+).addEventListener(
+  "click",
+  refreshSetupConnection
+);
+
+document.querySelector(
+  "#finishSetup"
+).addEventListener(
+  "click",
+  async () => {
+    if (!state.setup.projectId) {
+      closeSetupModal();
+      return;
+    }
+    const projectId =
+      state.setup.projectId;
+    try {
+      const me =
+        await api(
+          "/v1/admin/me"
+        );
+      state.projectId =
+        projectId;
+      closeSetupModal();
+      hydrateSession(me);
+    } catch (error) {
+      setText(
+        "setupError",
+        `Project was created, but the dashboard could not refresh: ${error.code}`
+      );
+    }
+  }
+);
 
 function openProjectModal(mode) {
   state.projectMode = mode;
@@ -7979,6 +8549,8 @@ document.querySelector("#detailClose").onclick = () => showDetail({});
 
 function closeVisibleModal() {
   const closers = {
+    setupModal:
+      closeSetupModal,
     projectModal:
       closeProjectModal,
     keyModal:
