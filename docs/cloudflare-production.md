@@ -12,23 +12,27 @@ The canonical production origin is:
 https://geolive.rekixo.com
 ```
 
-Production does not expose the Google Map Tiles key to the browser. The
-dashboard requests `/v1/3dtiles/*` on the GeoLive Worker, which authenticates
-the admin session and proxies only Google Photorealistic 3D Tiles requests to
-`tile.googleapis.com`.
+Production Google Photorealistic 3D Tiles are requested directly by the
+browser from `tile.googleapis.com`. This is intentional because the production
+key is restricted as a **Websites / HTTP referrer** key for
+`https://geolive.rekixo.com/*`. The Worker publishes the key only in the
+dashboard runtime config; the restriction to **Map Tiles API** plus the exact
+website referrer is the security boundary.
 
 For the production key:
 
 - keep the **API restriction** limited to **Map Tiles API**
-- do not use a **Websites / HTTP referrer** application restriction for this
-  server-side Map Tiles call
-- if a stable outbound IP becomes available later, add an **IP address**
-  application restriction; until then the key remains private in the
-  Cloudflare Worker secret and the proxy requires an authenticated admin
-  session
+- keep the **Website / HTTP referrer** restriction on
+  `https://geolive.rekixo.com/*`
+- keep the dashboard referrer policy at
+  `strict-origin-when-cross-origin` so Google receives an authorized HTTPS
+  origin
+- do not route this website-restricted key through a server-side Worker proxy,
+  because that removes the browser referrer context required by the key
+  restriction
 
-The Worker does not cache Google tile content and preserves Google's response
-cache headers and on-screen attribution behavior.
+Google/Cesium attribution remains visible and GeoLive does not cache Google tile
+content.
 
 Use it for the authenticated dashboard and all new production integrations:
 
