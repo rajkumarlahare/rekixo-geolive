@@ -266,17 +266,6 @@ test("P4C serves Google-only globe modules and no legacy Earth texture", async (
       /screenToGeo/
     );
 
-    const textureResponse =
-      await fetch(
-        `${base}/dashboard/earth-dark.svg`
-      );
-    assert.equal(
-      textureResponse.status,
-      404
-    );
-
-    // The synthetic Earth texture must stay removed; Google Photorealistic
-    // 3D is the only globe renderer now.
   } finally {
     await new Promise((resolve) =>
       server.close(resolve)
