@@ -624,7 +624,9 @@ function normalizeSetupOrigin(value) {
   if (
     !["https:","http:"].includes(parsed.protocol) ||
     (parsed.protocol !== "https:" && !localhost) ||
-    parsed.origin !== raw
+    !["","/"].includes(parsed.pathname) ||
+    parsed.search ||
+    parsed.hash
   ) {
     throw Object.assign(new Error("invalid_setup_origin"), {
       code: "invalid_setup_origin",
