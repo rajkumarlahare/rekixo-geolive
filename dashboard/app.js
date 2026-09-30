@@ -363,7 +363,9 @@ function updateRailAvailability() {
   ).disabled = !signedIn;
   document.querySelector(
     "#railDevices"
-  ).disabled = !signedIn;
+  ).disabled =
+    !signedIn ||
+    !hasProject;
   document.querySelector(
     "#railSettings"
   ).disabled =
@@ -377,6 +379,10 @@ function updateRailAvailability() {
   document.querySelector(
     "#railSecurity"
   ).disabled =
+    !signedIn ||
+    !hasProject;
+
+  search.disabled =
     !signedIn ||
     !hasProject;
 }
@@ -393,6 +399,24 @@ function focusLiveGlobe() {
 function openProjectPicker() {
   if (!state.user) return;
   setRailActive("projects");
+
+  if (!state.projects.length) {
+    const canCreate =
+      state.accounts.some(
+        (account) =>
+          ["owner", "admin"]
+            .includes(
+              account.role
+            )
+      );
+    if (canCreate) {
+      openProjectModal(
+        "create"
+      );
+    }
+    return;
+  }
+
   projectSelect.focus({
     preventScroll: true
   });
@@ -1196,7 +1220,26 @@ async function loadProject({ quiet = false } = {}) {
       );
     }
 
+    if (
+      requestId !==
+        state.projectLoadRequestId ||
+      state.projectId !==
+        project.id
+    ) {
+      return;
+    }
+
     await loadGeofenceOverlay();
+
+    if (
+      requestId !==
+        state.projectLoadRequestId ||
+      state.projectId !==
+        project.id
+    ) {
+      return;
+    }
+
     setText(
       "lastUpdated",
       mapError
@@ -1562,6 +1605,7 @@ projectSelect.addEventListener("change", () => {
   document.querySelector("#loadHeatmap").disabled = !state.projectId;
   document.querySelector("#manageBilling").disabled =
     state.accounts.length === 0;
+  updateRailAvailability();
   loadProject()
     .then(() => startRealtime())
     .catch(() => {});
