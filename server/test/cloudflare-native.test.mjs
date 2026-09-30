@@ -240,6 +240,91 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
 });
 
+test("Production dashboard navigation and responsive metrics stay functional", async () => {
+  const [html, css, app] =
+    await Promise.all([
+      readFile(
+        "dashboard/index.html",
+        "utf8"
+      ),
+      readFile(
+        "dashboard/styles.css",
+        "utf8"
+      ),
+      readFile(
+        "dashboard/app.js",
+        "utf8"
+      )
+    ]);
+
+  for (const id of [
+    "railLive",
+    "railProjects",
+    "railDevices",
+    "railSettings",
+    "railDeveloper",
+    "railSecurity"
+  ]) {
+    assert.match(
+      html,
+      new RegExp(
+        `id="${id}"`
+      )
+    );
+    assert.match(
+      app,
+      new RegExp(
+        `#${id}`
+      )
+    );
+  }
+
+  assert.match(
+    html,
+    /<nav class="rail" aria-label="GeoLive sections">/
+  );
+  assert.doesNotMatch(
+    html,
+    /id="pause"/
+  );
+  assert.doesNotMatch(
+    app,
+    /state\.paused|previousPaused|#pause/
+  );
+  assert.match(
+    app,
+    /projectLoadRequestId/
+  );
+  assert.match(
+    app,
+    /Promise\.allSettled/
+  );
+  assert.match(
+    app,
+    /visibilitychange/
+  );
+  assert.match(
+    app,
+    /ResizeObserver/
+  );
+  assert.match(
+    css,
+    /grid-template-columns:64px clamp\(185px,15vw,210px\) minmax\(0,1fr\) clamp\(280px,24vw,330px\)/
+  );
+  assert.match(
+    css,
+    /\.stats article\{[^}]*min-height:104px/
+  );
+  assert.doesNotMatch(
+    css,
+    /\.stats article:nth-child/
+  );
+  assert.doesNotMatch(
+    css,
+    /\.stats article\{[^}]*height:105px/
+  );
+});
+
 test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy in production", async () => {
   const [renderer, globe, app, worker, admin] =
     await Promise.all([
