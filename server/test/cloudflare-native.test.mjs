@@ -537,7 +537,7 @@ test("Dashboard never draws the retired 2D globe fallback", async () => {
   );
   assert.match(
     app,
-    /if \(!photorealistic\) \{[\s\S]*requestAnimationFrame\(draw\);[\s\S]*return;/
+    /if \(\s*!photorealistic\s*\) \{[\s\S]*requestAnimationFrame\(draw\);[\s\S]*return;/
   );
 });
 
