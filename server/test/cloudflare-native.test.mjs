@@ -157,6 +157,10 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
     config.vars?.GEOLIVE_ALLOWED_ORIGINS,
     "https://geolive.rekixo.com"
   );
+  assert.deepEqual(
+    config.secrets?.required,
+    ["GEOLIVE_GOOGLE_MAPS_API_KEY"]
+  );
 
   for (const table of [
     "accounts",
