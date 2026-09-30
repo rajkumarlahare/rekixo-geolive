@@ -5,6 +5,11 @@
   "compatibility_date": "2026-09-29",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "secrets": {
+    "required": [
+      "GEOLIVE_GOOGLE_MAPS_API_KEY"
+    ]
+  },
   "assets": {
     "directory": "../dist-cloudflare",
     "binding": "ASSETS",
