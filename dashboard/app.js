@@ -7301,25 +7301,39 @@ function draw() {
     height
   );
 
-  const webglRendered =
-    globeRenderer.render({
-      rotationDegrees:
-        state.rotation,
-      latitudeDegrees:
-        state.cameraLatitude,
-      zoom: state.zoom
-    });
+  globeRenderer.render({
+    rotationDegrees:
+      state.rotation,
+    latitudeDegrees:
+      state.cameraLatitude,
+    zoom: state.zoom
+  });
   const photorealistic =
     globeRenderer
       .photorealisticActive;
 
   if (
-    !webglRendered &&
-    rendererBadge.textContent !==
-      "2D fallback"
+    !photorealistic
   ) {
-    rendererBadge.textContent =
-      "2D fallback";
+    const markers =
+      state.useClusters
+        ? state.clusters
+        : state.filtered;
+    for (const marker of markers) {
+      marker.__screen = null;
+    }
+
+    if (
+      rendererBadge &&
+      !rendererBadge.dataset.state
+    ) {
+      rendererBadge.textContent =
+        globeRenderer.label ||
+        "Loading Google 3D";
+    }
+
+    requestAnimationFrame(draw);
+    return;
   }
 
   const cx = width * .5;
@@ -7331,141 +7345,7 @@ function draw() {
     ) *
     state.zoom;
 
-  if (!webglRendered) {
-    const grad =
-      ctx.createRadialGradient(
-        cx - radius * .35,
-        cy - radius * .35,
-        radius * .1,
-        cx,
-        cy,
-        radius
-      );
-    grad.addColorStop(
-      0,
-      "#0a3653"
-    );
-    grad.addColorStop(
-      .65,
-      "#061e31"
-    );
-    grad.addColorStop(
-      1,
-      "#020812"
-    );
-
-    ctx.beginPath();
-    ctx.arc(
-      cx,
-      cy,
-      radius,
-      0,
-      Math.PI * 2
-    );
-    ctx.fillStyle = grad;
-    ctx.fill();
-    ctx.strokeStyle =
-      "#2d9cff";
-    ctx.lineWidth = 1.4;
-    ctx.shadowColor =
-      "#2d9cff";
-    ctx.shadowBlur = 18;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-  }
-
   ctx.save();
-
-  if (!photorealistic) {
-    ctx.beginPath();
-    ctx.arc(
-      cx,
-      cy,
-      radius,
-      0,
-      Math.PI * 2
-    );
-    ctx.clip();
-    ctx.strokeStyle =
-      "rgba(68,150,196,.18)";
-    ctx.lineWidth = 1;
-
-    for (
-      let lat = -60;
-      lat <= 60;
-      lat += 30
-    ) {
-      ctx.beginPath();
-      let started = false;
-      for (
-        let lng = -180;
-        lng <= 180;
-        lng += 3
-      ) {
-        const point =
-          projectPoint(
-            lat,
-            lng,
-            cx,
-            cy,
-            radius
-          );
-        if (point.z > 0) {
-          if (!started) {
-            ctx.moveTo(
-              point.x,
-              point.y
-            );
-            started = true;
-          } else {
-            ctx.lineTo(
-              point.x,
-              point.y
-            );
-          }
-        }
-      }
-      ctx.stroke();
-    }
-
-    for (
-      let lng = -180;
-      lng < 180;
-      lng += 30
-    ) {
-      ctx.beginPath();
-      let started = false;
-      for (
-        let lat = -90;
-        lat <= 90;
-        lat += 3
-      ) {
-        const point =
-          projectPoint(
-            lat,
-            lng,
-            cx,
-            cy,
-            radius
-          );
-        if (point.z > 0) {
-          if (!started) {
-            ctx.moveTo(
-              point.x,
-              point.y
-            );
-            started = true;
-          } else {
-            ctx.lineTo(
-              point.x,
-              point.y
-            );
-          }
-        }
-      }
-      ctx.stroke();
-    }
-  }
 
   drawGeofenceOverlays(
     cx,
@@ -7665,15 +7545,6 @@ function draw() {
   );
 
   ctx.restore();
-  if (
-    !state.paused &&
-    !globeRenderer
-      .photorealisticActive
-  ) {
-    state.rotation =
-      (state.rotation + .025) %
-      360;
-  }
   requestAnimationFrame(draw);
 }
 

@@ -516,6 +516,31 @@ test("GeoLive dashboard is Google Photorealistic 3D only with no synthetic globe
   );
 });
 
+test("Dashboard never draws the retired 2D globe fallback", async () => {
+  const app =
+    await readFile(
+      "dashboard/app.js",
+      "utf8"
+    );
+
+  assert.doesNotMatch(
+    app,
+    /2D fallback/
+  );
+  assert.doesNotMatch(
+    app,
+    /createRadialGradient\(/
+  );
+  assert.doesNotMatch(
+    app,
+    /state\.rotation \+ \.025/
+  );
+  assert.match(
+    app,
+    /if \(\s*!photorealistic\s*\) \{[\s\S]*requestAnimationFrame\(draw\);[\s\S]*return;/
+  );
+});
+
 test("Cloudflare production config keeps runtime secret values out of committed vars", async () => {
   const configText = await readFile(
     "cloudflare/wrangler.jsonc",
