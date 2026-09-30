@@ -27,6 +27,7 @@ paths:
         - integrationBearer: []
       parameters:
         - $ref: "#/components/parameters/PackageHeader"
+        - $ref: "#/components/parameters/IdempotencyKeyHeader"
         - $ref: "#/components/parameters/RequestTimestampHeader"
         - $ref: "#/components/parameters/RequestNonceHeader"
         - $ref: "#/components/parameters/RequestSignatureHeader"
@@ -41,6 +42,8 @@ paths:
         "400": { description: Invalid input }
         "401": { description: Missing, invalid, expired or revoked key }
         "403": { description: Scope, project, origin or package restriction denied }
+        "409": { description: Idempotency key reused with a different request }
+        "410": { description: User is privacy-deleted and cannot be recreated }
 
   /v1/client-tokens/exchange:
     post:
@@ -65,6 +68,27 @@ paths:
         "409": { description: Exchange nonce replayed }
         "429": { description: Token exchange rate limited }
         "503": { description: Client-token signing or attestation service unavailable }
+
+  /v1/users/{userId}:
+    delete:
+      operationId: deleteTrackedUser
+      description: |
+        Idempotently deletes one project-scoped tracked user and all retained
+        location, realtime and geofence-linked personal data. A privacy tombstone
+        prevents delayed location retries from recreating the deleted user.
+        Requires a dedicated privacy:delete key.
+      security:
+        - integrationBearer: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 160 }
+      responses:
+        "200": { description: Deleted or already absent; privacy tombstone remains active }
+        "400": { description: Invalid user id }
+        "401": { description: Missing, invalid, expired or revoked key }
+        "403": { description: privacy:delete scope or project restriction denied }
 
   /v1/users:
     get:
@@ -1201,6 +1225,19 @@ components:
       required: false
       description: Required when the integration key defines allowed package IDs. Defense-in-depth until attestation.
       schema: { type: string }
+    IdempotencyKeyHeader:
+      in: header
+      name: Idempotency-Key
+      required: false
+      description: |
+        Optional 8-200 character retry key. Reusing a key with a different
+        location request returns 409.
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 200
+        pattern: "^[A-Za-z0-9._:-]+$"
+
     RequestTimestampHeader:
       in: header
       name: X-GeoLive-Request-Timestamp
@@ -1411,7 +1448,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [location:write, users:read, history:read, summary:read, events:read, tokens:issue]
+            enum: [location:write, users:read, history:read, summary:read, events:read, tokens:issue, privacy:delete]
         allowedOrigins:
           type: array
           maxItems: 50

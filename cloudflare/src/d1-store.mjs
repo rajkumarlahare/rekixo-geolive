@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   decodeCursor,
   encodeCursor,
@@ -10,6 +12,86 @@ import {
 function j(value, fallback = null) {
   if (value == null) return fallback;
   try { return JSON.parse(value); } catch { return fallback; }
+}
+
+function stableJsonValue(value) {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableJsonValue(value[key])])
+    );
+  }
+  return value;
+}
+
+function privacyUserHash(projectId, userId) {
+  return createHash("sha256")
+    .update(
+      `geolive-privacy-tombstone-v1\0${String(projectId)}\0${String(userId)}`
+    )
+    .digest("hex");
+}
+
+function canonicalLocationRequestHash(input) {
+  const canonical = stableJsonValue({
+    userId: input.userId,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    accuracyM: input.accuracyM,
+    altitudeM: input.altitudeM,
+    headingDeg: input.headingDeg,
+    speedMps: input.speedMps,
+    capturedAt: input.capturedAt,
+    name: input.name,
+    email: input.email,
+    country: input.country,
+    state: input.state,
+    city: input.city,
+    device: input.device,
+    metadata: input.metadata
+  });
+  return createHash("sha256")
+    .update(JSON.stringify(canonical))
+    .digest("hex");
+}
+
+async function readIdempotentLocation(
+  env,
+  projectId,
+  idempotencyKey,
+  requestHash
+) {
+  if (!idempotencyKey) return null;
+  const row = await env.DB.prepare(
+    `SELECT
+      i.external_user_id,i.request_hash,i.event_id,i.created_at,
+      e.id AS sequence,e.payload_json
+     FROM location_ingest_idempotency i
+     LEFT JOIN realtime_events e
+       ON e.project_id=i.project_id AND e.event_id=i.event_id
+     WHERE i.project_id=? AND i.idempotency_key=?
+     LIMIT 1`
+  ).bind(projectId,idempotencyKey).first();
+  if (!row) return null;
+  if (row.request_hash !== requestHash) {
+    throw Object.assign(new Error("idempotency_key_reused"), {
+      code: "idempotency_key_reused",
+      status: 409
+    });
+  }
+  const payload = j(row.payload_json, {}) || {};
+  return {
+    ...payload,
+    userId: row.external_user_id,
+    receivedAt: payload.receivedAt || row.created_at,
+    historyId: null,
+    sequence: Number(row.sequence || 0) || null,
+    automationEvents: [],
+    duplicate: true,
+    liveUpdated: false
+  };
 }
 
 function mapLive(row, thresholds, now = Date.now()) {
@@ -124,8 +206,13 @@ export async function recordUsage(env, projectId, field, amount = 1) {
   ).bind(projectId, day, amount, now.toISOString()).run();
 }
 
-export async function upsertLocation(env, projectId, input) {
+export async function upsertLocation(env, projectId, input, options = {}) {
   const now = new Date().toISOString();
+  const idempotencyKey = String(options.idempotencyKey || "");
+  const requestHash = idempotencyKey
+    ? canonicalLocationRequestHash(input)
+    : "";
+
   const project = await env.DB.prepare(
     `SELECT p.status,
       COALESCE(l.max_live_users,100000) AS max_live_users
@@ -134,11 +221,38 @@ export async function upsertLocation(env, projectId, input) {
      WHERE p.id=?`
   ).bind(projectId).first();
   if (!project) {
-    throw Object.assign(new Error("project_not_found"), { code: "project_not_found", status: 404 });
+    throw Object.assign(new Error("project_not_found"), {
+      code: "project_not_found",
+      status: 404
+    });
   }
   if (project.status !== "active") {
-    throw Object.assign(new Error("project_not_active"), { code: "project_not_active", status: 403 });
+    throw Object.assign(new Error("project_not_active"), {
+      code: "project_not_active",
+      status: 403
+    });
   }
+
+  const tombstone = await env.DB.prepare(
+    `SELECT deleted_at
+     FROM user_privacy_tombstones
+     WHERE project_id=? AND user_hash=?
+     LIMIT 1`
+  ).bind(projectId,privacyUserHash(projectId,input.userId)).first();
+  if (tombstone) {
+    throw Object.assign(new Error("user_deleted"), {
+      code: "user_deleted",
+      status: 410
+    });
+  }
+
+  const replay = await readIdempotentLocation(
+    env,
+    projectId,
+    idempotencyKey,
+    requestHash
+  );
+  if (replay) return replay;
 
   const existing = await env.DB.prepare(
     "SELECT 1 AS ok FROM users WHERE project_id=? AND external_user_id=?"
@@ -177,7 +291,7 @@ export async function upsertLocation(env, projectId, input) {
     metadata: input.metadata
   };
 
-  const results = await env.DB.batch([
+  const statements = [
     env.DB.prepare(
       `INSERT INTO users(
         project_id,external_user_id,display_name,email,first_seen_at,updated_at
@@ -209,7 +323,14 @@ export async function upsertLocation(env, projectId, input) {
         city=COALESCE(excluded.city,live_user_state.city),
         device_json=COALESCE(excluded.device_json,live_user_state.device_json),
         metadata_json=COALESCE(excluded.metadata_json,live_user_state.metadata_json)
-      WHERE live_user_state.received_at<=excluded.received_at`
+      WHERE
+        COALESCE(live_user_state.captured_at,live_user_state.received_at)
+          < COALESCE(excluded.captured_at,excluded.received_at)
+        OR (
+          COALESCE(live_user_state.captured_at,live_user_state.received_at)
+            = COALESCE(excluded.captured_at,excluded.received_at)
+          AND live_user_state.received_at<=excluded.received_at
+        )`
     ).bind(
       projectId,input.userId,input.latitude,input.longitude,input.accuracyM,
       input.altitudeM,input.headingDeg,input.speedMps,input.capturedAt,now,
@@ -231,26 +352,137 @@ export async function upsertLocation(env, projectId, input) {
         event_id,project_id,event_type,external_user_id,payload_json,created_at
       ) VALUES(?,?,?,?,?,?)`
     ).bind(eventId,projectId,"location",input.userId,JSON.stringify(eventPayload),now)
-  ]);
+  ];
+
+  if (idempotencyKey) {
+    statements.push(
+      env.DB.prepare(
+        `INSERT INTO location_ingest_idempotency(
+          project_id,idempotency_key,external_user_id,request_hash,event_id,created_at
+        ) VALUES(?,?,?,?,?,?)`
+      ).bind(
+        projectId,idempotencyKey,input.userId,requestHash,eventId,now
+      )
+    );
+  }
+
+  let results;
+  try {
+    results = await env.DB.batch(statements);
+  } catch (error) {
+    if (idempotencyKey) {
+      const concurrentReplay = await readIdempotentLocation(
+        env,
+        projectId,
+        idempotencyKey,
+        requestHash
+      );
+      if (concurrentReplay) return concurrentReplay;
+    }
+    throw error;
+  }
 
   const historyId = Number(results[2]?.meta?.last_row_id || 0) || null;
   const sequence = Number(results[3]?.meta?.last_row_id || 0) || null;
+  const liveUpdated = Number(results[1]?.meta?.changes || 0) > 0;
+
   await recordUsage(env, projectId, "location_writes", 1);
   await recordUsage(env, projectId, "realtime_events", 1);
 
-  const automationEvents = await evaluateGeofences(
-    env,
-    projectId,
-    input.userId,
-    historyId,
-    eventPayload
-  );
+  let automationEvents = [];
+  if (liveUpdated) {
+    try {
+      automationEvents = await evaluateGeofences(
+        env,
+        projectId,
+        input.userId,
+        historyId,
+        eventPayload
+      );
+    } catch (error) {
+      console.error(
+        "GEOLIVE_GEOFENCE_EVALUATION_FAILED",
+        projectId,
+        input.userId,
+        error?.message || error
+      );
+    }
+  }
 
   return {
     ...eventPayload,
     historyId,
     sequence,
-    automationEvents
+    automationEvents,
+    duplicate: false,
+    liveUpdated
+  };
+}
+
+export async function deleteTrackedUser(env, projectId, userId) {
+  const externalUserId = String(userId || "").trim();
+  if (!externalUserId) {
+    throw Object.assign(new Error("invalid_userId"), {
+      code: "invalid_userId",
+      status: 400
+    });
+  }
+
+  const existed = await env.DB.prepare(
+    "SELECT 1 AS ok FROM users WHERE project_id=? AND external_user_id=?"
+  ).bind(projectId,externalUserId).first();
+  const now = new Date().toISOString();
+
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO user_privacy_tombstones(
+        project_id,user_hash,deleted_at
+      ) VALUES(?,?,?)
+      ON CONFLICT(project_id,user_hash) DO NOTHING`
+    ).bind(projectId,privacyUserHash(projectId,externalUserId),now),
+    env.DB.prepare(
+      `DELETE FROM webhook_delivery_attempts
+       WHERE webhook_delivery_id IN (
+         SELECT d.id
+         FROM webhook_deliveries d
+         JOIN geofence_events g ON g.id=d.geofence_event_id
+         WHERE g.project_id=? AND g.external_user_id=?
+       )`
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      `DELETE FROM webhook_deliveries
+       WHERE geofence_event_id IN (
+         SELECT id FROM geofence_events
+         WHERE project_id=? AND external_user_id=?
+       )`
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      "DELETE FROM geofence_events WHERE project_id=? AND external_user_id=?"
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      "DELETE FROM geofence_user_state WHERE project_id=? AND external_user_id=?"
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      "DELETE FROM realtime_events WHERE project_id=? AND external_user_id=?"
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      "DELETE FROM location_ingest_idempotency WHERE project_id=? AND external_user_id=?"
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      "DELETE FROM live_user_state WHERE project_id=? AND external_user_id=?"
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      "DELETE FROM location_history WHERE project_id=? AND external_user_id=?"
+    ).bind(projectId,externalUserId),
+    env.DB.prepare(
+      "DELETE FROM users WHERE project_id=? AND external_user_id=?"
+    ).bind(projectId,externalUserId)
+  ]);
+
+  return {
+    ok: true,
+    deleted: Boolean(existed),
+    deletedAt: now
   };
 }
 
@@ -702,6 +934,7 @@ export async function cleanupRetention(env) {
     await env.DB.batch([
       env.DB.prepare("DELETE FROM location_history WHERE project_id=? AND received_at<?").bind(p.id,historyBefore),
       env.DB.prepare("DELETE FROM realtime_events WHERE project_id=? AND created_at<?").bind(p.id,realtimeBefore),
+      env.DB.prepare("DELETE FROM location_ingest_idempotency WHERE project_id=? AND created_at<?").bind(p.id,realtimeBefore),
       env.DB.prepare("DELETE FROM webhook_deliveries WHERE project_id=? AND created_at<?").bind(p.id,webhookBefore),
       env.DB.prepare("DELETE FROM geofence_events WHERE project_id=? AND created_at<?").bind(p.id,geofenceBefore),
       env.DB.prepare("DELETE FROM security_events WHERE project_id=? AND created_at<?").bind(p.id,securityBefore),

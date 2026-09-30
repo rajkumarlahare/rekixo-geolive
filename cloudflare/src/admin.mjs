@@ -20,6 +20,23 @@ import { parseWindow, normalizeGridDegrees } from "./geo.mjs";
 import { handleAutomationAdmin } from "./automation-admin.mjs";
 
 const COOKIE = "gla_session";
+const ALLOWED_API_KEY_SCOPES = new Set([
+  "location:write",
+  "users:read",
+  "history:read",
+  "summary:read",
+  "events:read",
+  "tokens:issue",
+  "privacy:delete"
+]);
+const INTEGRATION_PLATFORMS = new Set([
+  "backend",
+  "website",
+  "android",
+  "ios",
+  "flutter",
+  "react-native"
+]);
 
 function json(value, status = 200, headers = {}) {
   return Response.json(value, {
@@ -590,6 +607,268 @@ async function createProject(request, env, auth) {
   return json({ project: { id, accountId, slug, name, status: "active", role: membership.role } }, 201);
 }
 
+function normalizeSetupOrigin(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw Object.assign(new Error("invalid_setup_origin"), {
+      code: "invalid_setup_origin",
+      status: 400
+    });
+  }
+  const localhost =
+    ["localhost","127.0.0.1","::1"].includes(parsed.hostname);
+  if (
+    !["https:","http:"].includes(parsed.protocol) ||
+    (parsed.protocol !== "https:" && !localhost) ||
+    !["","/"].includes(parsed.pathname) ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw Object.assign(new Error("invalid_setup_origin"), {
+      code: "invalid_setup_origin",
+      status: 400
+    });
+  }
+  return parsed.origin;
+}
+
+function normalizeAppIdentifier(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{2,159}$/.test(raw)) {
+    throw Object.assign(new Error("invalid_app_identifier"), {
+      code: "invalid_app_identifier",
+      status: 400
+    });
+  }
+  return raw;
+}
+
+function setupCredentialMode(platform) {
+  return platform === "backend"
+    ? "server_key"
+    : "server_relay";
+}
+
+async function createIntegrationSetup(request, env, auth) {
+  const body = await request.json();
+  const accountId = String(body.accountId || "").trim();
+  const membership = await env.DB.prepare(
+    "SELECT role FROM account_memberships WHERE account_id=? AND admin_user_id=?"
+  ).bind(accountId,auth.user.id).first();
+  if (!membership || !["owner","admin"].includes(membership.role)) {
+    return json({ error: "account_role_denied" }, 403);
+  }
+
+  const name = String(body.name || "").trim();
+  const slug = String(body.slug || "").trim().toLowerCase();
+  const platform = String(body.platform || "").trim().toLowerCase();
+  if (
+    name.length < 2 ||
+    name.length > 120 ||
+    !/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)
+  ) {
+    return json({ error: "invalid_project" }, 400);
+  }
+  if (!INTEGRATION_PLATFORMS.has(platform)) {
+    return json({ error: "invalid_integration_platform" }, 400);
+  }
+
+  let origin;
+  let appIdentifier;
+  try {
+    origin = normalizeSetupOrigin(body.origin);
+    appIdentifier = normalizeAppIdentifier(body.appIdentifier);
+  } catch (error) {
+    return json({ error: error.code || "invalid_integration_setup" }, error.status || 400);
+  }
+
+  if (platform === "website" && !origin) {
+    return json({ error: "setup_origin_required" }, 400);
+  }
+  if (
+    ["android","ios","flutter","react-native"].includes(platform) &&
+    !appIdentifier
+  ) {
+    return json({ error: "app_identifier_required" }, 400);
+  }
+
+  const projectId = crypto.randomUUID();
+  const ingestId = crypto.randomUUID();
+  const privacyId = crypto.randomUUID();
+  const ingestSecret = randomSecret("rgl_live_",32);
+  const privacySecret = randomSecret("rgl_live_",32);
+  const now = new Date().toISOString();
+  const expiresAt = null;
+  const credentialMode = setupCredentialMode(platform);
+
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO projects(id,account_id,slug,name,status,created_at,updated_at) VALUES(?,?,?,?,'active',?,?)"
+      ).bind(projectId,accountId,slug,name,now,now),
+      env.DB.prepare(
+        `INSERT INTO project_limits(
+          project_id,max_live_users,history_retention_days,realtime_retention_hours,
+          geofence_event_retention_days,webhook_delivery_retention_days,updated_at
+        ) VALUES(?,100000,30,24,90,30,?)`
+      ).bind(projectId,now),
+      env.DB.prepare(
+        `INSERT INTO project_integrations(
+          project_id,platform,credential_mode,app_identifier,origin,status,
+          created_at,updated_at
+        ) VALUES(?,?,?,?,?,'configured',?,?)`
+      ).bind(
+        projectId,
+        platform,
+        credentialMode,
+        appIdentifier,
+        origin,
+        now,
+        now
+      ),
+      env.DB.prepare(
+        `INSERT INTO api_keys(
+          id,project_id,name,prefix,secret_hash,scopes_json,
+          allowed_origins_json,allowed_packages_json,expires_at,
+          created_by_admin_user_id,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        ingestId,
+        projectId,
+        "Production ingest",
+        ingestSecret.slice(0,16),
+        sha256Secret(ingestSecret),
+        JSON.stringify(["location:write"]),
+        "[]",
+        "[]",
+        expiresAt,
+        auth.user.id,
+        now,
+        now
+      ),
+      env.DB.prepare(
+        `INSERT INTO api_keys(
+          id,project_id,name,prefix,secret_hash,scopes_json,
+          allowed_origins_json,allowed_packages_json,expires_at,
+          created_by_admin_user_id,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`
+      ).bind(
+        privacyId,
+        projectId,
+        "Privacy delete",
+        privacySecret.slice(0,16),
+        sha256Secret(privacySecret),
+        JSON.stringify(["privacy:delete"]),
+        "[]",
+        "[]",
+        expiresAt,
+        auth.user.id,
+        now,
+        now
+      )
+    ]);
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (
+      /UNIQUE constraint failed:\s*projects\.account_id,\s*projects\.slug/i
+        .test(message)
+    ) {
+      return json({ error: "project_slug_exists" }, 409);
+    }
+    console.error("GEOLIVE_INTEGRATION_SETUP_FAILED", message);
+    return json({ error: "integration_setup_failed" }, 500);
+  }
+
+  return json({
+    project: {
+      id: projectId,
+      accountId,
+      slug,
+      name,
+      status: "active",
+      role: membership.role
+    },
+    integration: {
+      platform,
+      credentialMode,
+      appIdentifier,
+      origin,
+      clientDirectAvailable: false,
+      endpoint: "/v1/locations"
+    },
+    keys: {
+      ingest: {
+        id: ingestId,
+        prefix: ingestSecret.slice(0,16),
+        scopes: ["location:write"],
+        expiresAt,
+        secret: ingestSecret
+      },
+      privacy: {
+        id: privacyId,
+        prefix: privacySecret.slice(0,16),
+        scopes: ["privacy:delete"],
+        expiresAt,
+        secret: privacySecret
+      }
+    }
+  }, 201);
+}
+
+async function integrationSetupStatus(env, projectId) {
+  const [profile, live, firstLast, keys] = await Promise.all([
+    env.DB.prepare(
+      `SELECT platform,credential_mode,app_identifier,origin,status,
+        created_at,updated_at
+       FROM project_integrations
+       WHERE project_id=?`
+    ).bind(projectId).first(),
+    env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM live_user_state WHERE project_id=?"
+    ).bind(projectId).first(),
+    env.DB.prepare(
+      `SELECT MIN(received_at) AS first_received_at,
+        MAX(received_at) AS last_received_at
+       FROM location_history WHERE project_id=?`
+    ).bind(projectId).first(),
+    listKeys(env,projectId)
+  ]);
+
+  const activeKeys = (keys.keys || []).filter((key) => key.status === "active");
+  return {
+    integration: profile
+      ? {
+          platform: profile.platform,
+          credentialMode: profile.credential_mode,
+          appIdentifier: profile.app_identifier,
+          origin: profile.origin,
+          status: profile.status,
+          createdAt: profile.created_at,
+          updatedAt: profile.updated_at
+        }
+      : null,
+    connection: {
+      connected: Number(live?.count || 0) > 0,
+      trackedUsers: Number(live?.count || 0),
+      firstReceivedAt: firstLast?.first_received_at || null,
+      lastReceivedAt: firstLast?.last_received_at || null
+    },
+    credentials: activeKeys.map((key) => ({
+      id: key.id,
+      name: key.name,
+      prefix: key.prefix,
+      scopes: key.scopes,
+      expiresAt: key.expiresAt
+    })),
+    clientDirectAvailable: false
+  };
+}
+
 async function listKeys(env, projectId) {
   const result = await env.DB.prepare(
     `SELECT id,name,prefix,scopes_json,allowed_origins_json,allowed_packages_json,
@@ -624,8 +903,16 @@ async function createKey(request, env, project, adminUserId) {
   const body = await request.json();
   const name = String(body.name || "API key").trim();
   const scopes = Array.isArray(body.scopes) ? [...new Set(body.scopes.map(String))] : [];
-  if (name.length < 2 || name.length > 80 || !scopes.length) {
+  if (
+    name.length < 2 ||
+    name.length > 80 ||
+    !scopes.length ||
+    scopes.some((scope) => !ALLOWED_API_KEY_SCOPES.has(scope))
+  ) {
     return json({ error: "invalid_api_key" }, 400);
+  }
+  if (scopes.includes("privacy:delete") && scopes.length !== 1) {
+    return json({ error: "mixed_key_scopes_not_allowed" }, 400);
   }
   const secret = randomSecret("rgl_live_", 32);
   const id = crypto.randomUUID();
@@ -657,6 +944,10 @@ export async function handleAdmin(request, env, thresholds) {
   const mutation = !["GET","HEAD"].includes(request.method);
   const auth = await authenticateAdmin(env, request, { csrf: mutation });
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+
+  if (path === "/v1/admin/integration-setups" && request.method === "POST") {
+    return createIntegrationSetup(request, env, auth);
+  }
 
   if (path === "/v1/admin/projects" && request.method === "GET") {
     const context = await visibleContext(env, auth.user);
@@ -720,6 +1011,9 @@ export async function handleAdmin(request, env, thresholds) {
   });
   if (automationResponse) return automationResponse;
 
+  if (resource === "integration-setup" && request.method === "GET") {
+    return json(await integrationSetupStatus(env,projectId));
+  }
   if (resource === "summary" && request.method === "GET") {
     return json(await summary(env,projectId,thresholds));
   }

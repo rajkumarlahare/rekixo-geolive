@@ -12,11 +12,13 @@ import {
   movementHistory,
   recordUsage,
   summary,
-  upsertLocation
+  upsertLocation,
+  deleteTrackedUser
 } from "./d1-store.mjs";
 import {
   normalizeGridDegrees,
   parseWindow,
+  validateIdempotencyKey,
   validateLocationInput
 } from "./geo.mjs";
 import {
@@ -94,7 +96,7 @@ function preflight(request) {
       "access-control-allow-origin": origin,
       "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
       "access-control-allow-headers":
-        "Authorization,Content-Type,X-GeoLive-Package,X-CSRF-Token",
+        "Authorization,Content-Type,Idempotency-Key,X-GeoLive-Package,X-CSRF-Token",
       "access-control-max-age": "600",
       vary: "Origin"
     }
@@ -356,12 +358,29 @@ async function handlePublic(request, env, ctx) {
       request,env,gate.auth,"ingest"
     );
     if (rateGate.response) return rateGate.response;
+
+    let idempotencyKey;
     let body;
-    try { body = validateLocationInput(await request.json()); }
-    catch (error) { return json({ error: error.code || "invalid_body" },error.status || 400); }
+    try {
+      idempotencyKey = validateIdempotencyKey(
+        request.headers.get("idempotency-key")
+      );
+      body = validateLocationInput(await request.json());
+    } catch (error) {
+      return json(
+        { error: error.code || "invalid_body" },
+        error.status || 400,
+        corsHeaders(request,gate.auth)
+      );
+    }
 
     try {
-      const record = await upsertLocation(env,gate.auth.key.projectId,body);
+      const record = await upsertLocation(
+        env,
+        gate.auth.key.projectId,
+        body,
+        { idempotencyKey }
+      );
       const event = {
         type: "location",
         sequence: String(record.sequence || "0"),
@@ -388,19 +407,23 @@ async function handlePublic(request, env, ctx) {
         },
         createdAt: record.receivedAt
       };
-      ctx.waitUntil(broadcast(env,gate.auth.key.projectId,event));
-      for (const automation of record.automationEvents || []) {
-        ctx.waitUntil(broadcast(env,gate.auth.key.projectId,{
-          type: `geofence.${automation.eventType}`,
-          sequence: automation.sequence,
-          projectId: gate.auth.key.projectId,
-          userId: automation.userId,
-          payload: automation,
-          createdAt: automation.occurredAt
-        }));
+      if (!record.duplicate && record.liveUpdated !== false) {
+        ctx.waitUntil(broadcast(env,gate.auth.key.projectId,event));
+        for (const automation of record.automationEvents || []) {
+          ctx.waitUntil(broadcast(env,gate.auth.key.projectId,{
+            type: `geofence.${automation.eventType}`,
+            sequence: automation.sequence,
+            projectId: gate.auth.key.projectId,
+            userId: automation.userId,
+            payload: automation,
+            createdAt: automation.occurredAt
+          }));
+        }
       }
       return json({
         accepted: true,
+        duplicate: record.duplicate === true,
+        current: record.liveUpdated !== false,
         userId: record.userId,
         receivedAt: record.receivedAt,
         eventSequence: String(record.sequence || "0")
@@ -411,6 +434,47 @@ async function handlePublic(request, env, ctx) {
     } catch (error) {
       return json(
         { error: error.code || "location_write_failed" },
+        error.status || 500,
+        {
+          ...corsHeaders(request,gate.auth),
+          ...rateHeaders(rateGate.rate)
+        }
+      );
+    }
+  }
+
+  const userDeleteMatch = path.match(/^\/v1\/users\/([^/]+)$/);
+  if (userDeleteMatch && request.method === "DELETE") {
+    const gate = await publicAuth(request,env,"privacy:delete");
+    if (gate.response) return gate.response;
+    const rateGate = await publicRateGate(
+      request,env,gate.auth,"read"
+    );
+    if (rateGate.response) return rateGate.response;
+
+    let userId = "";
+    try {
+      userId = decodeURIComponent(userDeleteMatch[1]).trim();
+    } catch {
+      return json({error:"invalid_userId"},400,corsHeaders(request,gate.auth));
+    }
+    if (!userId || userId.length > 160) {
+      return json({error:"invalid_userId"},400,corsHeaders(request,gate.auth));
+    }
+
+    try {
+      const result = await deleteTrackedUser(
+        env,
+        gate.auth.key.projectId,
+        userId
+      );
+      return json(result,200,{
+        ...corsHeaders(request,gate.auth),
+        ...rateHeaders(rateGate.rate)
+      });
+    } catch (error) {
+      return json(
+        { error: error.code || "privacy_delete_failed" },
         error.status || 500,
         {
           ...corsHeaders(request,gate.auth),

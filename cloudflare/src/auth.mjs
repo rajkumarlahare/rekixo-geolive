@@ -146,7 +146,7 @@ export function corsHeaders(request, auth) {
     "access-control-allow-origin": origin,
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers":
-      "Authorization,Content-Type,X-GeoLive-Package,X-CSRF-Token",
+      "Authorization,Content-Type,Idempotency-Key,X-GeoLive-Package,X-CSRF-Token",
     "access-control-max-age": "600",
     vary: "Origin"
   };

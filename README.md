@@ -63,6 +63,19 @@ See [Cloudflare-native production runbook](docs/cloudflare-production.md) for
 resource creation, secrets, D1 migrations, deployment, bootstrap and the
 real-location cutover checklist.
 
+## Customer onboarding
+
+D1 migrations, Worker deployment and GeoLive platform secrets are operator-only
+work. Customers use **Quick Setup** in the dashboard: create a project, choose
+their platform, copy the one-time server credentials and send a location.
+
+Backend projects call GeoLive directly. Website and mobile projects currently use
+a backend relay so long-lived secrets never ship in browser JavaScript, APKs or
+app bundles. The integration profile is already modeled so those projects can
+move to short-lived client tokens when Cloudflare P2 support is enabled.
+
+See [GeoLive customer onboarding](docs/PRODUCT-ONBOARDING.md).
+
 ### Legacy Node/PostgreSQL runtime
 
 The Node/PostgreSQL/PostGIS/Redis implementation remains maintained as the

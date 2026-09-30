@@ -23,7 +23,8 @@
     "build:cloudflare": "node scripts/build-cloudflare-production.mjs",
     "cloudflare:dev": "npm run build:cloudflare && npx wrangler@latest dev --config cloudflare/wrangler.jsonc",
     "cloudflare:d1:migrate": "npx wrangler@latest d1 migrations apply rekixo-geolive-production --remote --config cloudflare/wrangler.jsonc",
-    "cloudflare:deploy": "npm run build:cloudflare && npx wrangler@latest deploy --config cloudflare/wrangler.jsonc"
+    "cloudflare:deploy": "npm run build:cloudflare && npx wrangler@latest deploy --config cloudflare/wrangler.jsonc",
+    "cloudflare:release": "npm run cloudflare:d1:migrate && npm run cloudflare:deploy"
   },
   "dependencies": {
     "pg": "8.23.0"

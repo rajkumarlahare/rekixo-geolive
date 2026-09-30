@@ -154,13 +154,17 @@ npx wrangler@latest queues create rekixo-geolive-webhooks-dlq
 ## Required secrets
 
 The production Worker uses these runtime secrets. Their names are documented here,
-but no secret values are committed to Git. They are managed in the Cloudflare
-Production environment rather than declared as deploy-time required-secret
-metadata, so Workers Builds can deploy without needing secret-list validation:
+but no secret values are committed to Git:
 
 - `GEOLIVE_BOOTSTRAP_TOKEN`
 - `GEOLIVE_WEBHOOK_SIGNING_SECRET`
 - `GEOLIVE_GOOGLE_MAPS_API_KEY`
+
+`GEOLIVE_GOOGLE_MAPS_API_KEY` is also declared as a required Wrangler secret so
+a production release fails fast instead of publishing a dashboard with a broken
+Google globe. Bootstrap and webhook secrets remain runtime-managed because
+bootstrap may already be complete and webhook automation can be independently
+enabled.
 
 Set them interactively. Never place their values in Git, screenshots, chat, shell
 arguments or Wrangler `vars`.
@@ -204,12 +208,15 @@ migration-first so schema changes land before the Worker version:
 npx wrangler@latest d1 migrations apply DB --remote --config cloudflare/wrangler.jsonc && npx wrangler@latest deploy --config cloudflare/wrangler.jsonc
 ```
 
-For local/manual release work, the equivalent split commands remain:
+For local/manual release work, use the migration-first release command:
 
 ```bash
-npm run cloudflare:d1:migrate
-npm run cloudflare:deploy
+npm run cloudflare:release
 ```
+
+It runs the remote D1 migrations first and only then builds/deploys the Worker.
+The split commands remain available for diagnostics, but production releases
+should prefer the combined command to prevent code/schema ordering mistakes.
 
 A deployment is not production-ready until both return:
 

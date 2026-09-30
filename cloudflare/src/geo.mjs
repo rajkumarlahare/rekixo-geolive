@@ -24,6 +24,22 @@ export function safeText(value, max, { required = false } = {}) {
   return text;
 }
 
+export function validateIdempotencyKey(value) {
+  const key = String(value || "").trim();
+  if (!key) return "";
+  if (
+    key.length < 8 ||
+    key.length > 200 ||
+    !/^[A-Za-z0-9._:-]+$/.test(key)
+  ) {
+    throw Object.assign(new Error("invalid_idempotency_key"), {
+      code: "invalid_idempotency_key",
+      status: 400
+    });
+  }
+  return key;
+}
+
 export function validateLocationInput(body) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw Object.assign(new Error("invalid_body"), { code: "invalid_body", status: 400 });
@@ -31,6 +47,12 @@ export function validateLocationInput(body) {
   const captured = body.capturedAt ? new Date(body.capturedAt) : null;
   if (captured && Number.isNaN(captured.getTime())) {
     throw Object.assign(new Error("invalid_capturedAt"), { code: "invalid_capturedAt", status: 400 });
+  }
+  if (captured && captured.getTime() > Date.now() + 5 * 60 * 1000) {
+    throw Object.assign(new Error("capturedAt_in_future"), {
+      code: "capturedAt_in_future",
+      status: 400
+    });
   }
   const metadata =
     body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)

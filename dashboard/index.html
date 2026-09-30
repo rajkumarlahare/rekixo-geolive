@@ -36,7 +36,7 @@
     <div class="project-switcher">
       <span>Project</span>
       <select id="project" disabled><option>Sign in to continue</option></select>
-      <button id="newProject" class="icon-button" title="Create project" disabled>＋</button>
+      <button id="newProject" class="icon-button" title="Create integration" aria-label="Create integration" disabled>＋</button>
       <button id="editProject" class="icon-button" title="Project settings" disabled>⚙</button>
       <button id="manageKeys" class="icon-button" title="API keys" disabled>⌘</button>
       <button id="manageOps" class="icon-button" title="Security & operations" disabled>◇</button>
@@ -216,6 +216,105 @@
     </form>
   </div>
 
+  <div class="modal-overlay" id="setupModal" hidden>
+    <section class="modal-card setup-modal-card">
+      <div class="modal-title">
+        <div><small>QUICK SETUP</small><h2>Connect an app or website</h2></div>
+        <button type="button" class="close" id="setupModalClose">×</button>
+      </div>
+      <p class="modal-help">Create a project and production credentials in one step. GeoLive handles the infrastructure; your app only sends location events.</p>
+
+      <form id="setupForm">
+        <div class="setup-grid">
+          <label id="setupAccountField">Account
+            <select id="setupAccount"></select>
+          </label>
+          <label>Project name
+            <input id="setupName" maxlength="120" placeholder="My Delivery App" required />
+          </label>
+          <label>Project slug
+            <input id="setupSlug" maxlength="63" pattern="[a-z0-9][a-z0-9-]{1,62}" placeholder="my-delivery-app" required />
+          </label>
+          <label>Platform
+            <select id="setupPlatform">
+              <option value="backend">Backend / Server</option>
+              <option value="website">Website</option>
+              <option value="android">Android</option>
+              <option value="ios">iOS</option>
+              <option value="flutter">Flutter</option>
+              <option value="react-native">React Native</option>
+            </select>
+          </label>
+        </div>
+
+        <label id="setupOriginField" hidden>Website origin
+          <input id="setupOrigin" type="url" placeholder="https://app.example.com" />
+          <small>Saved for integration guidance. Production secrets still belong on your server.</small>
+        </label>
+
+        <label id="setupAppIdField" hidden>App identifier
+          <input id="setupAppId" maxlength="160" placeholder="com.example.app" />
+          <small>Android package or iOS bundle identifier. This prepares the project for stronger client attestation later.</small>
+        </label>
+
+        <div class="setup-security-note" id="setupSecurityNote"></div>
+        <div class="form-error" id="setupError"></div>
+        <div class="modal-actions setup-actions">
+          <span></span><span></span>
+          <button type="button" class="text-button" id="setupCancel">Cancel</button>
+          <button type="submit" class="primary-button" id="createIntegrationButton">Create integration</button>
+        </div>
+      </form>
+
+      <section id="setupResult" class="setup-result" hidden>
+        <div class="setup-success">
+          <strong>Integration created</strong>
+          <span id="setupResultSummary">Project and server credentials are ready.</span>
+        </div>
+
+        <div class="setup-secret-grid">
+          <article>
+            <div><strong>Ingest key</strong><small>Use on your trusted server to send locations.</small></div>
+            <code id="setupIngestSecret"></code>
+            <button type="button" class="text-button" id="copySetupIngest">Copy ingest key</button>
+          </article>
+          <article>
+            <div><strong>Privacy key</strong><small>Keep separate. Use only for user data deletion.</small></div>
+            <code id="setupPrivacySecret"></code>
+            <button type="button" class="text-button" id="copySetupPrivacy">Copy privacy key</button>
+          </article>
+        </div>
+
+        <div class="setup-warning">
+          These full secrets are shown only once. Do not put them in browser JavaScript, Android APKs, iOS apps or public repositories.
+        </div>
+
+        <div class="setup-code-head">
+          <div><strong>Start sending locations</strong><small id="setupCodeHint">Server-side example</small></div>
+          <select id="setupCodeLanguage" aria-label="Integration code language">
+            <option value="node">Node.js</option>
+            <option value="curl">cURL</option>
+          </select>
+        </div>
+        <pre class="setup-code"><code id="setupCode"></code></pre>
+        <button type="button" class="text-button" id="copySetupCode">Copy code</button>
+
+        <div class="setup-connection">
+          <div>
+            <strong id="setupConnectionTitle">Waiting for first location</strong>
+            <small id="setupConnectionDetail">Send the sample request, then check the connection.</small>
+          </div>
+          <button type="button" class="primary-button" id="checkSetupConnection">Check connection</button>
+        </div>
+
+        <div class="modal-actions setup-actions">
+          <span></span><span></span><span></span>
+          <button type="button" class="primary-button" id="finishSetup">Open project</button>
+        </div>
+      </section>
+    </section>
+  </div>
+
   <div class="modal-overlay" id="projectModal" hidden>
     <form class="modal-card" id="projectForm">
       <div class="modal-title">
@@ -255,7 +354,7 @@
         <div><small>INTEGRATION</small><h2>API Keys</h2></div>
         <button type="button" class="close" id="keyModalClose">×</button>
       </div>
-      <p class="modal-help">Create separate ingest, read and client-token issuer keys. Full secrets are shown only once.</p>
+      <p class="modal-help">Create separate ingest, read, client-token issuer and privacy-delete keys. Full secrets are shown only once.</p>
 
       <div class="secret-reveal" id="secretReveal" hidden>
         <strong>Copy this secret now</strong>
@@ -274,6 +373,7 @@
               <option value="ingest">Ingest · location:write</option>
               <option value="read">Read · users/history/summary/events</option>
               <option value="issuer">Client token issuer · tokens:issue</option>
+              <option value="privacy">Privacy delete · privacy:delete</option>
             </select>
           </label>
           <label>Expires
