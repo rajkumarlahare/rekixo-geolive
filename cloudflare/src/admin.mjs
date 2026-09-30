@@ -20,6 +20,15 @@ import { parseWindow, normalizeGridDegrees } from "./geo.mjs";
 import { handleAutomationAdmin } from "./automation-admin.mjs";
 
 const COOKIE = "gla_session";
+const ALLOWED_API_KEY_SCOPES = new Set([
+  "location:write",
+  "users:read",
+  "history:read",
+  "summary:read",
+  "events:read",
+  "tokens:issue",
+  "privacy:delete"
+]);
 
 function json(value, status = 200, headers = {}) {
   return Response.json(value, {
@@ -624,8 +633,16 @@ async function createKey(request, env, project, adminUserId) {
   const body = await request.json();
   const name = String(body.name || "API key").trim();
   const scopes = Array.isArray(body.scopes) ? [...new Set(body.scopes.map(String))] : [];
-  if (name.length < 2 || name.length > 80 || !scopes.length) {
+  if (
+    name.length < 2 ||
+    name.length > 80 ||
+    !scopes.length ||
+    scopes.some((scope) => !ALLOWED_API_KEY_SCOPES.has(scope))
+  ) {
     return json({ error: "invalid_api_key" }, 400);
+  }
+  if (scopes.includes("privacy:delete") && scopes.length !== 1) {
+    return json({ error: "mixed_key_scopes_not_allowed" }, 400);
   }
   const secret = randomSecret("rgl_live_", 32);
   const id = crypto.randomUUID();
