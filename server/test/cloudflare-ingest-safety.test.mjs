@@ -35,6 +35,12 @@ test("Cloudflare ingest has durable replay, stale-order and privacy-delete guard
 
   assert.match(migration, /CREATE TABLE IF NOT EXISTS location_ingest_idempotency/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS user_privacy_tombstones/);
+  assert.match(migration, /user_hash TEXT NOT NULL/);
+  assert.doesNotMatch(
+    migration.match(/CREATE TABLE IF NOT EXISTS user_privacy_tombstones[\s\S]*?\);/)?.[0] || "",
+    /external_user_id/
+  );
+  assert.match(store, /privacyUserHash/);
   assert.match(store, /canonicalLocationRequestHash/);
   assert.match(store, /idempotency_key_reused/);
   assert.match(store, /COALESCE\(live_user_state\.captured_at,live_user_state\.received_at\)/);
