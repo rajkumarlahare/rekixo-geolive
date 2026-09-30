@@ -36,7 +36,7 @@ P0 through the P4C console foundation now provide:
 - **dashboard geofence, alert-rule, endpoint, event and delivery controls**
 - **Google Photorealistic 3D Tiles renderer through CesiumJS**
 - **Google-only production globe surface with explicit loading/unavailable states instead of a synthetic Earth fallback**
-- **website-restricted Map Tiles API key support for the canonical production domain**
+- **authenticated same-origin Google Map Tiles proxy with the production key kept server-side**
 - **shared projection for live markers, clusters, heatmaps, movement trails and the photorealistic Earth view**
 - **pointer drag + deep wheel zoom interaction with server-side clustering refresh**
 
