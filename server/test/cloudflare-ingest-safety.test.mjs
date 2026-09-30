@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { validateIdempotencyKey } from "../../cloudflare/src/geo.mjs";
+import {
+  validateIdempotencyKey,
+  validateLocationInput
+} from "../../cloudflare/src/geo.mjs";
 
 test("idempotency keys are optional but strictly bounded", () => {
   assert.equal(validateIdempotencyKey(null), "");
@@ -64,4 +67,17 @@ test("privacy keys cannot be mixed with operational scopes", async () => {
     /scopes\.includes\("privacy:delete"\) && scopes\.length !== 1/
   );
   assert.match(admin, /mixed_key_scopes_not_allowed/);
+});
+
+
+test("future capturedAt values are rejected", () => {
+  assert.throws(
+    () => validateLocationInput({
+      userId: "user_123",
+      latitude: 21,
+      longitude: 81,
+      capturedAt: new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    }),
+    (error) => error?.code === "capturedAt_in_future"
+  );
 });
