@@ -1,8 +1,6 @@
 # GeoLive Cloudflare-Native Production
 
-GeoLive 0.17.0 introduces a Cloudflare-native production runtime. The existing
-Cloudflare Pages site remains a synthetic public demo; real tenant traffic is
-served by a separate Cloudflare Worker.
+GeoLive 0.17.0 introduces a Cloudflare-native production runtime. Real tenant traffic, the authenticated dashboard and the API are served by the Cloudflare Worker.
 
 ## Canonical production domain
 
