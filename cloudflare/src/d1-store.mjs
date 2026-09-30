@@ -26,6 +26,14 @@ function stableJsonValue(value) {
   return value;
 }
 
+function privacyUserHash(projectId, userId) {
+  return createHash("sha256")
+    .update(
+      `geolive-privacy-tombstone-v1\0${String(projectId)}\0${String(userId)}`
+    )
+    .digest("hex");
+}
+
 function canonicalLocationRequestHash(input) {
   const canonical = stableJsonValue({
     userId: input.userId,
@@ -228,9 +236,9 @@ export async function upsertLocation(env, projectId, input, options = {}) {
   const tombstone = await env.DB.prepare(
     `SELECT deleted_at
      FROM user_privacy_tombstones
-     WHERE project_id=? AND external_user_id=?
+     WHERE project_id=? AND user_hash=?
      LIMIT 1`
-  ).bind(projectId,input.userId).first();
+  ).bind(projectId,privacyUserHash(projectId,input.userId)).first();
   if (tombstone) {
     throw Object.assign(new Error("user_deleted"), {
       code: "user_deleted",
@@ -428,10 +436,10 @@ export async function deleteTrackedUser(env, projectId, userId) {
   await env.DB.batch([
     env.DB.prepare(
       `INSERT INTO user_privacy_tombstones(
-        project_id,external_user_id,deleted_at
+        project_id,user_hash,deleted_at
       ) VALUES(?,?,?)
-      ON CONFLICT(project_id,external_user_id) DO NOTHING`
-    ).bind(projectId,externalUserId,now),
+      ON CONFLICT(project_id,user_hash) DO NOTHING`
+    ).bind(projectId,privacyUserHash(projectId,externalUserId),now),
     env.DB.prepare(
       `DELETE FROM webhook_delivery_attempts
        WHERE webhook_delivery_id IN (
@@ -473,7 +481,6 @@ export async function deleteTrackedUser(env, projectId, userId) {
 
   return {
     ok: true,
-    userId: externalUserId,
     deleted: Boolean(existed),
     deletedAt: now
   };
