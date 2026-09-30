@@ -171,7 +171,7 @@ test("public readiness response does not expose sensitive deployment metadata", 
   }
 });
 
-test("P4C serves self-hosted WebGL globe assets with safe content types", async () => {
+test("P4C serves Google-only globe modules and no legacy Earth texture", async () => {
   const config = loadConfig({
     NODE_ENV: "test",
     GEOLIVE_PERSISTENCE: "memory",
@@ -276,18 +276,11 @@ test("P4C serves self-hosted WebGL globe assets with safe content types", async 
       );
     assert.equal(
       textureResponse.status,
-      200
+      404
     );
-    assert.equal(
-      textureResponse.headers.get(
-        "content-type"
-      ),
-      "image/svg+xml"
-    );
-    assert.match(
-      await textureResponse.text(),
-      /<svg/
-    );
+
+    // The synthetic Earth texture must stay removed; Google Photorealistic
+    // 3D is the only globe renderer now.
   } finally {
     await new Promise((resolve) =>
       server.close(resolve)
