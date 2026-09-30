@@ -175,14 +175,12 @@ async function serveDashboard(res, pathname, config) {
       "globe-webgl.js",
       "photorealistic-earth.js",
       "geofence-editor.js",
-      "demo-mode.js",
       "earth-dark.svg"
     ].includes(relative)
   ) return false;
 
   if (relative === "runtime-config.js") {
     const publicConfig = JSON.stringify({
-      demoMode: false,
       googleMapsApiKey:
         config?.public?.googleMapsApiKey || ""
     }).replace(/</g, "\\u003c");
