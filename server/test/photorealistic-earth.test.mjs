@@ -45,10 +45,22 @@ test("production photorealistic Earth stays Google-only and safely attributed", 
   );
   assert.match(
     worker,
+    /handleGoogle3dTiles/
+  );
+  assert.match(
+    worker,
     /https:\/\/tile\.googleapis\.com/
   );
   assert.match(
     worker,
-    /"referrer-policy": "strict-origin-when-cross-origin"/
+    /"\/v1\/3dtiles\/root\.json"/
+  );
+  assert.doesNotMatch(
+    worker,
+    /googleMapsApiKey:/
+  );
+  assert.match(
+    worker,
+    /"referrer-policy": "no-referrer"/
   );
 });
