@@ -15,10 +15,6 @@ import {
 
 const DEMO_MODE = demoModeEnabled();
 
-const earthCanvas =
-  document.querySelector(
-    "#earthGlobe"
-  );
 const canvas =
   document.querySelector("#globe");
 const ctx =
@@ -32,7 +28,7 @@ const runtimeCapabilities =
   {};
 const globeRenderer =
   new GeoGlobeRenderer(
-    earthCanvas,
+    null,
     {
       realContainer:
         document.querySelector(
@@ -56,18 +52,26 @@ const rendererBadge =
   document.querySelector(
     "#rendererBadge"
   );
+const googleEarthState =
+  document.querySelector(
+    "#googleEarthState"
+  );
 const syncRendererBadge =
   (event) => {
     const detail =
       event?.detail || {};
+    const mode =
+      detail.mode || "";
+    const reason =
+      detail.reason || "";
+
     rendererBadge.textContent =
       detail.label ||
       globeRenderer.label;
-    const reason =
-      detail.reason || "";
     rendererBadge.dataset.state =
-      detail.mode || "";
-    rendererBadge.title =
+      mode;
+
+    const title =
       reason ===
       "google_tiles_proxy_auth"
         ? "Sign in to load Google Photorealistic 3D through the secure GeoLive proxy."
@@ -81,8 +85,72 @@ const syncRendererBadge =
               "cesium_load_failed"
             ? "Cesium could not load from the configured CDN."
             : reason
-              ? "Google Photorealistic 3D is temporarily unavailable; GeoLive is retrying safely."
+              ? "Google Photorealistic 3D is temporarily unavailable."
               : "";
+    rendererBadge.title =
+      title;
+
+    if (googleEarthState) {
+      if (
+        publicConfig
+          .googleMapsConfigured ===
+          false &&
+        !publicConfig
+          .googleMapsApiKey
+      ) {
+        googleEarthState.hidden =
+          false;
+        const strong =
+          googleEarthState
+            .querySelector("strong");
+        const copy =
+          googleEarthState
+            .querySelector("span");
+        strong.textContent =
+          "Google Photorealistic 3D not configured";
+        copy.textContent =
+          "Add the GEOLIVE_GOOGLE_MAPS_API_KEY production secret in Cloudflare.";
+      } else if (
+        mode === "photorealistic" ||
+        globeRenderer
+          .photorealisticActive
+      ) {
+        googleEarthState.hidden =
+          true;
+      } else {
+        googleEarthState.hidden =
+          false;
+        const strong =
+          googleEarthState
+            .querySelector("strong");
+        const copy =
+          googleEarthState
+            .querySelector("span");
+
+        if (
+          mode ===
+          "photorealistic-retrying"
+        ) {
+          strong.textContent =
+            "Loading Google Photorealistic 3D";
+          copy.textContent =
+            "Google Map Tiles is retrying. The legacy globe has been removed.";
+        } else if (
+          mode === "google-unavailable"
+        ) {
+          strong.textContent =
+            "Google Photorealistic 3D unavailable";
+          copy.textContent =
+            title ||
+            "GeoLive is waiting for Google Map Tiles. No synthetic globe is shown.";
+        } else {
+          strong.textContent =
+            "Loading Google Photorealistic 3D";
+          copy.textContent =
+            "Connecting to Google Map Tiles…";
+        }
+      }
+    }
   };
 syncRendererBadge();
 addEventListener(

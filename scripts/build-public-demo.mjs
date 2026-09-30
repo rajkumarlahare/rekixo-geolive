@@ -16,7 +16,6 @@ const files = [
   "photorealistic-earth.js",
   "geofence-editor.js",
   "demo-mode.js",
-  "earth-dark.svg",
   "geolive-favicon.svg",
   "_headers"
 ];

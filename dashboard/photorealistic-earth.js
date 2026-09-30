@@ -721,7 +721,7 @@ export class PhotorealisticEarthRenderer {
       } else {
         this.status = "error";
         emitRendererStatus({
-          mode: "fallback",
+          mode: "google-unavailable",
           label:
             this.failureReason ===
             "google_tiles_auth_or_referrer"
@@ -733,7 +733,7 @@ export class PhotorealisticEarthRenderer {
       }
 
       console.warn(
-        "GeoLive real Earth renderer unavailable; using the local WebGL fallback.",
+        "GeoLive Google Photorealistic 3D renderer unavailable.",
         this.failureReason
       );
       return false;
