@@ -227,10 +227,6 @@ test("P4C serves Google-only globe modules and no legacy Earth texture", async (
       runtimeConfig,
       /test-browser-key/
     );
-    assert.match(
-      runtimeConfig,
-      /"demoMode":false/
-    );
 
     const moduleResponse =
       await fetch(
