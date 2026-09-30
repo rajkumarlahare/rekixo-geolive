@@ -468,7 +468,6 @@ export default {
       }
       if (url.pathname === "/dashboard/runtime-config.js") {
         const publicConfig = JSON.stringify({
-          demoMode: false,
           runtime: "cloudflare",
           canonicalOrigin,
           capabilities: {
