@@ -175,7 +175,7 @@ async function serveDashboard(res, pathname, config) {
       "globe-webgl.js",
       "photorealistic-earth.js",
       "geofence-editor.js",
-      "earth-dark.svg"
+      "geolive-favicon.svg"
     ].includes(relative)
   ) return false;
 
