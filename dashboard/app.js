@@ -92,6 +92,25 @@ const syncRendererBadge =
 
     if (googleEarthState) {
       if (
+        publicConfig
+          .googleMapsConfigured ===
+          false &&
+        !publicConfig
+          .googleMapsApiKey
+      ) {
+        googleEarthState.hidden =
+          false;
+        const strong =
+          googleEarthState
+            .querySelector("strong");
+        const copy =
+          googleEarthState
+            .querySelector("span");
+        strong.textContent =
+          "Google Photorealistic 3D not configured";
+        copy.textContent =
+          "Add the GEOLIVE_GOOGLE_MAPS_API_KEY production secret in Cloudflare.";
+      } else if (
         mode === "photorealistic" ||
         globeRenderer
           .photorealisticActive
