@@ -147,7 +147,10 @@ const syncRendererBadge =
 syncRendererBadge();
 addEventListener(
   "geolive:renderer",
-  syncRendererBadge
+  (event) => {
+    syncRendererBadge(event);
+    syncGlobeControls();
+  }
 );
 const search = document.querySelector("#search");
 const projectSelect = document.querySelector("#project");
@@ -190,8 +193,8 @@ const state = {
   rotation: -20,
   cameraLatitude: 12,
   zoom: 1,
-  paused: false,
   refreshes: 0,
+  projectLoadRequestId: 0,
   apiRequests24h: 0,
   pollTimer: null,
   projectMode: "create",
@@ -216,8 +219,7 @@ const state = {
     center: null,
     radiusM: null,
     points: [],
-    finished: false,
-    previousPaused: false
+    finished: false
   },
   facets: {
     countries: [],
@@ -252,7 +254,7 @@ const setText = (id, value) => {
 };
 
 async function api(path, options = {}) {
-const headers = new Headers(options.headers || {});
+  const headers = new Headers(options.headers || {});
   if (options.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
@@ -321,6 +323,120 @@ function canWriteAccount(account = accountById(activeAccountId())) {
   );
 }
 
+const railButtons =
+  Array.from(
+    document.querySelectorAll(
+      ".rail [data-section]"
+    )
+  );
+
+function setRailActive(section = "live") {
+  for (const button of railButtons) {
+    const active =
+      button.dataset.section ===
+      section;
+    button.classList.toggle(
+      "rail-active",
+      active
+    );
+    if (active) {
+      button.setAttribute(
+        "aria-current",
+        "page"
+      );
+    } else {
+      button.removeAttribute(
+        "aria-current"
+      );
+    }
+  }
+}
+
+function updateRailAvailability() {
+  const signedIn =
+    Boolean(state.user);
+  const hasProject =
+    Boolean(state.projectId);
+
+  document.querySelector(
+    "#railLive"
+  ).disabled = !signedIn;
+  document.querySelector(
+    "#railProjects"
+  ).disabled = !signedIn;
+  document.querySelector(
+    "#railDevices"
+  ).disabled =
+    !signedIn ||
+    !hasProject;
+  document.querySelector(
+    "#railSettings"
+  ).disabled =
+    !signedIn ||
+    !canWriteProject();
+  document.querySelector(
+    "#railDeveloper"
+  ).disabled =
+    !signedIn ||
+    !hasProject;
+  document.querySelector(
+    "#railSecurity"
+  ).disabled =
+    !signedIn ||
+    !hasProject;
+
+  search.disabled =
+    !signedIn ||
+    !hasProject;
+}
+
+function focusLiveGlobe() {
+  setRailActive("live");
+  document.querySelector(
+    ".globe-card"
+  )?.focus({
+    preventScroll: true
+  });
+}
+
+function openProjectPicker() {
+  if (!state.user) return;
+  setRailActive("projects");
+
+  if (!state.projects.length) {
+    const canCreate =
+      state.accounts.some(
+        (account) =>
+          ["owner", "admin"]
+            .includes(
+              account.role
+            )
+      );
+    if (canCreate) {
+      openProjectModal(
+        "create"
+      );
+    }
+    return;
+  }
+
+  projectSelect.focus({
+    preventScroll: true
+  });
+  try {
+    projectSelect.showPicker?.();
+  } catch {}
+}
+
+function focusUserSearch() {
+  if (!state.user) return;
+  setRailActive("devices");
+  search.focus({
+    preventScroll: true
+  });
+  search.select?.();
+}
+
 function populateProjectSelect() {
   projectSelect.innerHTML = "";
   if (!state.projects.length) {
@@ -386,6 +502,8 @@ function populateProjectSelect() {
   document.querySelector("#platformConsole").hidden =
     !state.platformRole ||
     runtimeCapabilities.platformConsole === false;
+
+  updateRailAvailability();
 }
 
 function applyIdentity() {
@@ -963,10 +1081,18 @@ function scheduleClusterRefresh(delay = 250) {
 async function refreshLiveSummary() {
   const project = projectById();
   if (!project) return;
+  const projectId = project.id;
 
   const summaryPayload = await api(
-    `/v1/admin/projects/${project.id}/summary`
+    `/v1/admin/projects/${projectId}/summary`
   );
+  if (
+    state.projectId !==
+    projectId
+  ) {
+    return;
+  }
+
   state.summary = {
     total: summaryPayload.total || 0,
     todayActive:
@@ -976,6 +1102,7 @@ async function refreshLiveSummary() {
     offline: summaryPayload.offline || 0,
     inactive: summaryPayload.inactive || 0
   };
+  updateStats();
 
   await refreshMapData();
 }
@@ -989,6 +1116,9 @@ function scheduleLiveRefresh() {
 
 async function loadProject({ quiet = false } = {}) {
   const project = projectById();
+  const requestId =
+    ++state.projectLoadRequestId;
+
   if (!project) {
     resetData();
     return;
@@ -1005,10 +1135,10 @@ async function loadProject({ quiet = false } = {}) {
 
   try {
     const [
-      summaryPayload,
-      metricsPayload,
-      facetsPayload
-    ] = await Promise.all([
+      summaryResult,
+      metricsResult,
+      facetsResult
+    ] = await Promise.allSettled([
       api(
         `/v1/admin/projects/${project.id}/summary`
       ),
@@ -1019,6 +1149,35 @@ async function loadProject({ quiet = false } = {}) {
         `/v1/admin/projects/${project.id}/facets`
       )
     ]);
+
+    if (
+      requestId !==
+        state.projectLoadRequestId ||
+      state.projectId !==
+        project.id
+    ) {
+      return;
+    }
+
+    if (
+      summaryResult.status ===
+      "rejected"
+    ) {
+      throw summaryResult.reason;
+    }
+
+    const summaryPayload =
+      summaryResult.value;
+    const metricsPayload =
+      metricsResult.status ===
+      "fulfilled"
+        ? metricsResult.value
+        : null;
+    const facetsPayload =
+      facetsResult.status ===
+      "fulfilled"
+        ? facetsResult.value
+        : null;
 
     state.summary = {
       total:
@@ -1035,31 +1194,74 @@ async function loadProject({ quiet = false } = {}) {
         summaryPayload.inactive || 0
     };
     state.apiRequests24h =
-      metricsPayload.metrics?.totals
-        ?.requests || 0;
+      metricsPayload?.metrics
+        ?.totals?.requests || 0;
     state.facets = {
       countries:
-        facetsPayload.countries || [],
+        facetsPayload?.countries || [],
       states:
-        facetsPayload.states || [],
+        facetsPayload?.states || [],
       cities:
-        facetsPayload.cities || []
+        facetsPayload?.cities || []
     };
     state.refreshes += 1;
 
     rebuildGeoFilters();
-    await refreshMapData();
-    await loadGeofenceOverlay();
     updateStats();
+
+    let mapError = null;
+    try {
+      await refreshMapData();
+    } catch (error) {
+      if (error.status === 401) {
+        throw error;
+      }
+      mapError = error;
+      console.warn(
+        "GeoLive map data refresh failed",
+        error
+      );
+    }
+
+    if (
+      requestId !==
+        state.projectLoadRequestId ||
+      state.projectId !==
+        project.id
+    ) {
+      return;
+    }
+
+    await loadGeofenceOverlay();
+
+    if (
+      requestId !==
+        state.projectLoadRequestId ||
+      state.projectId !==
+        project.id
+    ) {
+      return;
+    }
+
     setText(
       "lastUpdated",
-      `Last updated: ${new Date().toLocaleTimeString()}`
+      mapError
+        ? `Map refresh failed: ${mapError.code || "request_failed"}`
+        : `Last updated: ${new Date().toLocaleTimeString()}`
     );
 
     if (!quiet) {
       showDetail({});
     }
   } catch (error) {
+    if (
+      requestId !==
+        state.projectLoadRequestId ||
+      state.projectId !==
+        project.id
+    ) {
+      return;
+    }
     if (error.status === 401) {
       showLogin(
         "Your session expired. Sign in again."
@@ -1068,7 +1270,7 @@ async function loadProject({ quiet = false } = {}) {
     }
     setText(
       "lastUpdated",
-      `Refresh failed: ${error.code}`
+      `Refresh failed: ${error.code || "request_failed"}`
     );
   }
 }
@@ -1306,6 +1508,7 @@ function hydrateSession(payload) {
 
 function showLogin(message = "") {
   clearInterval(state.pollTimer);
+  state.projectLoadRequestId += 1;
   globeRenderer
     .suspendPhotorealistic();
 stopRealtime({ resetSequence: true });
@@ -1379,6 +1582,22 @@ projectSelect.addEventListener("change", () => {
   resetAutomationHistoryFilters();
   resetUserSearchPaging();
   state.projectId = projectSelect.value;
+  setRailActive("live");
+  state.projectLoadRequestId += 1;
+  state.summary = {
+    total: 0,
+    todayActive: 0,
+    online: 0,
+    recent: 0,
+    offline: 0,
+    inactive: 0
+  };
+  state.apiRequests24h = 0;
+  state.users = [];
+  state.filtered = [];
+  state.clusters = [];
+  state.useClusters = false;
+  updateStats();
   state.geofenceOverlayProjectId = "";
   state.automation.geofences = [];
   clearGeoAnalytics();
@@ -1390,11 +1609,50 @@ projectSelect.addEventListener("change", () => {
   document.querySelector("#loadHeatmap").disabled = !state.projectId;
   document.querySelector("#manageBilling").disabled =
     state.accounts.length === 0;
+  updateRailAvailability();
   loadProject()
     .then(() => startRealtime())
     .catch(() => {});
   startPolling();
 });
+
+document.querySelector(
+  "#railLive"
+).addEventListener(
+  "click",
+  focusLiveGlobe
+);
+document.querySelector(
+  "#railProjects"
+).addEventListener(
+  "click",
+  openProjectPicker
+);
+document.querySelector(
+  "#railDevices"
+).addEventListener(
+  "click",
+  focusUserSearch
+);
+document.querySelector(
+  "#railSettings"
+).addEventListener(
+  "click",
+  () =>
+    openProjectModal("edit")
+);
+document.querySelector(
+  "#railDeveloper"
+).addEventListener(
+  "click",
+  openKeyModal
+);
+document.querySelector(
+  "#railSecurity"
+).addEventListener(
+  "click",
+  openOpsModal
+);
 
 document.querySelector("#newProject").addEventListener("click", () => openProjectModal("create"));
 document.querySelector("#editProject").addEventListener("click", () => openProjectModal("edit"));
@@ -3305,10 +3563,6 @@ function beginGeofenceEditor({
   editor.mode = mode;
   editor.geofenceId =
     geofence?.id || "";
-  editor.previousPaused =
-    state.paused;
-  state.paused = true;
-
   const name =
     geofence?.name ||
     seed?.name ||
@@ -3426,19 +3680,9 @@ function beginGeofenceEditor({
   ).focus();
 }
 
-function cancelGeofenceEditor({
-  restorePause = true
-} = {}) {
+function cancelGeofenceEditor() {
   const editor =
     state.geofenceEditor;
-
-  if (
-    restorePause &&
-    editor.active
-  ) {
-    state.paused =
-      editor.previousPaused;
-  }
 
   editor.active = false;
   editor.mode = "create";
@@ -4210,6 +4454,11 @@ function slugify(value) {
 
 function openProjectModal(mode) {
   state.projectMode = mode;
+  setRailActive(
+    mode === "create"
+      ? "projects"
+      : "settings"
+  );
   setText("projectError", "");
 
   const accountSelect = document.querySelector("#projectAccount");
@@ -4253,6 +4502,7 @@ function openProjectModal(mode) {
 
 function closeProjectModal() {
   projectModal.hidden = true;
+  setRailActive("live");
 }
 
 document.querySelector("#projectName").addEventListener("input", (event) => {
@@ -4348,6 +4598,7 @@ function formatKeyTime(value) {
 
 async function openKeyModal() {
   if (!state.projectId) return;
+  setRailActive("developer");
   setText("keyError", "");
   document.querySelector("#secretReveal").hidden = true;
   document.querySelector("#oneTimeSecret").textContent = "";
@@ -4360,6 +4611,7 @@ function closeKeyModal() {
   document.querySelector("#oneTimeSecret").textContent = "";
   document.querySelector("#secretReveal").hidden = true;
   document.querySelector("#keyModal").hidden = true;
+  setRailActive("live");
 }
 
 function revealSecret(secret) {
@@ -4548,10 +4800,12 @@ document.querySelector("#copySecret").addEventListener("click", async () => {
 
 function closeOpsModal() {
   document.querySelector("#opsModal").hidden = true;
+  setRailActive("live");
 }
 
 async function openOpsModal() {
   if (!state.projectId) return;
+  setRailActive("security");
   document.querySelector("#opsModal").hidden = false;
   await loadOperations();
 }
@@ -6648,13 +6902,20 @@ document.querySelector(
     )
 );
 
-document.querySelector("#pause").onclick = () => {
-  if (state.geofenceEditor.active) {
-    state.paused = true;
-    return;
-  }
-  state.paused = !state.paused;
-};
+function syncGlobeControls() {
+  const maximum =
+    globeRenderer.maxZoom();
+  document.querySelector(
+    "#zoomIn"
+  ).disabled =
+    state.zoom >=
+    maximum - 0.001;
+  document.querySelector(
+    "#zoomOut"
+  ).disabled =
+    state.zoom <= 0.701;
+}
+
 document.querySelector("#zoomIn").onclick = () => {
   const step =
     globeRenderer.zoomStep(
@@ -6665,6 +6926,7 @@ document.querySelector("#zoomIn").onclick = () => {
       globeRenderer.maxZoom(),
       state.zoom + step
     );
+  syncGlobeControls();
   scheduleClusterRefresh();
 };
 document.querySelector("#zoomOut").onclick = () => {
@@ -6677,12 +6939,17 @@ document.querySelector("#zoomOut").onclick = () => {
       0.7,
       state.zoom - step
     );
+  syncGlobeControls();
   scheduleClusterRefresh();
 };
 document.querySelector("#center").onclick = () => {
   state.rotation = -20;
   state.cameraLatitude = 12;
+  state.zoom = 1;
+  syncGlobeControls();
+  scheduleClusterRefresh(0);
 };
+syncGlobeControls();
 
 let suppressGlobeClick = false;
 const globeDrag = {
@@ -6865,6 +7132,18 @@ function resize() {
 }
 
 addEventListener("resize", resize);
+const globeResizeObserver =
+  typeof ResizeObserver !==
+  "undefined"
+    ? new ResizeObserver(
+        () => resize()
+      )
+    : null;
+globeResizeObserver?.observe(
+  document.querySelector(
+    ".globe-card"
+  )
+);
 resize();
 
 function projectPoint(lat, lng, cx, cy, radius) {
@@ -7566,6 +7845,11 @@ canvas.addEventListener("click", (event) => {
 });
 
 function showClusterDetail(cluster) {
+  document.querySelector(
+    "#detail"
+  )?.classList.add(
+    "detail-open"
+  );
   state.selectedUserId = "";
   if (
     state.geospatialMode ===
@@ -7627,6 +7911,12 @@ function showClusterDetail(cluster) {
 function showDetail(user) {
   const nextUserId =
     user.userId || "";
+  document.querySelector(
+    "#detail"
+  )?.classList.toggle(
+    "detail-open",
+    Boolean(nextUserId)
+  );
   if (
     state.geospatialMode ===
       "trail" &&
@@ -7683,6 +7973,122 @@ function showDetail(user) {
 }
 
 document.querySelector("#detailClose").onclick = () => showDetail({});
+
+function closeVisibleModal() {
+  const closers = {
+    projectModal:
+      closeProjectModal,
+    keyModal:
+      closeKeyModal,
+    opsModal:
+      closeOpsModal,
+    automationModal:
+      closeAutomationModal,
+    billingModal:
+      closeBillingModal,
+    platformModal:
+      closePlatformModal
+  };
+
+  const openModal =
+    Array.from(
+      document.querySelectorAll(
+        ".modal-overlay:not([hidden])"
+      )
+    ).at(-1);
+  if (!openModal) {
+    return false;
+  }
+
+  closers[
+    openModal.id
+  ]?.();
+  return true;
+}
+
+document.addEventListener(
+  "keydown",
+  (event) => {
+    if (event.key !== "Escape") {
+      return;
+    }
+
+    if (
+      state.geofenceEditor
+        .active
+    ) {
+      cancelGeofenceEditor();
+      return;
+    }
+
+    if (!closeVisibleModal()) {
+      document.querySelector(
+        "#detail.detail-open"
+      )?.classList.remove(
+        "detail-open"
+      );
+    }
+  }
+);
+
+document.addEventListener(
+  "visibilitychange",
+  () => {
+    if (
+      document.hidden ||
+      !state.user ||
+      !state.projectId
+    ) {
+      return;
+    }
+
+    loadProject({
+      quiet: true
+    })
+      .then(() =>
+        startRealtime()
+      )
+      .catch(() => {});
+  }
+);
+
+addEventListener(
+  "offline",
+  () => {
+    const project =
+      projectById();
+    if (
+      !state.user ||
+      !project
+    ) {
+      return;
+    }
+    setText(
+      "projectState",
+      `${project.status.toUpperCase()} · ${project.role} · OFFLINE`
+    );
+  }
+);
+
+addEventListener(
+  "online",
+  () => {
+    if (
+      !state.user ||
+      !state.projectId
+    ) {
+      return;
+    }
+
+    loadProject({
+      quiet: true
+    })
+      .then(() =>
+        startRealtime()
+      )
+      .catch(() => {});
+  }
+);
 
 async function boot() {
   try {

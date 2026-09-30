@@ -45,7 +45,7 @@
       <button id="platformConsole" class="icon-button" title="Platform console" hidden>◆</button>
     </div>
 
-    <div class="top-search"><span>⌕</span><input id="search" placeholder="Search User" disabled /></div>
+    <div class="top-search"><span>⌕</span><input id="search" placeholder="Search users or devices" aria-label="Search users or devices" disabled /></div>
 
     <div class="admin-user">
       <div class="avatar" id="avatar">RK</div>
@@ -55,14 +55,14 @@
   </header>
 
   <main class="shell">
-    <aside class="rail">
-      <button class="rail-active" title="Live globe">◎</button>
-      <button title="Projects">⌘</button>
-      <button title="Devices">▣</button>
-      <button title="Settings">⚙</button>
-      <button title="Developer">&lt;/&gt;</button>
-      <button title="Security">◇</button>
-    </aside>
+    <nav class="rail" aria-label="GeoLive sections">
+      <button type="button" id="railLive" data-section="live" class="rail-active" title="Live globe" aria-label="Live globe" aria-current="page">◎</button>
+      <button type="button" id="railProjects" data-section="projects" title="Projects" aria-label="Projects">⌘</button>
+      <button type="button" id="railDevices" data-section="devices" title="Users and devices" aria-label="Users and devices">▣</button>
+      <button type="button" id="railSettings" data-section="settings" title="Project settings" aria-label="Project settings">⚙</button>
+      <button type="button" id="railDeveloper" data-section="developer" title="API keys and developer access" aria-label="API keys and developer access">&lt;/&gt;</button>
+      <button type="button" id="railSecurity" data-section="security" title="Security and operations" aria-label="Security and operations">◇</button>
+    </nav>
 
     <aside class="filters">
       <div class="nav-active">◎ <span>Live User Globe</span></div>
@@ -101,7 +101,7 @@
         <article><span class="metric-icon cyan">▤</span><div><small>API Requests</small><strong id="apiRequests">0</strong><p>Last 24 hours</p></div></article>
       </section>
 
-      <section class="globe-card">
+      <section class="globe-card" tabindex="-1" aria-label="Live Google Photorealistic 3D globe">
         <div id="realEarth" class="real-earth" aria-hidden="true"></div>
         <canvas id="globe" class="globe-overlay" aria-label="Interactive live user globe"></canvas>
         <div class="google-earth-state" id="googleEarthState" aria-live="polite">
@@ -110,7 +110,7 @@
         </div>
         <div class="renderer-badge" id="rendererBadge">Loading Google 3D</div>
         <div id="realEarthCredits" class="real-earth-credits" aria-label="Map data attribution"></div>
-        <div class="globe-tools"><button id="center" title="Reset globe">⌾</button><button id="pause" title="Pause rotation">◉</button><button id="zoomIn" title="Zoom in">＋</button><button id="zoomOut" title="Zoom out">−</button></div>
+        <div class="globe-tools"><button type="button" id="center" title="Reset globe view" aria-label="Reset globe view">⌾</button><button type="button" id="zoomIn" title="Zoom in" aria-label="Zoom in">＋</button><button type="button" id="zoomOut" title="Zoom out" aria-label="Zoom out">−</button></div>
         <section class="geofence-editor" id="geofenceEditor" hidden>
           <div class="geofence-editor-head">
             <div>
