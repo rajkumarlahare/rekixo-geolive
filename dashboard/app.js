@@ -4698,7 +4698,8 @@ document.querySelector("#keyType").addEventListener("change", (event) => {
   const names = {
     ingest: "Production ingest",
     read: "Production read",
-    issuer: "Client token issuer"
+    issuer: "Client token issuer",
+    privacy: "Privacy delete"
   };
   document.querySelector("#keyName").value =
     names[event.target.value] || "API key";
@@ -4729,7 +4730,9 @@ document.querySelector("#keyForm").addEventListener("submit", async (event) => {
           ? ["users:read", "history:read", "summary:read", "events:read"]
           : type === "issuer"
             ? ["tokens:issue"]
-            : ["location:write"],
+            : type === "privacy"
+              ? ["privacy:delete"]
+              : ["location:write"],
         allowedOrigins: parseLines(document.querySelector("#keyOrigins").value),
         allowedPackages: parseLines(document.querySelector("#keyPackages").value),
         expiresAt
@@ -4744,7 +4747,7 @@ document.querySelector("#keyForm").addEventListener("submit", async (event) => {
     const messages = {
       invalid_allowed_origins: "Use exact origins such as https://app.example.com.",
       invalid_allowed_packages: "Use valid app package IDs such as com.example.app.",
-      mixed_key_scopes_not_allowed: "Use separate ingest, read and client-token issuer keys.",
+      mixed_key_scopes_not_allowed: "Use separate ingest, read, client-token issuer and privacy-delete keys.",
       invalid_key_expiry: "Choose a valid future expiry.",
       project_write_forbidden: "Your role is read-only."
     };
