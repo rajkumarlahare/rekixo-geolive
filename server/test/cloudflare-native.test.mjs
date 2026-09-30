@@ -323,6 +323,14 @@ test("Production dashboard navigation and responsive metrics stay functional", a
     css,
     /\.stats article\{[^}]*height:105px/
   );
+  assert.match(
+    css,
+    /\.detail\.detail-open\{transform:translateX\(0\)\}/
+  );
+  assert.match(
+    app,
+    /classList\.toggle\(\s*"detail-open"/
+  );
 });
 
 test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy in production", async () => {
