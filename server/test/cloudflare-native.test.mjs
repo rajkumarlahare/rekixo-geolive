@@ -442,6 +442,92 @@ test("Photorealistic globe drag sensitivity decreases with deep zoom", async () 
   );
 });
 
+test("GeoLive dashboard is Google Photorealistic 3D only with no synthetic globe fallback", async () => {
+  const [
+    html,
+    css,
+    globe,
+    renderer,
+    app,
+    cloudflareBuild,
+    demoBuild
+  ] = await Promise.all([
+    readFile(
+      "dashboard/index.html",
+      "utf8"
+    ),
+    readFile(
+      "dashboard/styles.css",
+      "utf8"
+    ),
+    readFile(
+      "dashboard/globe-webgl.js",
+      "utf8"
+    ),
+    readFile(
+      "dashboard/photorealistic-earth.js",
+      "utf8"
+    ),
+    readFile(
+      "dashboard/app.js",
+      "utf8"
+    ),
+    readFile(
+      "scripts/build-cloudflare-production.mjs",
+      "utf8"
+    ),
+    readFile(
+      "scripts/build-public-demo.mjs",
+      "utf8"
+    )
+  ]);
+
+  assert.doesNotMatch(
+    html,
+    /id="earthGlobe"|class="globe-surface"/
+  );
+  assert.match(
+    html,
+    /id="googleEarthState"/
+  );
+  assert.doesNotMatch(
+    css,
+    /\.globe-surface/
+  );
+  assert.doesNotMatch(
+    globe,
+    /getContext\(["']webgl/
+  );
+  assert.doesNotMatch(
+    globe,
+    /sphereGeometry|VERTEX_SHADER|FRAGMENT_SHADER/
+  );
+  assert.doesNotMatch(
+    globe,
+    /3D WebGL|2D fallback/
+  );
+  assert.match(
+    renderer,
+    /mode: "google-unavailable"/
+  );
+  assert.doesNotMatch(
+    renderer,
+    /using the local WebGL fallback/
+  );
+  assert.match(
+    app,
+    /Google Photorealistic 3D unavailable/
+  );
+  assert.doesNotMatch(
+    cloudflareBuild,
+    /earth-dark\.svg/
+  );
+  assert.doesNotMatch(
+    demoBuild,
+    /earth-dark\.svg/
+  );
+});
+
 test("Cloudflare production config keeps runtime secret values out of committed vars", async () => {
   const configText = await readFile(
     "cloudflare/wrangler.jsonc",
