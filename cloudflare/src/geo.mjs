@@ -48,6 +48,12 @@ export function validateLocationInput(body) {
   if (captured && Number.isNaN(captured.getTime())) {
     throw Object.assign(new Error("invalid_capturedAt"), { code: "invalid_capturedAt", status: 400 });
   }
+  if (captured && captured.getTime() > Date.now() + 5 * 60 * 1000) {
+    throw Object.assign(new Error("capturedAt_in_future"), {
+      code: "capturedAt_in_future",
+      status: 400
+    });
+  }
   const metadata =
     body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
       ? body.metadata
