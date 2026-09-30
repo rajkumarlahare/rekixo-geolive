@@ -4656,21 +4656,25 @@ curl -X POST https://geolive.rekixo.com/v1/locations \\
   }'`;
   }
 
-  return `const response = await fetch(
+  return `const userId = "user_123";
+const capturedAt = new Date().toISOString();
+const eventId = crypto.randomUUID();
+
+const response = await fetch(
   "https://geolive.rekixo.com/v1/locations",
   {
     method: "POST",
     headers: {
       Authorization: \`Bearer ${process.env.GEOLIVE_API_KEY}\`,
       "Content-Type": "application/json",
-      "Idempotency-Key": "your-user-123-location-001"
+      "Idempotency-Key": \`${userId}:${eventId}\`
     },
     body: JSON.stringify({
-      userId: "user_123",
+      userId,
       latitude: 21.203,
       longitude: 81.634,
       accuracyM: 12,
-      capturedAt: new Date().toISOString()
+      capturedAt
     })
   }
 );
