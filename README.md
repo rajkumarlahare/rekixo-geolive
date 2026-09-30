@@ -34,9 +34,9 @@ P0 through the P4C console foundation now provide:
 - **durable signed webhook delivery with retries and dead-letter handling**
 - **SSRF-resistant production webhook networking and one-time signing-secret reveal**
 - **dashboard geofence, alert-rule, endpoint, event and delivery controls**
-- **self-hosted dependency-free WebGL globe renderer with 2D fallback**
-- **optional Google Photorealistic 3D Tiles renderer through CesiumJS for the public demo**
-- **automatic fallback to the local WebGL globe when no browser key is configured or the external renderer fails**
+- **Google Photorealistic 3D Tiles renderer through CesiumJS**
+- **Google-only production globe surface with explicit loading/unavailable states instead of a synthetic Earth fallback**
+- **website-restricted Map Tiles API key support for the canonical production domain**
 - **shared projection for live markers, clusters, heatmaps, movement trails and the photorealistic Earth view**
 - **pointer drag + deep wheel zoom interaction with server-side clustering refresh**
 

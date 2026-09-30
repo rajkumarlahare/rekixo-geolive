@@ -199,7 +199,7 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
   assert.match(
     worker,
-    /"referrer-policy": "no-referrer"/
+    /"referrer-policy": "strict-origin-when-cross-origin"/
   );
   assert.match(
     realtime,
@@ -240,8 +240,8 @@ test("Cloudflare production contract uses D1, Durable Objects, Queues and static
   );
 });
 
-test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy in production", async () => {
-  const [renderer, globe, app, worker, admin] =
+test("Photorealistic Earth uses the website-restricted browser key in production", async () => {
+  const [renderer, globe, app, worker] =
     await Promise.all([
       readFile(
         "dashboard/photorealistic-earth.js",
@@ -258,20 +258,16 @@ test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy 
       readFile(
         "cloudflare/src/index.mjs",
         "utf8"
-      ),
-      readFile(
-        "cloudflare/src/admin.mjs",
-        "utf8"
       )
     ]);
 
   assert.match(
     renderer,
-    /tilesRootUrl/
+    /tile\.googleapis\.com\/v1\/3dtiles\/root\.json/
   );
   assert.match(
     renderer,
-    /google_tiles_proxy_auth/
+    /strict-origin-when-cross-origin/
   );
   assert.match(
     renderer,
@@ -283,7 +279,7 @@ test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy 
   );
   assert.match(
     app,
-    /googleTilesRootUrl/
+    /googleMapsApiKey/
   );
   assert.match(
     app,
@@ -291,31 +287,23 @@ test("Photorealistic Earth uses an authenticated same-origin Google Tiles proxy 
   );
   assert.match(
     worker,
-    /handleGoogle3dTiles/
-  );
-  assert.match(
-    worker,
-    /"\/v1\/3dtiles\/root\.json"/
+    /googleMapsApiKey:/
   );
   assert.match(
     worker,
     /https:\/\/tile\.googleapis\.com/
   );
-  assert.match(
+  assert.doesNotMatch(
     worker,
-    /googleTilesRootUrl/
+    /handleGoogle3dTiles/
   );
   assert.doesNotMatch(
     worker,
-    /googleMapsApiKey:/
-  );
-  assert.match(
-    admin,
-    /touch = true/
+    /"\/v1\/3dtiles\/root\.json"/
   );
   assert.match(
     worker,
-    /touch: false/
+    /"referrer-policy": "strict-origin-when-cross-origin"/
   );
 });
 
